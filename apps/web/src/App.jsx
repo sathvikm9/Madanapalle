@@ -6,7 +6,9 @@ const inDemoMode = new URLSearchParams(window.location.search).get("demo") === "
 const THEATRE_OPTIONS = [
   { code: "ALL", shortName: "All theatres" },
   { code: "SKMD", shortName: "Sri Krishna" },
-  { code: "RTDM", shortName: "Ravi" }
+  { code: "SCM", shortName: "Sai Chitra" },
+  { code: "RTDM", shortName: "Ravi" },
+  { code: "ASRM", shortName: "ASR" }
 ];
 
 function indiaToday() {
@@ -217,7 +219,7 @@ export default function App() {
 
       <footer className="site-footer">
         <span>Asia/Kolkata time · ₹5 MC adjusted per ticket</span>
-        <span>Source: BookMyShow seat availability</span>
+        <span>Source: BookMyShow &amp; TicketNew seat availability</span>
       </footer>
     </div>
   );

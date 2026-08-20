@@ -13,7 +13,7 @@ form.addEventListener("submit", async (event) => {
 });
 document.querySelector("#test").addEventListener("click", async () => {
   await save();
-  status.textContent = "Opening both theatre tabs and testing discovery…";
+  status.textContent = "Opening all four theatre tabs and testing discovery…";
   const result = await chrome.runtime.sendMessage({ type: "RUN_DISCOVERY" });
   status.textContent = result.ok
     ? `Working: discovered ${result.result.shows} shows across ${result.result.venues.length} theatres.`

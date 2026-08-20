@@ -1,20 +1,20 @@
 # Madanapalle Theatre Collection Tracker
 
-A production-oriented tracker for **Sri Krishna (`SKMD`)** and **Ravi (`RTDM`)** in Madanapalle. It discovers BookMyShow sessions, notices movie replacements, saves an early seat-map backup and then a final capture, subtracts ₹5 from each category's ticket price, and stores an auditable final result.
+A production-oriented tracker for **Sri Krishna (`SKMD`)**, **Sai Chitra (`SCM`)**, **Ravi (`RTDM`)**, and **ASR (`ASRM`)** in Madanapalle. It discovers BookMyShow and TicketNew sessions, notices movie replacements, saves an early backup and then a final capture, subtracts ₹5 MC from each category's ticket price, and stores an auditable final result.
 
 ## What it records
 
 For every show:
 
 - movie, event code, session ID, date and time
-- BookMyShow's live cutoff time
+- the booking platform's live cutoff time
 - exact capture timestamp in `Asia/Kolkata`
 - sold/unavailable seats by ticket category
 - listed price and counted price (`listed price - ₹5`)
-- final ticket total, net collection and occupancy
+- final ticket total, gross and occupancy
 - schedule replacements, removals, failures and retry attempts
 
-The label “sold” follows the state exposed by BookMyShow's seat map. A held or operationally blocked seat can look unavailable; the raw counts and capture time are retained so this remains auditable.
+The label “sold” follows the availability state exposed by the booking platform. A held or operationally blocked seat can look unavailable; the raw counts and capture time are retained so this remains auditable.
 
 ## Reliable capture policy
 
@@ -35,7 +35,7 @@ This requires an always-on collector. GitHub Actions schedules are not used for 
 - `apps/worker` — primary Cloudflare Worker API and D1 database writer
 - `apps/api` — optional self-hosted Express/PostgreSQL/Playwright fallback
 - `apps/chrome-agent` — primary collector running in a normal local Chrome session
-- `packages/core` — BookMyShow parser, time, money and schedule-change rules
+- `packages/core` — booking parser, time, money and schedule-change rules
 - Cloudflare D1 — shows, revisions, snapshots, category totals and collector audit log
 
 The recommended production layout is GitHub Pages for the dashboard, Cloudflare Workers/D1 for the always-online API and storage, and the Chrome capture agent on an always-on local Mac/PC. It requires no paid VPS. See [Architecture](docs/ARCHITECTURE.md), [Cloudflare deployment](docs/CLOUDFLARE_DEPLOY.md), [Laptop setup](docs/LAPTOP_SETUP.md) and [Operations](docs/OPERATIONS.md).
@@ -72,7 +72,7 @@ Set at minimum:
 - Worker variable `CORS_ORIGINS`, set to the exact GitHub Pages origin
 - `VITE_API_BASE` in the GitHub repository Actions variables/secrets
 
-The health endpoint is `GET /health`. The Worker cron finalizes received snapshots but never accesses BookMyShow. See the Cloudflare deployment guide for database creation, migrations, secrets and backup commands.
+The health endpoint is `GET /health`. The Worker cron finalizes received snapshots but never accesses a booking platform. See the Cloudflare deployment guide for database creation, migrations, secrets and backup commands.
 
 ## Install the local Chrome agent
 
@@ -80,7 +80,7 @@ The health endpoint is `GET /health`. The Worker cron finalizes received snapsho
 2. Select `apps/chrome-agent` from this repository.
 3. Enter the HTTPS API URL and the same `AGENT_TOKEN` stored as a Worker secret.
 4. Enable automatic capture and click **Save and test now**.
-5. Keep Chrome and both pinned theatre tabs running.
+5. Keep Chrome and all four pinned theatre tabs running.
 
 If Cloudflare asks for verification, complete it manually in that pinned tab. The extension reuses the normal Chrome session and never attempts to bypass a challenge.
 

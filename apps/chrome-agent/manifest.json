@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Madanapalle Theatre Capture Agent",
-  "version": "1.3.0",
-  "description": "Uses your normal Chrome session for early backup and final BookMyShow seat captures at Sri Krishna and Ravi.",
+  "version": "1.4.0",
+  "description": "Uses your normal Chrome session for early backup and final seat captures at four Madanapalle theatres.",
   "permissions": ["alarms", "notifications", "storage", "tabs"],
   "host_permissions": [
     "https://in.bookmyshow.com/*",
+    "https://ticketnew.com/*",
     "https://*.workers.dev/*",
     "http://localhost/*"
   ],
@@ -15,8 +16,8 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://in.bookmyshow.com/*"],
-      "js": ["content.js"],
+      "matches": ["https://in.bookmyshow.com/*", "https://ticketnew.com/*"],
+      "js": ["ticketnew.js", "content.js"],
       "run_at": "document_idle"
     }
   ],

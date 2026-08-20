@@ -52,6 +52,23 @@ function normalizeAdvertisedCategories(categories) {
   }));
 }
 
+function bookingUrl(rawUrl, venue, eventCode, sessionId, dateCode) {
+  if (venue.platform !== "ticketnew") {
+    return `https://in.bookmyshow.com/movies/mdnp/seat-layout/${eventCode}/${venue.venueCode}/${sessionId}/${dateCode}`;
+  }
+  const value = requiredString(rawUrl, "seatLayoutUrl", 1_000);
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new RequestError("seatLayoutUrl is invalid");
+  }
+  if (url.protocol !== "https:" || url.hostname !== "ticketnew.com" || !url.pathname.endsWith(`/${venue.cinemaId}`)) {
+    throw new RequestError("seatLayoutUrl is not the configured TicketNew cinema");
+  }
+  return url.toString();
+}
+
 export function normalizeDiscovery(body) {
   if (!body || typeof body !== "object") throw new RequestError("JSON body is required");
   const venueCode = requiredString(body.venueCode, "venueCode", 20);
@@ -72,13 +89,13 @@ export function normalizeDiscovery(body) {
     const showDateTime = requiredString(raw?.showDateTime, `shows[${index}].showDateTime`, 12);
     const cutoffDateTime = requiredString(raw?.cutoffDateTime, `shows[${index}].cutoffDateTime`, 12);
     if (!/^\d{12}$/.test(showDateTime) || !/^\d{12}$/.test(cutoffDateTime)) {
-      throw new RequestError(`shows[${index}] contains an invalid BookMyShow datetime`);
+      throw new RequestError(`shows[${index}] contains an invalid booking datetime`);
     }
     const startAt = new Date(bmsCodeToIso(showDateTime)).toISOString();
     const cutoffAt = new Date(bmsCodeToIso(cutoffDateTime)).toISOString();
     const cutoffMinutes = (new Date(cutoffAt) - new Date(startAt)) / 60_000;
     if (cutoffMinutes < 1 || cutoffMinutes > 30) {
-      throw new RequestError(`shows[${index}] has an unexpected BookMyShow cutoff interval`);
+      throw new RequestError(`shows[${index}] has an unexpected booking cutoff interval`);
     }
     if (showDateTime.slice(0, 8) !== dateCode || cutoffDateTime.slice(0, 8) !== dateCode) {
       throw new RequestError(`shows[${index}] does not belong to ${dateCode}`);
@@ -112,7 +129,7 @@ export function normalizeDiscovery(body) {
       attributes: String(raw?.attributes || "").slice(0, 500),
       screenName: String(raw?.screenName || "").slice(0, 100),
       advertisedCategories: normalizeAdvertisedCategories(raw?.categories || []),
-      seatLayoutUrl: `https://in.bookmyshow.com/movies/mdnp/seat-layout/${eventCode}/${venueCode}/${sessionId}/${dateCode}`
+      seatLayoutUrl: bookingUrl(raw?.seatLayoutUrl, venue, eventCode, sessionId, dateCode)
     };
   });
 

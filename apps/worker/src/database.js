@@ -77,7 +77,7 @@ export async function reconcileDiscovery(db, discovery, now = new Date()) {
   const futureExisting = existing.filter((show) => new Date(show.start_at).getTime() > now.getTime());
   if (!discovery.shows.length && futureExisting.length) {
     throw new RequestError(
-      "BookMyShow returned an empty schedule while known shows still exist; refusing to remove them from one observation",
+      "The booking platform returned an empty schedule while known shows still exist; refusing to remove them from one observation",
       409,
       "suspicious_empty_schedule"
     );

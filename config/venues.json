@@ -17,6 +17,17 @@
       "active": true
     },
     {
+      "name": "Sai Chitra Theatre A/C 4K Laser Dolby Surround 7.1: Madanapalle",
+      "shortName": "Sai Chitra",
+      "venueCode": "SCM",
+      "slug": "sai-chitra-theatre-a-c-4k-dolby-surround-7-1-madanapalle-c",
+      "platform": "ticketnew",
+      "cinemaId": 4903,
+      "captureStartAfterShowMinutes": 10,
+      "fallbackCutoffMinutes": 15,
+      "active": true
+    },
+    {
       "name": "Ravi A/C 4K Laser Dolby Surround 7.1: Madanapalle",
       "shortName": "Ravi",
       "venueCode": "RTDM",
@@ -24,6 +35,16 @@
       "platform": "bookmyshow",
       "captureStartAfterShowMinutes": 15,
       "fallbackCutoffMinutes": 20,
+      "active": true
+    },
+    {
+      "name": "ASR A/C 4K Laser Dolby Surround 7.1: Madanapalle",
+      "shortName": "ASR",
+      "venueCode": "ASRM",
+      "slug": "asr-a-c-4k-laser-dolby-surround-71-madanapalle",
+      "platform": "bookmyshow",
+      "captureStartAfterShowMinutes": 10,
+      "fallbackCutoffMinutes": 15,
       "active": true
     }
   ]

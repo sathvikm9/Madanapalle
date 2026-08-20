@@ -5,13 +5,30 @@ const VENUES = [
     venueCode: "SKMD",
     shortName: "Sri Krishna",
     slug: "sri-krishna-a-c-4k-dolby-atmos-madanapalle",
+    platform: "bookmyshow",
+    captureStartAfterShowMinutes: 10
+  },
+  {
+    venueCode: "SCM",
+    shortName: "Sai Chitra",
+    slug: "sai-chitra-theatre-a-c-4k-dolby-surround-7-1-madanapalle-c",
+    platform: "ticketnew",
+    cinemaId: 4903,
     captureStartAfterShowMinutes: 10
   },
   {
     venueCode: "RTDM",
     shortName: "Ravi",
     slug: "ravi-a-c-4k-laser-dolby-surround-71-madanapalle",
+    platform: "bookmyshow",
     captureStartAfterShowMinutes: 15
+  },
+  {
+    venueCode: "ASRM",
+    shortName: "ASR",
+    slug: "asr-a-c-4k-laser-dolby-surround-71-madanapalle",
+    platform: "bookmyshow",
+    captureStartAfterShowMinutes: 10
   }
 ];
 const VENUE_BY_CODE = Object.fromEntries(VENUES.map((venue) => [venue.venueCode, venue]));
@@ -197,6 +214,8 @@ async function discoverVenue(venueCode, dateCode, { allowImminent = false } = {}
     type: "DISCOVER",
     dateCode,
     venueCode,
+    platform: venue.platform,
+    cinemaId: venue.cinemaId,
     captureStartAfterShowMinutes: venue.captureStartAfterShowMinutes
   });
   if (!payload?.ok) throw new Error(payload?.error || `${venue.shortName} discovery failed`);
@@ -305,7 +324,7 @@ function decodeAlarmKey(name) {
 }
 
 async function ensureAgentTab(venue, dateCode, reload) {
-  const url = `https://in.bookmyshow.com/cinemas/mdnp/${venue.slug}/buytickets/${venue.venueCode}/${dateCode}`;
+  const url = discoveryUrl(venue, dateCode);
   const stored = await chrome.storage.local.get({ agentTabIds: {} });
   const agentTabIds = stored.agentTabIds;
   let tab = agentTabIds[venue.venueCode]
@@ -315,7 +334,7 @@ async function ensureAgentTab(venue, dateCode, reload) {
     tab = await chrome.tabs.create({ url, active: false, pinned: true });
     agentTabIds[venue.venueCode] = tab.id;
     await chrome.storage.local.set({ agentTabIds });
-  } else if (!tab.url?.includes(`/${venue.venueCode}/${dateCode}`)) {
+  } else if (!tabMatchesDiscovery(tab.url, venue, dateCode)) {
     tab = await chrome.tabs.update(tab.id, { url, active: false });
   } else if (reload) {
     await chrome.tabs.reload(tab.id);
@@ -352,7 +371,29 @@ async function waitForComplete(tabId) {
     }
     await delay(250);
   }
-  throw new Error("BookMyShow tab did not finish loading");
+  throw new Error("The booking tab did not finish loading");
+}
+
+function discoveryUrl(venue, dateCode) {
+  if (venue.platform === "ticketnew") {
+    const date = `${dateCode.slice(0, 4)}-${dateCode.slice(4, 6)}-${dateCode.slice(6, 8)}`;
+    return `https://ticketnew.com/movies/madanapalle/${venue.slug}/${venue.cinemaId}?fromdate=${date}`;
+  }
+  return `https://in.bookmyshow.com/cinemas/mdnp/${venue.slug}/buytickets/${venue.venueCode}/${dateCode}`;
+}
+
+function tabMatchesDiscovery(tabUrl, venue, dateCode) {
+  try {
+    const url = new URL(tabUrl);
+    if (venue.platform === "ticketnew") {
+      return url.hostname.endsWith("ticketnew.com") &&
+        url.pathname.endsWith(`/${venue.cinemaId}`) &&
+        url.searchParams.get("fromdate")?.replaceAll("-", "") === dateCode;
+    }
+    return url.hostname === "in.bookmyshow.com" && url.pathname.includes(`/${venue.venueCode}/${dateCode}`);
+  } catch {
+    return false;
+  }
 }
 
 async function sendToTab(tabId, message) {

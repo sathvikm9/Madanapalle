@@ -7,6 +7,17 @@ resumePendingCapture().catch(() => {});
 
 async function handleMessage(message) {
   if (message.type === "DISCOVER") {
+    if (message.platform === "ticketnew") {
+      const state = globalThis.SKCTTicketNew.readState(document);
+      return {
+        ok: true,
+        data: globalThis.SKCTTicketNew.discover(state, {
+          venueCode: message.venueCode,
+          cinemaId: message.cinemaId,
+          captureStartAfterShowMinutes: message.captureStartAfterShowMinutes
+        }, message.dateCode, location.href)
+      };
+    }
     return {
       ok: true,
       data: discoverShows(message.dateCode, message.venueCode, message.captureStartAfterShowMinutes)
@@ -37,6 +48,7 @@ function discoverShows(dateCode, venueCode, captureStartAfterShowMinutes = 10) {
           naturalKey,
           slotKey: [venueCode, dateCode, show.ShowTimeCode].join(":"),
           venueCode,
+          platform: "bookmyshow",
           dateCode,
           eventCode,
           sessionId,
@@ -68,14 +80,22 @@ function discoverShows(dateCode, venueCode, captureStartAfterShowMinutes = 10) {
 }
 
 async function resumePendingCapture() {
-  if (!location.pathname.includes("/seat-layout/")) return;
-  const match = location.pathname.match(/\/seat-layout\/[^/]+\/([^/]+)\/([^/]+)\/(\d{8})/);
-  if (!match) return;
-  const [, venueCode, sessionId, dateCode] = match;
   const { pendingCaptures = {} } = await chrome.storage.local.get({ pendingCaptures: {} });
-  const pending = Object.values(pendingCaptures).find((show) => (
-    show.venueCode === venueCode && show.sessionId === sessionId && show.dateCode === dateCode
-  ));
+  let pending;
+  if (location.hostname === "ticketnew.com" || location.hostname.endsWith(".ticketnew.com")) {
+    const fromDate = new URLSearchParams(location.search).get("fromdate")?.replaceAll("-", "");
+    pending = Object.values(pendingCaptures).find((show) => (
+      show.platform === "ticketnew" && (!fromDate || show.dateCode === fromDate)
+    ));
+  } else {
+    if (!location.pathname.includes("/seat-layout/")) return;
+    const match = location.pathname.match(/\/seat-layout\/[^/]+\/([^/]+)\/([^/]+)\/(\d{8})/);
+    if (!match) return;
+    const [, venueCode, sessionId, dateCode] = match;
+    pending = Object.values(pendingCaptures).find((show) => (
+      show.venueCode === venueCode && show.sessionId === sessionId && show.dateCode === dateCode
+    ));
+  }
   if (!pending) return;
   try {
     const result = await captureSeats(pending);
@@ -91,6 +111,10 @@ async function resumePendingCapture() {
 }
 
 async function captureSeats(show) {
+  if (show.platform === "ticketnew") {
+    const state = globalThis.SKCTTicketNew.readState(document);
+    return globalThis.SKCTTicketNew.capture(state, show);
+  }
   const selectSeats = await waitFor(() => Array.from(document.querySelectorAll("button")).find((button) => button.textContent.trim() === "Select Seats"), 20_000);
   selectSeats.click();
   const accessibility = await waitFor(() => document.querySelector('button[aria-label="Open accessibility seat selection"]'), 20_000);

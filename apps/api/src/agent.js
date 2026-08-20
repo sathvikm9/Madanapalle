@@ -8,6 +8,17 @@ function requiredString(value, name) {
   return text;
 }
 
+function bookingUrl(raw, venue, eventCode, sessionId, dateCode) {
+  if (venue.platform !== "ticketnew") {
+    return `https://in.bookmyshow.com/movies/mdnp/seat-layout/${eventCode}/${venue.venueCode}/${sessionId}/${dateCode}`;
+  }
+  const url = new URL(requiredString(raw.seatLayoutUrl, "seatLayoutUrl"));
+  if (url.protocol !== "https:" || url.hostname !== "ticketnew.com" || !url.pathname.endsWith(`/${venue.cinemaId}`)) {
+    throw new Error("seatLayoutUrl is not the configured TicketNew cinema");
+  }
+  return url.toString();
+}
+
 export function requireCaptureAgent(request, response, next) {
   if (!config.captureAgentToken || request.get("authorization") !== `Bearer ${config.captureAgentToken}`) {
     return response.status(401).json({ error: "unauthorized" });
@@ -31,7 +42,7 @@ export function normalizeAgentShows(body) {
     const startAt = bmsCodeToIso(showDateTime);
     const cutoffAt = bmsCodeToIso(cutoffDateTime);
     const cutoffMinutes = (new Date(cutoffAt) - new Date(startAt)) / 60_000;
-    if (cutoffMinutes < 1 || cutoffMinutes > 30) throw new Error("Unexpected BookMyShow cutoff interval");
+    if (cutoffMinutes < 1 || cutoffMinutes > 30) throw new Error("Unexpected booking cutoff interval");
     const naturalKey = [venueCode, dateCode, showTimeCode, sessionId, eventCode].join(":");
 
     return {
@@ -59,7 +70,7 @@ export function normalizeAgentShows(body) {
         priceCode: category.priceCode || "",
         listPricePaise: Number(category.listPricePaise || 0)
       })),
-      seatLayoutUrl: `https://in.bookmyshow.com/movies/mdnp/seat-layout/${eventCode}/${venueCode}/${sessionId}/${dateCode}`
+      seatLayoutUrl: bookingUrl(raw, venue, eventCode, sessionId, dateCode)
     };
   });
 }

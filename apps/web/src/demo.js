@@ -5,7 +5,9 @@ const today = new Intl.DateTimeFormat("en-CA", {
 const venues = [
   { code: "ALL", name: "All theatres", shortName: "All theatres" },
   { code: "SKMD", name: "Sri Krishna A/C 4K Dolby Atmos: Madanapalle", shortName: "Sri Krishna" },
-  { code: "RTDM", name: "Ravi A/C 4K Laser Dolby Surround 7.1: Madanapalle", shortName: "Ravi" }
+  { code: "SCM", name: "Sai Chitra Theatre A/C 4K Laser Dolby Surround 7.1: Madanapalle", shortName: "Sai Chitra" },
+  { code: "RTDM", name: "Ravi A/C 4K Laser Dolby Surround 7.1: Madanapalle", shortName: "Ravi" },
+  { code: "ASRM", name: "ASR A/C 4K Laser Dolby Surround 7.1: Madanapalle", shortName: "ASR" }
 ];
 
 export function demoDashboard(date = today, venueCode = "ALL") {
@@ -15,10 +17,14 @@ export function demoDashboard(date = today, venueCode = "ALL") {
     makeShow("2", "SKMD", "Sri Krishna", "02:10 PM", `${base}14:10:00+05:30`, "Vishwanath and Sons", "completed", 15, 80, 657, 778500),
     makeShow("3", "SKMD", "Sri Krishna", "06:00 PM", `${base}18:00:00+05:30`, "Vishwanath and Sons", "scheduled", 15),
     makeShow("4", "SKMD", "Sri Krishna", "09:10 PM", `${base}21:10:00+05:30`, "Vishwanath and Sons", "scheduled", 15),
+    makeShow("9", "SCM", "Sai Chitra", "11:00 AM", `${base}11:00:00+05:30`, "Irumudi", "completed", 15, 360, 424, 0),
+    makeShow("10", "SCM", "Sai Chitra", "02:15 PM", `${base}14:15:00+05:30`, "Irumudi", "scheduled", 15),
     makeShow("5", "RTDM", "Ravi", "11:00 AM", `${base}11:00:00+05:30`, "Vishwanath and Sons", "completed", 20, 126, 720, 1215800),
     makeShow("6", "RTDM", "Ravi", "02:20 PM", `${base}14:20:00+05:30`, "Vishwanath and Sons", "scheduled", 20),
     makeShow("7", "RTDM", "Ravi", "06:00 PM", `${base}18:00:00+05:30`, "Vishwanath and Sons", "scheduled", 20),
-    makeShow("8", "RTDM", "Ravi", "09:20 PM", `${base}21:20:00+05:30`, "Vishwanath and Sons", "scheduled", 20)
+    makeShow("8", "RTDM", "Ravi", "09:20 PM", `${base}21:20:00+05:30`, "Vishwanath and Sons", "scheduled", 20),
+    makeShow("11", "ASRM", "ASR", "11:00 AM", `${base}11:00:00+05:30`, "Vishwanath and Sons", "completed", 15, 94, 600, 0),
+    makeShow("12", "ASRM", "ASR", "06:00 PM", `${base}18:00:00+05:30`, "Vishwanath and Sons", "scheduled", 15)
   ];
   const shows = venueCode === "ALL" ? allShows : allShows.filter((show) => show.venueCode === venueCode);
   const finalized = shows.filter((show) => show.status === "completed" && show.snapshot);

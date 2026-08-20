@@ -47,6 +47,38 @@ test("normalizes Ravi using its live per-session cutoff", () => {
   assert.equal(result.shows[0].cutoffAt, "2026-08-20T05:50:00.000Z");
 });
 
+test("normalizes ASR with the Sri Krishna capture window", () => {
+  const result = normalizeDiscovery({
+    ...discoveryBody,
+    venueCode: "ASRM",
+    shows: [{ ...discoveryBody.shows[0], sessionId: "7720" }]
+  });
+  assert.equal(result.shows[0].venueName, "ASR A/C 4K Laser Dolby Surround 7.1: Madanapalle");
+  assert.equal(result.shows[0].captureAt, "2026-08-20T05:40:00.000Z");
+  assert.equal(result.shows[0].cutoffAt, "2026-08-20T05:45:00.000Z");
+});
+
+test("normalizes Sai Chitra TicketNew discovery and validates its cinema URL", () => {
+  const result = normalizeDiscovery({
+    ...discoveryBody,
+    venueCode: "SCM",
+    shows: [{
+      ...discoveryBody.shows[0],
+      eventCode: "OBAV6L",
+      sessionId: "34956__1787301900__753__1867461",
+      seatLayoutUrl: "https://ticketnew.com/movies/madanapalle/sai-chitra-theatre-a-c-4k-dolby-surround-7-1-madanapalle-c/4903?fromdate=2026-08-20"
+    }]
+  });
+  assert.equal(result.shows[0].venueName, "Sai Chitra Theatre A/C 4K Laser Dolby Surround 7.1: Madanapalle");
+  assert.equal(result.shows[0].captureAt, "2026-08-20T05:40:00.000Z");
+  assert.match(result.shows[0].seatLayoutUrl, /^https:\/\/ticketnew\.com\/.*\/4903\?/);
+  assert.throws(() => normalizeDiscovery({
+    ...discoveryBody,
+    venueCode: "SCM",
+    shows: [{ ...discoveryBody.shows[0], seatLayoutUrl: "https://example.com/4903" }]
+  }), /configured TicketNew cinema/);
+});
+
 test("rejects discoveries for unconfigured theatres", () => {
   assert.throws(() => normalizeDiscovery({ ...discoveryBody, venueCode: "UNKNOWN" }), /not configured/);
 });
