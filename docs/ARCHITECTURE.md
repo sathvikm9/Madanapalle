@@ -25,7 +25,7 @@ flowchart LR
 
 ### Discovery
 
-The local Chrome agent refreshes today's Sri Krishna and Ravi pages every five minutes, tomorrow's pages hourly, and performs a final preflight 90 seconds before capture. Each theatre has an independent pinned tab and pending-capture job, so matching showtimes can be captured concurrently. It parses the embedded `window.__INITIAL_STATE__`, which provides the event code, movie, session ID, show time, prices and BookMyShow cutoff.
+The local Chrome agent refreshes only the current India-date Sri Krishna and Ravi pages every five minutes, switches dates just after 12:00 AM IST, and performs a final preflight 90 seconds before capture. It never opens tomorrow's schedule early. Each theatre has an independent pinned tab and pending-capture job, so matching showtimes can be captured concurrently. It parses the embedded `window.__INITIAL_STATE__`, which provides the event code, movie, session ID, show time, prices and BookMyShow cutoff.
 
 Discovery is deliberately lighter than seat counting. Seat layouts are opened only in the final-minute window.
 

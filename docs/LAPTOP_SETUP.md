@@ -42,4 +42,4 @@ rm "$HOME/Library/LaunchAgents/com.skct.keep-awake.plist"
 - There is no Cloudflare verification page waiting in either pinned tab.
 - The dashboard shows today's sessions and their capture times.
 
-Chrome alarms are rebuilt at browser startup from the last known schedule. The recurring discovery then refreshes today every five minutes and tomorrow every hour, so replacements are picked up automatically.
+Chrome alarms are rebuilt at browser startup only for the current India date. Discovery refreshes that date every five minutes and switches to the new date just after 12:00 AM IST; it never opens tomorrow's schedule early.

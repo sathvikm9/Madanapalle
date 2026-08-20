@@ -15,7 +15,7 @@ The extension creates one pinned BookMyShow tab per theatre. Keep Chrome and the
 ## Behavior
 
 - today's schedule refreshes every five minutes
-- tomorrow's schedule refreshes hourly
+- tomorrow is never opened early; discovery rolls to the new India date just after 12:00 AM IST
 - a fresh preflight occurs 90 seconds before the final minute
 - seat capture starts roughly 15 seconds into that minute
 - simultaneous theatre captures use independent tabs and pending jobs

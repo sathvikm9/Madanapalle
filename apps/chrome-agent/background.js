@@ -12,7 +12,8 @@ const VENUES = [
 ];
 const VENUE_BY_CODE = Object.fromEntries(VENUES.map((venue) => [venue.venueCode, venue]));
 const DISCOVERY_TODAY = "discovery:today";
-const DISCOVERY_TOMORROW = "discovery:tomorrow";
+const LEGACY_DISCOVERY_TOMORROW = "discovery:tomorrow";
+const INDIA_DAY_ROLLOVER = "discovery:india-day-rollover";
 let pendingMutation = Promise.resolve();
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -28,7 +29,12 @@ async function initializeAgent() {
   const settings = await chrome.storage.sync.get({ enabled: false });
   if (!settings.enabled) return;
   const { knownShows = {} } = await chrome.storage.local.get({ knownShows: {} });
-  await scheduleShows(Object.values(knownShows).flat());
+  const today = indiaDateCode(0);
+  await clearShowAlarmsOutsideDate(today);
+  const todayShows = Object.entries(knownShows)
+    .filter(([key]) => key.endsWith(`:${today}`))
+    .flatMap(([, shows]) => shows);
+  await scheduleShows(todayShows);
 }
 
 async function migrateSingleTheatreStorage() {
@@ -57,8 +63,9 @@ async function migrateSingleTheatreStorage() {
 }
 
 async function ensureBaseAlarms() {
+  await chrome.alarms.clear(LEGACY_DISCOVERY_TOMORROW);
   await chrome.alarms.create(DISCOVERY_TODAY, { delayInMinutes: 0.1, periodInMinutes: 5 });
-  await chrome.alarms.create(DISCOVERY_TOMORROW, { delayInMinutes: 0.2, periodInMinutes: 60 });
+  await scheduleIndiaDayRollover();
 }
 
 chrome.action.onClicked.addListener(() => chrome.runtime.openOptionsPage());
@@ -72,9 +79,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 async function handleAlarm(alarm) {
   const settings = await chrome.storage.sync.get({ enabled: false });
+  if (alarm.name === INDIA_DAY_ROLLOVER) {
+    try {
+      if (settings.enabled) {
+        const today = indiaDateCode(0);
+        await clearShowAlarmsOutsideDate(today);
+        await discoverAll(today);
+      }
+    } finally {
+      await scheduleIndiaDayRollover();
+    }
+    return;
+  }
   if (!settings.enabled) return;
   if (alarm.name === DISCOVERY_TODAY) return discoverAll(indiaDateCode(0));
-  if (alarm.name === DISCOVERY_TOMORROW) return discoverAll(indiaDateCode(1));
   if (alarm.name.startsWith("preflight:")) {
     const show = await showForAlarm(alarm.name);
     if (show) await discoverVenue(show.venueCode, show.dateCode, { allowImminent: true });
@@ -196,6 +214,23 @@ async function scheduleShows(shows) {
     }
     await chrome.alarms.create(`capture:${encoded}`, { when: Math.max(Date.now() + 1_000, captureAt + 15_000) });
   }
+}
+
+async function clearShowAlarmsOutsideDate(dateCode) {
+  const alarms = await chrome.alarms.getAll();
+  for (const alarm of alarms) {
+    if (!/^(preflight|capture|watchdog):/.test(alarm.name)) continue;
+    const naturalKey = decodeAlarmKey(alarm.name);
+    if (naturalKey.split(":")[1] !== dateCode) await chrome.alarms.clear(alarm.name);
+  }
+}
+
+async function scheduleIndiaDayRollover() {
+  const tomorrow = indiaDateCode(1);
+  const midnight = new Date(
+    `${tomorrow.slice(0, 4)}-${tomorrow.slice(4, 6)}-${tomorrow.slice(6, 8)}T00:00:02+05:30`
+  ).getTime();
+  await chrome.alarms.create(INDIA_DAY_ROLLOVER, { when: midnight });
 }
 
 async function saveKnownShows(venueCode, dateCode, shows) {
