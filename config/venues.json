@@ -15,6 +15,16 @@
       "captureBeforeCutoffMinutes": 1,
       "fallbackCutoffMinutes": 15,
       "active": true
+    },
+    {
+      "name": "Ravi A/C 4K Laser Dolby Surround 7.1: Madanapalle",
+      "shortName": "Ravi",
+      "venueCode": "RTDM",
+      "slug": "ravi-a-c-4k-laser-dolby-surround-71-madanapalle",
+      "platform": "bookmyshow",
+      "captureBeforeCutoffMinutes": 1,
+      "fallbackCutoffMinutes": 20,
+      "active": true
     }
   ]
 }

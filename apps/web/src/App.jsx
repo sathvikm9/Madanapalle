@@ -3,6 +3,11 @@ import { demoDashboard } from "./demo.js";
 
 const API_BASE = (import.meta.env.VITE_API_BASE || "http://localhost:8787").replace(/\/$/, "");
 const inDemoMode = new URLSearchParams(window.location.search).get("demo") === "1";
+const THEATRE_OPTIONS = [
+  { code: "ALL", shortName: "All theatres" },
+  { code: "SKMD", shortName: "Sri Krishna" },
+  { code: "RTDM", shortName: "Ravi" }
+];
 
 function indiaToday() {
   return new Intl.DateTimeFormat("en-CA", {
@@ -31,7 +36,7 @@ function Metric({ label, value, note, tone }) {
   );
 }
 
-function ShowCard({ show }) {
+function ShowCard({ show, showVenue }) {
   const [open, setOpen] = useState(false);
   const netPrices = (show.snapshot?.categories || show.advertisedCategories || []).map((category) => ({
     name: category.name,
@@ -49,6 +54,7 @@ function ShowCard({ show }) {
         <StatusPill status={show.status} />
       </div>
       <div className="show-card__movie">
+        {showVenue && <p className="show-card__venue">{show.venueShortName || show.venueName || show.venueCode}</p>}
         <h3>{show.movieTitle}</h3>
         <p>{[show.language, show.format].filter(Boolean).join(" · ")} <span>Session {show.sessionId}</span></p>
       </div>
@@ -94,6 +100,7 @@ function ShowCard({ show }) {
 
 export default function App() {
   const [selectedDate, setSelectedDate] = useState(indiaToday());
+  const [selectedVenue, setSelectedVenue] = useState("ALL");
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -103,9 +110,10 @@ export default function App() {
     setError("");
     try {
       if (inDemoMode) {
-        setData(demoDashboard(selectedDate));
+        setData(demoDashboard(selectedDate, selectedVenue));
       } else {
-        const response = await fetch(`${API_BASE}/api/dashboard?date=${selectedDate}&venueCode=SKMD`, { cache: "no-store" });
+        const query = new URLSearchParams({ date: selectedDate, venueCode: selectedVenue });
+        const response = await fetch(`${API_BASE}/api/dashboard?${query}`, { cache: "no-store" });
         if (!response.ok) throw new Error(`Tracker API returned ${response.status}`);
         setData(await response.json());
       }
@@ -116,20 +124,20 @@ export default function App() {
     }
   }
 
-  useEffect(() => { load(); }, [selectedDate]);
+  useEffect(() => { load(); }, [selectedDate, selectedVenue]);
   useEffect(() => {
     if (inDemoMode) return undefined;
     const timer = setInterval(load, 30_000);
     return () => clearInterval(timer);
-  }, [selectedDate]);
+  }, [selectedDate, selectedVenue]);
 
   const currentShows = useMemo(() => data?.shows?.filter((show) => show.isCurrent) || [], [data]);
 
   return (
     <div className="app-shell">
       <header className="topbar">
-        <a className="brand" href="./" aria-label="Sri Krishna tracker home">
-          <span className="brand__mark">SK</span>
+        <a className="brand" href="./" aria-label="Madanapalle theatre tracker home">
+          <span className="brand__mark">MD</span>
           <span><strong>Collection Desk</strong><small>Madanapalle</small></span>
         </a>
         <div className="live-indicator"><i /> Automatic final capture</div>
@@ -138,11 +146,15 @@ export default function App() {
       <main>
         <section className="hero">
           <div>
-            <p className="eyebrow">Sri Krishna · SKMD</p>
+            <p className="eyebrow">{data?.venue?.shortName || THEATRE_OPTIONS.find((venue) => venue.code === selectedVenue)?.shortName} · {selectedVenue}</p>
             <h1>Every show, closed with a final count.</h1>
             <p className="hero__copy">Tickets and theatre collection captured in the last minute before BookMyShow closes. Every listed ticket price is counted after subtracting ₹5.</p>
           </div>
           <div className="date-control">
+            <label htmlFor="theatre">Select theatre</label>
+            <select id="theatre" value={selectedVenue} onChange={(event) => setSelectedVenue(event.target.value)}>
+              {THEATRE_OPTIONS.map((venue) => <option key={venue.code} value={venue.code}>{venue.shortName}</option>)}
+            </select>
             <label htmlFor="show-date">Show date</label>
             <input id="show-date" type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
             <button type="button" onClick={load} disabled={loading}>{loading ? "Refreshing…" : "Refresh now"}</button>
@@ -167,7 +179,9 @@ export default function App() {
             </section>
 
             <section className="show-list" aria-live="polite">
-              {currentShows.length ? currentShows.map((show) => <ShowCard key={show.id} show={show} />) : (
+              {currentShows.length ? currentShows.map((show) => (
+                <ShowCard key={show.id} show={show} showVenue={selectedVenue === "ALL"} />
+              )) : (
                 <div className="empty"><strong>No shows discovered for this date.</strong><span>The collector checks today and tomorrow automatically.</span></div>
               )}
             </section>
@@ -178,7 +192,7 @@ export default function App() {
                 <h2>Movie and show changes</h2>
                 {data.scheduleChanges.map((change) => (
                   <div className="change-row" key={change.id}>
-                    <span>{change.showTime || "Show"}</span>
+                    <span>{selectedVenue === "ALL" ? `${change.venueName} · ` : ""}{change.showTime || "Show"}</span>
                     <strong>{change.previousMovie || "Removed"} → {change.nextMovie || "No replacement"}</strong>
                     <time>{dateTime.format(new Date(change.observedAt))}</time>
                   </div>

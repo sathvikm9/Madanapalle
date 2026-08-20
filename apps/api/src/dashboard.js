@@ -1,10 +1,17 @@
 import { pool } from "./db.js";
+import { config } from "./config.js";
 
 export function validDate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
 }
 
 export async function getDashboard(date, venueCode = "SKMD") {
+  const allTheatres = venueCode === "ALL";
+  const selectedVenue = allTheatres ? { venueCode: "ALL", name: "All theatres", shortName: "All theatres" }
+    : config.venues.find((venue) => venue.venueCode === venueCode);
+  if (!selectedVenue) throw new Error(`Venue ${venueCode} is not configured`);
+  const showWhere = allTheatres ? "s.show_date=$1" : "s.venue_code=$1 AND s.show_date=$2";
+  const showParameters = allTheatres ? [date] : [venueCode, date];
   const showResult = await pool.query(
     `SELECT
       s.*,
@@ -22,9 +29,9 @@ export async function getDashboard(date, venueCode = "SKMD") {
     LEFT JOIN LATERAL (
       SELECT * FROM snapshots WHERE show_id=s.id ORDER BY captured_at DESC LIMIT 1
     ) snap ON true
-    WHERE s.venue_code=$1 AND s.show_date=$2
-    ORDER BY s.start_at ASC, s.is_current DESC, s.first_seen_at ASC`,
-    [venueCode, date]
+    WHERE ${showWhere}
+    ORDER BY s.start_at ASC, s.venue_code ASC, s.is_current DESC, s.first_seen_at ASC`,
+    showParameters
   );
   const snapshotIds = showResult.rows.map((row) => row.snapshot_id).filter(Boolean);
   const categories = snapshotIds.length
@@ -48,19 +55,23 @@ export async function getDashboard(date, venueCode = "SKMD") {
     });
   }
 
+  const changesWhere = allTheatres ? "e.show_date=$1" : "e.venue_code=$1 AND e.show_date=$2";
   const changes = await pool.query(
     `SELECT e.*, previous.movie_title AS previous_movie, next_show.movie_title AS next_movie,
       previous.show_time_label AS show_time_label
      FROM schedule_events e
      LEFT JOIN shows previous ON previous.id=e.previous_show_id
      LEFT JOIN shows next_show ON next_show.id=e.next_show_id
-     WHERE e.venue_code=$1 AND e.show_date=$2 AND e.event_type IN ('replaced','removed')
+     WHERE ${changesWhere} AND e.event_type IN ('replaced','removed')
      ORDER BY e.observed_at DESC`,
-    [venueCode, date]
+    showParameters
   );
 
   const shows = showResult.rows.map((row) => ({
     id: String(row.id),
+    venueCode: row.venue_code,
+    venueName: row.venue_name,
+    venueShortName: config.venues.find((venue) => venue.venueCode === row.venue_code)?.shortName || row.venue_code,
     sessionId: row.session_id,
     eventCode: row.event_code,
     movieTitle: row.movie_title,
@@ -105,7 +116,11 @@ export async function getDashboard(date, venueCode = "SKMD") {
   return {
     date,
     timezone: "Asia/Kolkata",
-    venue: { code: venueCode, name: "Sri Krishna A/C 4K Dolby Atmos: Madanapalle" },
+    venue: { code: venueCode, name: selectedVenue.name, shortName: selectedVenue.shortName },
+    venues: [
+      { code: "ALL", name: "All theatres", shortName: "All theatres" },
+      ...config.venues.map((venue) => ({ code: venue.venueCode, name: venue.name, shortName: venue.shortName }))
+    ],
     generatedAt: new Date().toISOString(),
     summary: {
       totalShows: currentShows.length,
@@ -120,6 +135,8 @@ export async function getDashboard(date, venueCode = "SKMD") {
     shows,
     scheduleChanges: changes.rows.map((event) => ({
       id: String(event.id),
+      venueCode: event.venue_code,
+      venueName: config.venues.find((venue) => venue.venueCode === event.venue_code)?.shortName || event.venue_code,
       type: event.event_type,
       showTime: event.show_time_label,
       previousMovie: event.previous_movie,

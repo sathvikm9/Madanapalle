@@ -31,6 +31,26 @@ test("normalizes a local discovery for D1 using UTC-sortable timestamps", () => 
   assert.equal(result.shows[0].cutoffAt, "2026-08-20T05:45:00.000Z");
 });
 
+test("normalizes Ravi using its live per-session cutoff", () => {
+  const result = normalizeDiscovery({
+    ...discoveryBody,
+    venueCode: "RTDM",
+    shows: [{
+      ...discoveryBody.shows[0],
+      sessionId: "16642",
+      cutoffDateTime: "202608201120"
+    }]
+  });
+  assert.equal(result.shows[0].naturalKey, "RTDM:20260820:1100:16642:ET00510230");
+  assert.equal(result.shows[0].venueName, "Ravi A/C 4K Laser Dolby Surround 7.1: Madanapalle");
+  assert.equal(result.shows[0].captureAt, "2026-08-20T05:49:00.000Z");
+  assert.equal(result.shows[0].cutoffAt, "2026-08-20T05:50:00.000Z");
+});
+
+test("rejects discoveries for unconfigured theatres", () => {
+  assert.throws(() => normalizeDiscovery({ ...discoveryBody, venueCode: "UNKNOWN" }), /not configured/);
+});
+
 test("rejects duplicate slots and non-calendar dates", () => {
   assert.equal(validDate("2026-02-29"), false);
   assert.equal(validDate("2028-02-29"), true);

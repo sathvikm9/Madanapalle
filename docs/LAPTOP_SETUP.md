@@ -36,10 +36,10 @@ rm "$HOME/Library/LaunchAgents/com.skct.keep-awake.plist"
 
 ## Daily health check
 
-- Chrome is open and the pinned BookMyShow tab exists.
+- Chrome is open and the pinned Sri Krishna and Ravi tabs exist.
 - The extension settings show a recent successful discovery.
 - The laptop has internet and AC power.
-- There is no Cloudflare verification page waiting in the pinned tab.
+- There is no Cloudflare verification page waiting in either pinned tab.
 - The dashboard shows today's sessions and their capture times.
 
 Chrome alarms are rebuilt at browser startup from the last known schedule. The recurring discovery then refreshes today every five minutes and tomorrow every hour, so replacements are picked up automatically.

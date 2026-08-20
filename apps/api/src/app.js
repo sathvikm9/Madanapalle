@@ -29,7 +29,11 @@ export function createApp({ scheduler } = {}) {
     try {
       const date = String(request.query.date || "");
       if (!validDate(date)) return response.status(400).json({ error: "date must be YYYY-MM-DD" });
-      response.json(await getDashboard(date, String(request.query.venueCode || "SKMD")));
+      const venueCode = String(request.query.venueCode || "SKMD");
+      if (venueCode !== "ALL" && !config.venues.some((venue) => venue.venueCode === venueCode)) {
+        return response.status(400).json({ error: `Venue ${venueCode} is not configured` });
+      }
+      response.json(await getDashboard(date, venueCode));
     } catch (error) {
       next(error);
     }

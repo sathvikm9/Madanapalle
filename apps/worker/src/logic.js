@@ -4,13 +4,7 @@ import {
   captureAtFromCutoff,
   isoDateFromCode
 } from "@skct/core";
-
-export const VENUE = {
-  venueCode: "SKMD",
-  name: "Sri Krishna A/C 4K Dolby Atmos: Madanapalle",
-  timezone: "Asia/Kolkata",
-  captureBeforeCutoffMinutes: 1
-};
+import { venueForCode } from "./venues.js";
 
 export class RequestError extends Error {
   constructor(message, status = 400, code = "invalid_request") {
@@ -61,7 +55,8 @@ function normalizeAdvertisedCategories(categories) {
 export function normalizeDiscovery(body) {
   if (!body || typeof body !== "object") throw new RequestError("JSON body is required");
   const venueCode = requiredString(body.venueCode, "venueCode", 20);
-  if (venueCode !== VENUE.venueCode) throw new RequestError("Only SKMD is configured");
+  const venue = venueForCode(venueCode);
+  if (!venue) throw new RequestError(`Venue ${venueCode} is not configured`);
   const dateCode = requiredString(body.dateCode, "dateCode", 8);
   if (!validDateCode(dateCode)) throw new RequestError("dateCode must be a real YYYYMMDD date");
   if (!Array.isArray(body.shows) || body.shows.length > 20) {
@@ -100,14 +95,14 @@ export function normalizeDiscovery(body) {
       naturalKey,
       slotKey,
       venueCode,
-      venueName: VENUE.name,
+      venueName: venue.name,
       showDate: isoDateFromCode(dateCode),
       showDateCode: dateCode,
       showTimeCode,
       showTimeLabel: requiredString(raw?.showTimeLabel, `shows[${index}].showTimeLabel`, 30),
       startAt,
       cutoffAt,
-      captureAt: captureAtFromCutoff(cutoffAt, VENUE.captureBeforeCutoffMinutes),
+      captureAt: captureAtFromCutoff(cutoffAt, venue.captureBeforeCutoffMinutes),
       sessionId,
       eventCode,
       movieTitle: requiredString(raw?.movieTitle, `shows[${index}].movieTitle`, 300),

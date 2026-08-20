@@ -1,6 +1,6 @@
 # Local Chrome Capture Agent
 
-This unpacked Chrome extension is the primary BookMyShow collector. It uses a normal visible Chrome tab and the computer's ordinary network connection instead of a cloud/datacenter browser.
+This unpacked Chrome extension is the primary BookMyShow collector. It uses separate normal Chrome tabs for Sri Krishna and Ravi and the computer's ordinary network connection instead of a cloud/datacenter browser.
 
 ## Install
 
@@ -10,7 +10,7 @@ This unpacked Chrome extension is the primary BookMyShow collector. It uses a no
 4. In the settings page, enter the public API base URL and the Worker's `AGENT_TOKEN`.
 5. Enable automatic capture and click **Save and test now**.
 
-The extension creates one pinned BookMyShow tab. Keep Chrome and the computer awake during theatre hours.
+The extension creates one pinned BookMyShow tab per theatre. Keep Chrome and the computer awake during theatre hours.
 
 ## Behavior
 
@@ -18,6 +18,7 @@ The extension creates one pinned BookMyShow tab. Keep Chrome and the computer aw
 - tomorrow's schedule refreshes hourly
 - a fresh preflight occurs 90 seconds before the final minute
 - seat capture starts roughly 15 seconds into that minute
+- simultaneous theatre captures use independent tabs and pending jobs
 - page failures retry while the cutoff remains open
 - a Chrome notification requests attention when BookMyShow/Cloudflare requires human verification
 - no seat is selected and no booking/payment action is performed

@@ -3,16 +3,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return true;
 });
 
-resumePendingCapture().catch((error) => {
-  chrome.runtime.sendMessage({ type: "CAPTURE_ERROR", error: error.message }).catch(() => {});
-});
+resumePendingCapture().catch(() => {});
 
 async function handleMessage(message) {
   if (message.type === "DISCOVER") {
-    return { ok: true, data: discoverShows(message.dateCode) };
+    return { ok: true, data: discoverShows(message.dateCode, message.venueCode) };
   }
   if (message.type === "BEGIN_CAPTURE") {
-    const current = discoverShows(message.show.dateCode).shows.find((show) => show.slotKey === message.show.slotKey);
+    const current = discoverShows(message.show.dateCode, message.show.venueCode).shows.find((show) => show.slotKey === message.show.slotKey);
     if (!current || current.naturalKey !== message.show.naturalKey) {
       throw new Error("The movie/session changed before capture; waiting for the new schedule");
     }
@@ -22,13 +20,14 @@ async function handleMessage(message) {
   throw new Error("Unknown page-agent request");
 }
 
-function discoverShows(dateCode) {
+function discoverShows(dateCode, venueCode) {
+  if (!/^[A-Z0-9]{2,20}$/.test(String(venueCode || ""))) throw new Error("The venue code was invalid");
   const script = Array.from(document.scripts).find((item) => item.textContent?.includes("window.__INITIAL_STATE__"));
   if (!script) throw new Error("BookMyShow data is unavailable. Check the pinned tab for a Cloudflare verification page.");
   const state = extractAssignedJson(script.textContent);
-  const query = state?.venueShowtimesFunctionalApi?.queries?.[`getShowtimesByVenue-SKMD-${dateCode}`];
+  const query = state?.venueShowtimesFunctionalApi?.queries?.[`getShowtimesByVenue-${venueCode}-${dateCode}`];
   const details = query?.data?.showDetailsTransformed;
-  if (!details) throw new Error(`No Sri Krishna showtime payload was found for ${dateCode}`);
+  if (!details) throw new Error(`No ${venueCode} showtime payload was found for ${dateCode}`);
   const shows = [];
 
   for (const event of details.Event || []) {
@@ -36,11 +35,12 @@ function discoverShows(dateCode) {
       for (const show of child.ShowTimes || []) {
         const eventCode = String(child.EventCode || "");
         const sessionId = String(show.SessionId || "");
-        const naturalKey = ["SKMD", dateCode, show.ShowTimeCode, sessionId, eventCode].join(":");
+        const naturalKey = [venueCode, dateCode, show.ShowTimeCode, sessionId, eventCode].join(":");
         const cutoffAt = codeToDate(show.CutOffDateTime).toISOString();
         shows.push({
           naturalKey,
-          slotKey: ["SKMD", dateCode, show.ShowTimeCode].join(":"),
+          slotKey: [venueCode, dateCode, show.ShowTimeCode].join(":"),
+          venueCode,
           dateCode,
           eventCode,
           sessionId,
@@ -65,7 +65,7 @@ function discoverShows(dateCode) {
       }
     }
   }
-  return { venueCode: "SKMD", dateCode, shows };
+  return { venueCode, dateCode, shows };
 }
 
 async function clickShow(show) {
@@ -85,10 +85,20 @@ async function clickShow(show) {
 
 async function resumePendingCapture() {
   if (!location.pathname.includes("/seat-layout/")) return;
-  const { pendingCapture } = await chrome.storage.local.get("pendingCapture");
-  if (!pendingCapture || !location.pathname.includes(`/${pendingCapture.sessionId}/`)) return;
-  const result = await captureSeats(pendingCapture);
-  await chrome.runtime.sendMessage({ type: "CAPTURE_RESULT", result });
+  const match = location.pathname.match(/\/seat-layout\/[^/]+\/([^/]+)\/([^/]+)\/(\d{8})/);
+  if (!match) return;
+  const [, venueCode, sessionId, dateCode] = match;
+  const { pendingCaptures = {} } = await chrome.storage.local.get({ pendingCaptures: {} });
+  const pending = Object.values(pendingCaptures).find((show) => (
+    show.venueCode === venueCode && show.sessionId === sessionId && show.dateCode === dateCode
+  ));
+  if (!pending) return;
+  try {
+    const result = await captureSeats(pending);
+    await chrome.runtime.sendMessage({ type: "CAPTURE_RESULT", result });
+  } catch (error) {
+    await chrome.runtime.sendMessage({ type: "CAPTURE_ERROR", naturalKey: pending.naturalKey, error: error.message });
+  }
 }
 
 async function captureSeats(show) {

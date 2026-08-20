@@ -17,10 +17,10 @@ export function requireCaptureAgent(request, response, next) {
 
 export function normalizeAgentShows(body) {
   const venueCode = requiredString(body.venueCode, "venueCode");
-  if (venueCode !== "SKMD") throw new Error("Only SKMD is configured");
+  const venue = config.venues.find((item) => item.venueCode === venueCode);
+  if (!venue) throw new Error(`Venue ${venueCode} is not configured`);
   const dateCode = requiredString(body.dateCode, "dateCode");
   if (!/^\d{8}$/.test(dateCode)) throw new Error("dateCode must be YYYYMMDD");
-  const venue = config.venues.find((item) => item.venueCode === venueCode);
 
   return (body.shows || []).map((raw) => {
     const eventCode = requiredString(raw.eventCode, "eventCode");

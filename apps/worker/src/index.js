@@ -13,6 +13,7 @@ import {
   requiredString,
   validDate
 } from "./logic.js";
+import { dashboardVenueForCode, publicVenues } from "./venues.js";
 
 function allowedOrigin(request, env) {
   const origin = request.headers.get("origin");
@@ -77,14 +78,20 @@ async function route(request, env, origin) {
   const url = new URL(request.url);
   if (request.method === "GET" && url.pathname === "/health") {
     await env.DB.prepare("SELECT 1 AS ok").first();
-    return json({ ok: true, database: "connected", collector: "local-chrome-extension", now: new Date().toISOString() }, 200, origin);
+    return json({
+      ok: true,
+      database: "connected",
+      collector: "local-chrome-extension",
+      venues: publicVenues().filter((venue) => venue.code !== "ALL"),
+      now: new Date().toISOString()
+    }, 200, origin);
   }
 
   if (request.method === "GET" && url.pathname === "/api/dashboard") {
     const date = String(url.searchParams.get("date") || "");
     const venueCode = String(url.searchParams.get("venueCode") || "SKMD");
     if (!validDate(date)) throw new RequestError("date must be a real YYYY-MM-DD date");
-    if (venueCode !== "SKMD") throw new RequestError("Only SKMD is configured");
+    if (!dashboardVenueForCode(venueCode)) throw new RequestError(`Venue ${venueCode} is not configured`);
     return json(await dashboardData(env.DB, date, venueCode), 200, origin);
   }
 

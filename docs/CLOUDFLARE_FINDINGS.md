@@ -38,7 +38,7 @@ The tracker deliberately has no public-proxy rotation mode. These lists should n
 
 ## Decision
 
-The primary collector is a personal Chrome extension on an always-on local machine. It uses a normal visible browser, stable profile, stable ordinary network, one pinned tab and conservative refresh intervals. It never solves or bypasses a challenge; it asks the user to complete verification. The cloud backend stores and serves results but does not need to access BookMyShow.
+The primary collector is a personal Chrome extension on an always-on local machine. It uses a normal visible browser, stable profile, stable ordinary network, one pinned tab per theatre and conservative staggered refresh intervals. It never solves or bypasses a challenge; it asks the user to complete verification. The cloud backend stores and serves results but does not need to access BookMyShow.
 
 Sources:
 

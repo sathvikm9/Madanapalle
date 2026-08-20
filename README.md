@@ -1,6 +1,6 @@
-# Sri Krishna Collection Tracker
+# Madanapalle Theatre Collection Tracker
 
-A production-oriented tracker for **Sri Krishna A/C 4K Dolby Atmos, Madanapalle (`SKMD`)**. It discovers BookMyShow sessions, notices movie replacements, captures the seat map during the final booking minute, subtracts ₹5 from each category's ticket price, and stores an auditable final result.
+A production-oriented tracker for **Sri Krishna (`SKMD`)** and **Ravi (`RTDM`)** in Madanapalle. It discovers BookMyShow sessions, notices movie replacements, captures each seat map during its final booking minute, subtracts ₹5 from each category's ticket price, and stores an auditable final result.
 
 ## What it records
 
@@ -79,7 +79,7 @@ The health endpoint is `GET /health`. The Worker cron finalizes received snapsho
 2. Select `apps/chrome-agent` from this repository.
 3. Enter the HTTPS API URL and the same `AGENT_TOKEN` stored as a Worker secret.
 4. Enable automatic capture and click **Save and test now**.
-5. Keep Chrome and the pinned Sri Krishna tab running.
+5. Keep Chrome and both pinned theatre tabs running.
 
 If Cloudflare asks for verification, complete it manually in that pinned tab. The extension reuses the normal Chrome session and never attempts to bypass a challenge.
 
@@ -87,7 +87,7 @@ If Cloudflare asks for verification, complete it manually in that pinned tab. Th
 
 The workflow in `.github/workflows/pages.yml` builds and deploys only the static frontend. Set the repository variable `VITE_API_BASE` to the public HTTPS API URL, then enable **Settings → Pages → GitHub Actions**.
 
-## Verified Sri Krishna facts
+## Verified theatre facts
 
 Live BookMyShow inspection on 20 August 2026 confirmed:
 
@@ -95,5 +95,12 @@ Live BookMyShow inspection on 20 August 2026 confirmed:
 - each show has its own `SessionId`
 - `CutOffDateTime` is 15 minutes after `ShowDateTime`
 - example current categories: ₹105 and ₹84, counted by this app as ₹100 and ₹79
+
+Live Ravi inspection on the same date confirmed:
+
+- venue code: `RTDM`
+- all four observed shows had a 20-minute BookMyShow cutoff
+- the collector reads each session's actual cutoff instead of hard-coding 20 minutes
+- current categories included ₹105 and ₹84, counted as ₹100 and ₹79
 
 Prices are never hard-coded; the ₹5 adjustment is applied to each live category price.

@@ -1,5 +1,6 @@
 import { classifyScheduleChanges } from "@skct/core";
 import { parseJson, RequestError } from "./logic.js";
+import { dashboardVenueForCode, publicVenues, venueForCode } from "./venues.js";
 
 const UPSERT_SHOW = `
   INSERT INTO shows (
@@ -248,7 +249,9 @@ export async function finalizeExpiredShows(db, now = new Date()) {
 
 export async function dashboardData(db, date, venueCode, now = new Date()) {
   await finalizeExpiredShows(db, now);
-  const showResult = await db.prepare(
+  const allTheatres = venueCode === "ALL";
+  const showWhere = allTheatres ? "shows.show_date=?" : "shows.venue_code=? AND shows.show_date=?";
+  const showStatement = db.prepare(
     `SELECT
       shows.*,
       snapshots.id AS snapshot_id,
@@ -266,22 +269,32 @@ export async function dashboardData(db, date, venueCode, now = new Date()) {
      LEFT JOIN snapshots ON snapshots.id=(
        SELECT id FROM snapshots latest WHERE latest.show_id=shows.id ORDER BY captured_at DESC LIMIT 1
      )
-     WHERE shows.venue_code=? AND shows.show_date=?
-     ORDER BY shows.start_at ASC, shows.is_current DESC, shows.first_seen_at ASC`
-  ).bind(venueCode, date).all();
+     WHERE ${showWhere}
+     ORDER BY shows.start_at ASC, shows.venue_code ASC, shows.is_current DESC, shows.first_seen_at ASC`
+  );
+  const showResult = allTheatres
+    ? await showStatement.bind(date).all()
+    : await showStatement.bind(venueCode, date).all();
 
-  const changesResult = await db.prepare(
+  const changesWhere = allTheatres ? "events.show_date=?" : "events.venue_code=? AND events.show_date=?";
+  const changesStatement = db.prepare(
     `SELECT events.*, previous.movie_title AS previous_movie,
       next_show.movie_title AS next_movie, previous.show_time_label AS show_time_label
      FROM schedule_events events
      LEFT JOIN shows previous ON previous.id=events.previous_show_id
      LEFT JOIN shows next_show ON next_show.id=events.next_show_id
-     WHERE events.venue_code=? AND events.show_date=? AND events.event_type IN ('replaced','removed')
+     WHERE ${changesWhere} AND events.event_type IN ('replaced','removed')
      ORDER BY events.observed_at DESC`
-  ).bind(venueCode, date).all();
+  );
+  const changesResult = allTheatres
+    ? await changesStatement.bind(date).all()
+    : await changesStatement.bind(venueCode, date).all();
 
   const shows = (showResult.results || []).map((row) => ({
     id: String(row.id),
+    venueCode: row.venue_code,
+    venueName: row.venue_name,
+    venueShortName: venueForCode(row.venue_code)?.shortName || row.venue_code,
     sessionId: row.session_id,
     eventCode: row.event_code,
     movieTitle: row.movie_title,
@@ -323,7 +336,12 @@ export async function dashboardData(db, date, venueCode, now = new Date()) {
   return {
     date,
     timezone: "Asia/Kolkata",
-    venue: { code: venueCode, name: "Sri Krishna A/C 4K Dolby Atmos: Madanapalle" },
+    venue: {
+      code: venueCode,
+      name: dashboardVenueForCode(venueCode)?.name || venueCode,
+      shortName: dashboardVenueForCode(venueCode)?.shortName || venueCode
+    },
+    venues: publicVenues(),
     generatedAt: now.toISOString(),
     summary: {
       totalShows: currentShows.length,
@@ -336,6 +354,8 @@ export async function dashboardData(db, date, venueCode, now = new Date()) {
     shows,
     scheduleChanges: (changesResult.results || []).map((event) => ({
       id: String(event.id),
+      venueCode: event.venue_code,
+      venueName: venueForCode(event.venue_code)?.shortName || event.venue_code,
       type: event.event_type,
       showTime: event.show_time_label,
       previousMovie: event.previous_movie,
