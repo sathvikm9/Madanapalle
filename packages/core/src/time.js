@@ -13,6 +13,10 @@ export function captureAtFromCutoff(cutoffIso, minutesBefore = 1) {
   return new Date(new Date(cutoffIso).getTime() - minutesBefore * 60_000).toISOString();
 }
 
+export function captureAtFromStart(showStartIso, minutesAfter = 10) {
+  return new Date(new Date(showStartIso).getTime() + minutesAfter * 60_000).toISOString();
+}
+
 export function cutoffFromStart(showStartIso, minutesAfter = 15) {
   return new Date(new Date(showStartIso).getTime() + minutesAfter * 60_000).toISOString();
 }

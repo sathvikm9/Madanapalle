@@ -1,6 +1,6 @@
 # Madanapalle Theatre Collection Tracker
 
-A production-oriented tracker for **Sri Krishna (`SKMD`)** and **Ravi (`RTDM`)** in Madanapalle. It discovers BookMyShow sessions, notices movie replacements, captures each seat map during its final booking minute, subtracts ₹5 from each category's ticket price, and stores an auditable final result.
+A production-oriented tracker for **Sri Krishna (`SKMD`)** and **Ravi (`RTDM`)** in Madanapalle. It discovers BookMyShow sessions, notices movie replacements, saves an early seat-map backup and then a final capture, subtracts ₹5 from each category's ticket price, and stores an auditable final result.
 
 ## What it records
 
@@ -20,11 +20,12 @@ The label “sold” follows the state exposed by BookMyShow's seat map. A held 
 
 If a show starts at 7:00 AM and BookMyShow gives a 7:15 AM cutoff:
 
-1. the Chrome agent opens the final capture at about 7:14:15 AM;
-2. if the page fails, it retries while the 7:14 minute remains open;
-3. at 7:15 AM, the newest successful capture is locked as final;
-4. discovery work pauses around the capture window so it cannot delay the seat count;
-5. if the service restarts at 7:14, it immediately resumes the due capture.
+1. the Chrome agent saves a backup shortly after 7:10 AM;
+2. if that backup fails, it retries once per minute;
+3. it makes a final attempt shortly after 7:14 AM;
+4. at 7:15 AM, the newest successful capture is locked as final, including the backup when the final attempt fails;
+5. discovery work pauses around the capture window so it cannot delay the seat count;
+6. every attempt and failure is retained in the server audit log.
 
 This requires an always-on collector. GitHub Actions schedules are not used for the final-minute job because their start times are not exact.
 

@@ -74,7 +74,8 @@ export async function reconcileDiscovery(db, discovery, now = new Date()) {
     `SELECT * FROM shows WHERE venue_code=? AND show_date=? AND is_current=1 ORDER BY start_at`
   ).bind(discovery.venueCode, discovery.showDate).all();
   const existing = existingResult.results || [];
-  if (!discovery.shows.length && existing.length) {
+  const futureExisting = existing.filter((show) => new Date(show.start_at).getTime() > now.getTime());
+  if (!discovery.shows.length && futureExisting.length) {
     throw new RequestError(
       "BookMyShow returned an empty schedule while known shows still exist; refusing to remove them from one observation",
       409,
@@ -82,7 +83,14 @@ export async function reconcileDiscovery(db, discovery, now = new Date()) {
     );
   }
 
-  const changes = classifyScheduleChanges(existing.map(coreShow), discovery.shows);
+  const classified = classifyScheduleChanges(existing.map(coreShow), discovery.shows);
+  const changes = {
+    ...classified,
+    removed: classified.removed.filter((show) => {
+      const row = existing.find((candidate) => candidate.id === show.id);
+      return row && new Date(row.start_at).getTime() > now.getTime();
+    })
+  };
   const statements = discovery.shows.map((show) => db.prepare(UPSERT_SHOW).bind(...showValues(show, observedAt)));
 
   for (const change of changes.replaced) {
@@ -113,7 +121,7 @@ export async function reconcileDiscovery(db, discovery, now = new Date()) {
     statements.push(
       db.prepare(
         `UPDATE shows SET is_current=0,
-          status=CASE WHEN status='completed' THEN status ELSE 'removed' END,
+          status=CASE WHEN status IN ('completed','missed') THEN status ELSE 'removed' END,
           removed_at=?, updated_at=? WHERE id=?`
       ).bind(observedAt, observedAt, removed.id),
       db.prepare(
@@ -192,7 +200,7 @@ export async function saveCapture(db, show, capture) {
       createdAt
     ),
     db.prepare(
-      `UPDATE shows SET status='capturing', capture_attempts=capture_attempts+1,
+      `UPDATE shows SET status='capturing',
         last_capture_at=?, last_error=NULL, updated_at=? WHERE id=?`
     ).bind(capture.capturedAt, createdAt, show.id),
     db.prepare(
@@ -205,7 +213,12 @@ export async function saveCapture(db, show, capture) {
       show.id,
       createdAt,
       createdAt,
-      JSON.stringify({ sold: capture.sold, collectionPaise: capture.collectionPaise, capturedAt: capture.capturedAt })
+      JSON.stringify({
+        sold: capture.sold,
+        collectionPaise: capture.collectionPaise,
+        capturedAt: capture.capturedAt,
+        attemptId: capture.attemptId
+      })
     )
   ]);
   return {
@@ -213,6 +226,48 @@ export async function saveCapture(db, show, capture) {
     sold: capture.sold,
     collectionPaise: capture.collectionPaise
   };
+}
+
+export async function recordCaptureEvent(db, show, event, now = new Date()) {
+  const observedAt = now.toISOString();
+  const started = event.eventType === "capture_started";
+  const status = started ? "started" : "error";
+  const statements = [
+    db.prepare(
+      `INSERT INTO collector_runs (
+        run_type, venue_code, target_date, show_id, status, started_at, finished_at, error, details_json
+      ) VALUES ('capture_attempt', ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      show.venue_code,
+      show.show_date,
+      show.id,
+      status,
+      observedAt,
+      observedAt,
+      event.error,
+      JSON.stringify({
+        eventType: event.eventType,
+        attemptId: event.attemptId,
+        clientAt: event.clientAt,
+        stage: event.stage
+      })
+    )
+  ];
+  if (started) {
+    statements.push(
+      db.prepare(
+        `UPDATE shows SET status='capturing', capture_attempts=capture_attempts+1,
+          last_error=NULL, updated_at=? WHERE id=? AND status IN ('scheduled','capturing')`
+      ).bind(observedAt, show.id)
+    );
+  } else {
+    statements.push(
+      db.prepare(`UPDATE shows SET last_error=?, updated_at=? WHERE id=?`)
+        .bind(event.error || "Capture attempt failed", observedAt, show.id)
+    );
+  }
+  await db.batch(statements);
+  return { ok: true, showId: String(show.id), status };
 }
 
 export async function finalizeExpiredShows(db, now = new Date()) {
@@ -304,6 +359,7 @@ export async function dashboardData(db, date, venueCode, now = new Date()) {
     showTime: row.show_time_label,
     startAt: row.start_at,
     captureDueAt: row.capture_at,
+    finalCaptureDueAt: new Date(new Date(row.cutoff_at).getTime() - 60_000).toISOString(),
     cutoffAt: row.cutoff_at,
     isCurrent: Boolean(row.is_current),
     status: row.status,

@@ -12,7 +12,7 @@
       "venueCode": "SKMD",
       "slug": "sri-krishna-a-c-4k-dolby-atmos-madanapalle",
       "platform": "bookmyshow",
-      "captureBeforeCutoffMinutes": 1,
+      "captureStartAfterShowMinutes": 10,
       "fallbackCutoffMinutes": 15,
       "active": true
     },
@@ -22,7 +22,7 @@
       "venueCode": "RTDM",
       "slug": "ravi-a-c-4k-laser-dolby-surround-71-madanapalle",
       "platform": "bookmyshow",
-      "captureBeforeCutoffMinutes": 1,
+      "captureStartAfterShowMinutes": 15,
       "fallbackCutoffMinutes": 20,
       "active": true
     }

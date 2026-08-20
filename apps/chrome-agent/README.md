@@ -16,10 +16,13 @@ The extension creates one pinned BookMyShow tab per theatre. Keep Chrome and the
 
 - today's schedule refreshes every five minutes
 - tomorrow is never opened early; discovery rolls to the new India date just after 12:00 AM IST
-- a fresh preflight occurs 90 seconds before the final minute
-- seat capture starts roughly 15 seconds into that minute
+- Sri Krishna backup capture starts shortly after showtime +10 minutes
+- Ravi backup capture starts shortly after showtime +15 minutes
+- a second preflight refreshes the schedule before the final attempt
+- a successful backup waits until the final minute; a failed backup retries once per minute
+- the newest successful snapshot is finalized after cutoff, so a failed final attempt keeps the backup
 - simultaneous theatre captures use independent tabs and pending jobs
-- page failures retry while the cutoff remains open
+- capture starts/failures/successes are stored in the server audit log
 - a Chrome notification requests attention when BookMyShow/Cloudflare requires human verification
 - no seat is selected and no booking/payment action is performed
 

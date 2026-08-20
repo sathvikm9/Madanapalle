@@ -1,4 +1,4 @@
-import { bmsCodeToIso, captureAtFromCutoff, cutoffFromStart, isoDateFromCode } from "./time.js";
+import { bmsCodeToIso, captureAtFromStart, cutoffFromStart, isoDateFromCode } from "./time.js";
 import { rupeesToPaise } from "./money.js";
 
 export function extractAssignedJson(html, assignment = "window.__INITIAL_STATE__") {
@@ -81,7 +81,7 @@ export function parseVenueShowsFromHtml(html, venue, dateCode) {
           showTimeLabel: show.ShowTime,
           startAt,
           cutoffAt,
-          captureAt: captureAtFromCutoff(cutoffAt, venue.captureBeforeCutoffMinutes ?? 1),
+          captureAt: captureAtFromStart(startAt, venue.captureStartAfterShowMinutes ?? 10),
           sessionId,
           eventCode,
           movieTitle: event.EventTitle || child.EventName || "Unknown movie",

@@ -66,8 +66,8 @@ function ShowCard({ show, showVenue }) {
           </>
         ) : (
           <div className="pending-copy">
-            <strong>Due {dateTime.format(new Date(show.captureDueAt))}</strong>
-            <span>Capture during the final booking minute</span>
+            <strong>Backup begins {dateTime.format(new Date(show.captureDueAt))}</strong>
+            <span>Final attempt {dateTime.format(new Date(show.finalCaptureDueAt || show.captureDueAt))}</span>
           </div>
         )}
       </div>
@@ -140,7 +140,7 @@ export default function App() {
           <span className="brand__mark">MD</span>
           <span><strong>Collection Desk</strong><small>Madanapalle</small></span>
         </a>
-        <div className="live-indicator"><i /> Automatic final capture</div>
+        <div className="live-indicator"><i /> Automatic backup + final capture</div>
       </header>
 
       <main>
@@ -148,7 +148,7 @@ export default function App() {
           <div>
             <p className="eyebrow">{data?.venue?.shortName || THEATRE_OPTIONS.find((venue) => venue.code === selectedVenue)?.shortName} · {selectedVenue}</p>
             <h1>Every show, closed with a final count.</h1>
-            <p className="hero__copy">Tickets and theatre collection captured in the last minute before BookMyShow closes. Every listed ticket price is counted after subtracting ₹5.</p>
+            <p className="hero__copy">An early backup protects every show, followed by a final attempt before BookMyShow closes. Every listed ticket price is counted after subtracting ₹5.</p>
           </div>
           <div className="date-control">
             <label htmlFor="theatre">Select theatre</label>

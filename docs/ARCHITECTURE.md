@@ -25,9 +25,9 @@ flowchart LR
 
 ### Discovery
 
-The local Chrome agent refreshes only the current India-date Sri Krishna and Ravi pages every five minutes, switches dates just after 12:00 AM IST, and performs a final preflight 90 seconds before capture. It never opens tomorrow's schedule early. Each theatre has an independent pinned tab and pending-capture job, so matching showtimes can be captured concurrently. It parses the embedded `window.__INITIAL_STATE__`, which provides the event code, movie, session ID, show time, prices and BookMyShow cutoff.
+The local Chrome agent refreshes only the current India-date Sri Krishna and Ravi pages every five minutes and switches dates just after 12:00 AM IST. It never opens tomorrow's schedule early. Each theatre has an independent pinned tab and pending-capture job, so matching showtimes can be captured concurrently. It parses the embedded `window.__INITIAL_STATE__`, which provides the event code, movie, session ID, show time, prices and BookMyShow cutoff.
 
-Discovery is deliberately lighter than seat counting. Seat layouts are opened only in the final-minute window.
+Discovery is deliberately lighter than seat counting. Seat layouts normally open twice: once for the early backup and once for the final attempt.
 
 ### Show identity and replacement handling
 
@@ -40,13 +40,14 @@ When the slot remains 6:00 PM but the event/session changes, the old revision is
 
 ### Final capture
 
-`capture_at = CutOffDateTime - 1 minute`. For the user's 7:00 AM example:
+`capture_at` is the beginning of the protected capture window. For a 7:00 AM Sri Krishna show:
 
 - start: 7:00:00
-- capture window opens: 7:14:00
+- backup window opens: 7:10:00
+- final attempt: 7:14:00
 - BookMyShow cutoff: 7:15:00
 
-The Chrome agent performs a venue-page preflight 90 seconds before the capture window, then starts the seat read about 15 seconds into the final minute. A failed read retries while the minute remains open. Once the cutoff passes, the newest successful snapshot becomes final.
+Ravi uses showtime +15 minutes for its backup because its observed cutoff is +20 minutes. The agent preflights before both the backup and final attempts. After a successful backup it waits for the final minute; after a failed backup it retries once per minute. Once cutoff passes, the newest successful snapshot becomes final. Every attempt and error is also written to the durable collector log.
 
 ### Calculation
 
@@ -66,8 +67,9 @@ Automated datacenter/headless browsers are frequently challenged or blocked by C
 
 - zero-seat layouts are rejected
 - unknown seat states are rejected rather than silently counted
-- failed captures retry until cutoff
-- no successful final-minute capture becomes `missed`, not zero
+- failed backups retry once per minute until the final attempt
+- a successful backup is preserved if the final attempt fails
+- no successful capture becomes `missed`, not zero
 - Chrome startup rebuilds the known preflight and capture alarms
 - the Worker independently finalizes the latest valid snapshot after cutoff
 

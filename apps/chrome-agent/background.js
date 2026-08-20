@@ -1,13 +1,17 @@
+import { finalCaptureAt, nextCaptureWhen, preflightTimes } from "./schedule.js";
+
 const VENUES = [
   {
     venueCode: "SKMD",
     shortName: "Sri Krishna",
-    slug: "sri-krishna-a-c-4k-dolby-atmos-madanapalle"
+    slug: "sri-krishna-a-c-4k-dolby-atmos-madanapalle",
+    captureStartAfterShowMinutes: 10
   },
   {
     venueCode: "RTDM",
     shortName: "Ravi",
-    slug: "ravi-a-c-4k-laser-dolby-surround-71-madanapalle"
+    slug: "ravi-a-c-4k-laser-dolby-surround-71-madanapalle",
+    captureStartAfterShowMinutes: 15
   }
 ];
 const VENUE_BY_CODE = Object.fromEntries(VENUES.map((venue) => [venue.venueCode, venue]));
@@ -15,6 +19,7 @@ const DISCOVERY_TODAY = "discovery:today";
 const LEGACY_DISCOVERY_TOMORROW = "discovery:tomorrow";
 const INDIA_DAY_ROLLOVER = "discovery:india-day-rollover";
 let pendingMutation = Promise.resolve();
+let captureStateMutation = Promise.resolve();
 
 chrome.runtime.onInstalled.addListener(async () => {
   await initializeAgent();
@@ -43,7 +48,8 @@ async function migrateSingleTheatreStorage() {
     agentTabIds: {},
     pendingCapture: null,
     pendingCaptures: {},
-    knownShows: {}
+    knownShows: {},
+    captureStates: {}
   });
   const agentTabIds = { ...local.agentTabIds };
   const pendingCaptures = { ...local.pendingCaptures };
@@ -58,7 +64,7 @@ async function migrateSingleTheatreStorage() {
       delete knownShows[key];
     }
   }
-  await chrome.storage.local.set({ agentTabIds, pendingCaptures, knownShows });
+  await chrome.storage.local.set({ agentTabIds, pendingCaptures, knownShows, captureStates: local.captureStates });
   await chrome.storage.local.remove(["agentTabId", "pendingCapture"]);
 }
 
@@ -93,14 +99,20 @@ async function handleAlarm(alarm) {
   }
   if (!settings.enabled) return;
   if (alarm.name === DISCOVERY_TODAY) return discoverAll(indiaDateCode(0));
-  if (alarm.name.startsWith("preflight:")) {
+  if (alarm.name.startsWith("preflight:") || alarm.name.startsWith("final-preflight:")) {
     const show = await showForAlarm(alarm.name);
     if (show) await discoverVenue(show.venueCode, show.dateCode, { allowImminent: true });
     return;
   }
   if (alarm.name.startsWith("capture:")) {
     const show = await showForAlarm(alarm.name);
-    if (show) await beginCapture(show);
+    if (show) {
+      try {
+        await beginCapture(show);
+      } catch (error) {
+        await failCapture((await getPending(show.naturalKey)) || show, error, "open_seat_page");
+      }
+    }
     return;
   }
   if (alarm.name.startsWith("watchdog:")) await handleCaptureWatchdog(alarm.name);
@@ -112,14 +124,31 @@ async function handleMessage(message) {
   }
   if (message.type === "CAPTURE_RESULT") {
     const pending = await getPending(message.result.naturalKey);
-    if (!pending) throw new Error("Capture result did not match a pending show");
-    const saved = await apiPost("/api/agent/capture", message.result);
+    if (!pending || pending.attemptId !== message.result.attemptId) {
+      throw new Error("Capture result did not match the active attempt");
+    }
+    let saved;
+    try {
+      saved = await apiPost("/api/agent/capture", message.result);
+    } catch (error) {
+      await failCapture(pending, error, "upload_capture");
+      return { ok: false, error: error.message };
+    }
     await removePending(pending.naturalKey);
     await chrome.alarms.clear(`watchdog:${encodeURIComponent(pending.naturalKey)}`);
+    await updateCaptureState(pending.naturalKey, {
+      lastSuccessAt: message.result.capturedAt,
+      lastError: null
+    });
+    await scheduleShow(pending);
     const venue = venueFor(pending.venueCode);
-    await recordSuccess(`Captured ${venue.shortName} ${pending.showTimeLabel}: ${saved.sold} tickets`, { lastCapture: saved });
+    const isFinalWindow = new Date(message.result.capturedAt).getTime() >= finalCaptureAt(pending);
+    await recordSuccess(
+      `${isFinalWindow ? "Final" : "Backup"} capture ${venue.shortName} ${pending.showTimeLabel}: ${saved.sold} tickets`,
+      { lastCapture: saved }
+    );
     await notify(
-      "Final capture uploaded",
+      `${isFinalWindow ? "Final" : "Backup"} capture uploaded`,
       `${venue.shortName} · ${pending.showTimeLabel} · ${saved.sold} tickets · ₹${Math.round(saved.collectionPaise / 100).toLocaleString("en-IN")}`
     );
     return { ok: true };
@@ -127,13 +156,11 @@ async function handleMessage(message) {
   if (message.type === "CAPTURE_ERROR") {
     const pending = message.naturalKey ? await getPending(message.naturalKey) : null;
     const error = new Error(message.error || "The page capture failed");
-    if (pending) {
-      await removePending(pending.naturalKey);
-      if (Date.now() + 12_000 < new Date(pending.cutoffAt).getTime()) {
-        await chrome.alarms.create(`capture:${encodeURIComponent(pending.naturalKey)}`, { when: Date.now() + 10_000 });
-      }
+    if (pending && (!message.attemptId || pending.attemptId === message.attemptId)) {
+      await failCapture(pending, error, "read_seat_map");
+    } else {
+      await recordFailure(error);
     }
-    await recordFailure(error);
     return { ok: false, error: error.message };
   }
   return { ok: false, error: "Unknown message" };
@@ -166,7 +193,12 @@ async function discoverVenue(venueCode, dateCode, { allowImminent = false } = {}
     return { venueCode, shows: 0, skipped: "final capture is imminent" };
   }
   const tab = await ensureAgentTab(venue, dateCode, true);
-  const payload = await sendToTab(tab.id, { type: "DISCOVER", dateCode, venueCode });
+  const payload = await sendToTab(tab.id, {
+    type: "DISCOVER",
+    dateCode,
+    venueCode,
+    captureStartAfterShowMinutes: venue.captureStartAfterShowMinutes
+  });
   if (!payload?.ok) throw new Error(payload?.error || `${venue.shortName} discovery failed`);
   const result = await apiPost("/api/agent/discovery", payload.data);
   await saveKnownShows(venueCode, dateCode, payload.data.shows);
@@ -179,15 +211,16 @@ async function beginCapture(show) {
   if (Date.now() >= new Date(show.cutoffAt).getTime()) {
     throw new Error(`${venue.shortName} ${show.showTimeLabel} capture alarm ran after cutoff`);
   }
-  await addPending(show);
-  const tab = await ensureAgentTab(venue, show.dateCode, false);
-  const response = await sendToTab(tab.id, { type: "BEGIN_CAPTURE", show });
-  if (!response?.ok) {
-    await removePending(show.naturalKey);
-    throw new Error(response?.error || `Unable to open ${venue.shortName} seat page`);
-  }
-  await chrome.alarms.create(`watchdog:${encodeURIComponent(show.naturalKey)}`, { when: Date.now() + 30_000 });
-  await recordSuccess(`Opening ${venue.shortName} ${show.showTimeLabel} final seat map`);
+  if (await getPending(show.naturalKey)) return;
+  const attemptStartedAt = new Date().toISOString();
+  const attemptId = `${Date.now()}-${crypto.randomUUID()}`;
+  const pending = { ...show, attemptId, attemptStartedAt };
+  await updateCaptureState(show.naturalKey, { lastAttemptAt: attemptStartedAt });
+  await addPending(pending);
+  await postCaptureEvent(pending, "capture_started");
+  await chrome.alarms.create(`watchdog:${encodeURIComponent(show.naturalKey)}`, { when: Date.now() + 50_000 });
+  await openSeatLayout(pending);
+  await recordSuccess(`Opening ${venue.shortName} ${show.showTimeLabel} seat map`);
 }
 
 async function handleCaptureWatchdog(name) {
@@ -197,29 +230,41 @@ async function handleCaptureWatchdog(name) {
   await removePending(naturalKey);
   const venue = venueFor(pending.venueCode);
   const error = new Error(`${venue.shortName} ${pending.showTimeLabel} seat read did not finish in time`);
+  await failCapture(pending, error, "watchdog_timeout", { pendingAlreadyRemoved: true });
+}
+
+async function failCapture(show, error, stage, { pendingAlreadyRemoved = false } = {}) {
+  if (!pendingAlreadyRemoved) await removePending(show.naturalKey);
+  await chrome.alarms.clear(`watchdog:${encodeURIComponent(show.naturalKey)}`);
+  await updateCaptureState(show.naturalKey, { lastError: String(error?.message || error) });
+  await postCaptureEvent(show, "capture_failed", { stage, error: String(error?.message || error) });
+  await scheduleShow(show);
   await recordFailure(error);
-  if (Date.now() + 7_000 < new Date(pending.cutoffAt).getTime()) {
-    await chrome.alarms.create(`capture:${encodeURIComponent(pending.naturalKey)}`, { when: Date.now() + 5_000 });
-  }
 }
 
 async function scheduleShows(shows) {
-  for (const show of shows) {
-    const captureAt = new Date(show.captureAt).getTime();
-    const cutoffAt = new Date(show.cutoffAt).getTime();
-    if (cutoffAt <= Date.now()) continue;
-    const encoded = encodeURIComponent(show.naturalKey);
-    if (captureAt - 90_000 > Date.now() + 5_000) {
-      await chrome.alarms.create(`preflight:${encoded}`, { when: captureAt - 90_000 });
-    }
-    await chrome.alarms.create(`capture:${encoded}`, { when: Math.max(Date.now() + 1_000, captureAt + 15_000) });
+  for (const show of shows) await scheduleShow(show);
+}
+
+async function scheduleShow(show) {
+  if (new Date(show.cutoffAt).getTime() <= Date.now()) return;
+  const encoded = encodeURIComponent(show.naturalKey);
+  const [backupPreflight, finalPreflight] = preflightTimes(show);
+  if (backupPreflight > Date.now() + 5_000) {
+    await chrome.alarms.create(`preflight:${encoded}`, { when: backupPreflight });
   }
+  if (finalPreflight > Date.now() + 5_000) {
+    await chrome.alarms.create(`final-preflight:${encoded}`, { when: finalPreflight });
+  }
+  const state = await getCaptureState(show.naturalKey);
+  const when = nextCaptureWhen(show, state);
+  if (when != null) await chrome.alarms.create(`capture:${encoded}`, { when });
 }
 
 async function clearShowAlarmsOutsideDate(dateCode) {
   const alarms = await chrome.alarms.getAll();
   for (const alarm of alarms) {
-    if (!/^(preflight|capture|watchdog):/.test(alarm.name)) continue;
+    if (!/^(preflight|final-preflight|capture|watchdog):/.test(alarm.name)) continue;
     const naturalKey = decodeAlarmKey(alarm.name);
     if (naturalKey.split(":")[1] !== dateCode) await chrome.alarms.clear(alarm.name);
   }
@@ -279,6 +324,25 @@ async function ensureAgentTab(venue, dateCode, reload) {
   return chrome.tabs.get(tab.id);
 }
 
+async function openSeatLayout(show) {
+  const venue = venueFor(show.venueCode);
+  const stored = await chrome.storage.local.get({ agentTabIds: {} });
+  const agentTabIds = stored.agentTabIds;
+  let tab = agentTabIds[show.venueCode]
+    ? await chrome.tabs.get(agentTabIds[show.venueCode]).catch(() => null)
+    : null;
+  if (!tab) {
+    tab = await chrome.tabs.create({ url: show.seatLayoutUrl, active: false, pinned: true });
+    agentTabIds[show.venueCode] = tab.id;
+    await chrome.storage.local.set({ agentTabIds });
+  } else if (tab.url === show.seatLayoutUrl) {
+    await chrome.tabs.reload(tab.id);
+  } else {
+    tab = await chrome.tabs.update(tab.id, { url: show.seatLayoutUrl, active: false });
+  }
+  await waitForComplete(tab.id);
+}
+
 async function waitForComplete(tabId) {
   for (let attempt = 0; attempt < 120; attempt += 1) {
     const tab = await chrome.tabs.get(tabId);
@@ -335,6 +399,37 @@ async function hasPendingForVenue(venueCode) {
   await pendingMutation;
   const { pendingCaptures = {} } = await chrome.storage.local.get({ pendingCaptures: {} });
   return Object.values(pendingCaptures).some((show) => show.venueCode === venueCode);
+}
+
+async function getCaptureState(naturalKey) {
+  await captureStateMutation;
+  const { captureStates = {} } = await chrome.storage.local.get({ captureStates: {} });
+  return captureStates[naturalKey] || {};
+}
+
+async function updateCaptureState(naturalKey, changes) {
+  const operation = captureStateMutation.then(async () => {
+    const { captureStates = {} } = await chrome.storage.local.get({ captureStates: {} });
+    captureStates[naturalKey] = { ...(captureStates[naturalKey] || {}), ...changes };
+    await chrome.storage.local.set({ captureStates });
+    return captureStates[naturalKey];
+  });
+  captureStateMutation = operation.catch(() => {});
+  return operation;
+}
+
+async function postCaptureEvent(show, eventType, extra = {}) {
+  try {
+    await apiPost("/api/agent/event", {
+      eventType,
+      naturalKey: show.naturalKey,
+      attemptId: show.attemptId || null,
+      clientAt: new Date().toISOString(),
+      ...extra
+    });
+  } catch {
+    // Telemetry must never prevent a seat capture or its retry.
+  }
 }
 
 async function apiPost(path, body) {

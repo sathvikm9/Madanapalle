@@ -19,12 +19,12 @@ The `workers.dev` API is HTTPS by default.
 - `/health` is reachable.
 - the Chrome extension status shows a recent successful discovery.
 - the dashboard lists today's shows.
-- finalized shows have a capture timestamp in the minute immediately before their BookMyShow cutoff.
+- finalized shows have a successful backup or final-attempt capture timestamp.
 - `missedShows` remains zero.
 
 ## Before the first real capture
 
-Use a future show to verify discovery, keep both pinned BookMyShow tabs available, then watch Worker logs through its final minute:
+Use a future show to verify discovery, keep both pinned BookMyShow tabs available, then watch Worker logs from the backup window through cutoff:
 
 ```bash
 npx wrangler tail

@@ -5,7 +5,7 @@ export const VENUES = Object.freeze([
     shortName: "Sri Krishna",
     slug: "sri-krishna-a-c-4k-dolby-atmos-madanapalle",
     timezone: "Asia/Kolkata",
-    captureBeforeCutoffMinutes: 1
+    captureStartAfterShowMinutes: 10
   }),
   Object.freeze({
     venueCode: "RTDM",
@@ -13,7 +13,7 @@ export const VENUES = Object.freeze([
     shortName: "Ravi",
     slug: "ravi-a-c-4k-laser-dolby-surround-71-madanapalle",
     timezone: "Asia/Kolkata",
-    captureBeforeCutoffMinutes: 1
+    captureStartAfterShowMinutes: 15
   })
 ]);
 

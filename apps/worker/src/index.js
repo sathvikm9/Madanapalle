@@ -3,6 +3,7 @@ import {
   currentShow,
   dashboardData,
   finalizeExpiredShows,
+  recordCaptureEvent,
   reconcileDiscovery,
   saveCapture
 } from "./database.js";
@@ -120,6 +121,28 @@ async function route(request, env, origin) {
       }));
     }
     return json(await saveCapture(env.DB, show, capture), 200, origin);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/agent/event") {
+    requireAgent(request, env);
+    const body = await bodyJson(request);
+    const eventType = requiredString(body?.eventType, "eventType", 50);
+    if (!new Set(["capture_started", "capture_failed"]).has(eventType)) {
+      throw new RequestError("eventType is not supported");
+    }
+    const naturalKey = requiredString(body?.naturalKey, "naturalKey", 300);
+    const show = await currentShow(env.DB, naturalKey);
+    if (!show) throw new RequestError("The show is no longer current", 409, "stale_show");
+    const clientAt = new Date(requiredString(body?.clientAt, "clientAt", 50));
+    if (!Number.isFinite(clientAt.getTime())) throw new RequestError("clientAt is invalid");
+    const event = {
+      eventType,
+      clientAt: clientAt.toISOString(),
+      attemptId: body?.attemptId ? String(body.attemptId).slice(0, 100) : null,
+      stage: body?.stage ? String(body.stage).slice(0, 100) : null,
+      error: body?.error ? String(body.error).slice(0, 500) : null
+    };
+    return json(await recordCaptureEvent(env.DB, show, event), 200, origin);
   }
 
   throw new RequestError("Not found", 404, "not_found");

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Madanapalle Theatre Capture Agent",
-  "version": "1.2.1",
-  "description": "Uses your normal Chrome session to capture Sri Krishna and Ravi BookMyShow availability in each final booking minute.",
+  "version": "1.3.0",
+  "description": "Uses your normal Chrome session for early backup and final BookMyShow seat captures at Sri Krishna and Ravi.",
   "permissions": ["alarms", "notifications", "storage", "tabs"],
   "host_permissions": [
     "https://in.bookmyshow.com/*",

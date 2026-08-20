@@ -1,4 +1,4 @@
-import { calculateCollection, bmsCodeToIso, captureAtFromCutoff, isoDateFromCode } from "@skct/core";
+import { calculateCollection, bmsCodeToIso, captureAtFromStart, isoDateFromCode } from "@skct/core";
 import { config } from "./config.js";
 import { pool, reconcileDiscoveredShows, saveSnapshot } from "./db.js";
 
@@ -45,7 +45,7 @@ export function normalizeAgentShows(body) {
       showTimeLabel: requiredString(raw.showTimeLabel, "showTimeLabel"),
       startAt,
       cutoffAt,
-      captureAt: captureAtFromCutoff(cutoffAt, venue.captureBeforeCutoffMinutes ?? 1),
+      captureAt: captureAtFromStart(startAt, venue.captureStartAfterShowMinutes ?? 10),
       sessionId,
       eventCode,
       movieTitle: requiredString(raw.movieTitle, "movieTitle"),
@@ -84,7 +84,7 @@ export async function ingestAgentCapture(body) {
   const capturedAt = new Date(requiredString(body.capturedAt, "capturedAt"));
   if (!Number.isFinite(capturedAt.getTime())) throw new Error("capturedAt is invalid");
   if (capturedAt < new Date(show.capture_at) || capturedAt >= new Date(show.cutoff_at)) {
-    throw new Error("Capture was outside the final booking minute");
+    throw new Error("Capture was outside the configured booking window");
   }
   const calculated = calculateCollection(body.categories || []);
   if (!calculated.capacity) throw new Error("Capture contained no seats");

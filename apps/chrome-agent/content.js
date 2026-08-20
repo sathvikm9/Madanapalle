@@ -7,20 +7,15 @@ resumePendingCapture().catch(() => {});
 
 async function handleMessage(message) {
   if (message.type === "DISCOVER") {
-    return { ok: true, data: discoverShows(message.dateCode, message.venueCode) };
-  }
-  if (message.type === "BEGIN_CAPTURE") {
-    const current = discoverShows(message.show.dateCode, message.show.venueCode).shows.find((show) => show.slotKey === message.show.slotKey);
-    if (!current || current.naturalKey !== message.show.naturalKey) {
-      throw new Error("The movie/session changed before capture; waiting for the new schedule");
-    }
-    await clickShow(current);
-    return { ok: true, navigating: true };
+    return {
+      ok: true,
+      data: discoverShows(message.dateCode, message.venueCode, message.captureStartAfterShowMinutes)
+    };
   }
   throw new Error("Unknown page-agent request");
 }
 
-function discoverShows(dateCode, venueCode) {
+function discoverShows(dateCode, venueCode, captureStartAfterShowMinutes = 10) {
   if (!/^[A-Z0-9]{2,20}$/.test(String(venueCode || ""))) throw new Error("The venue code was invalid");
   const script = Array.from(document.scripts).find((item) => item.textContent?.includes("window.__INITIAL_STATE__"));
   if (!script) throw new Error("BookMyShow data is unavailable. Check the pinned tab for a Cloudflare verification page.");
@@ -36,6 +31,7 @@ function discoverShows(dateCode, venueCode) {
         const eventCode = String(child.EventCode || "");
         const sessionId = String(show.SessionId || "");
         const naturalKey = [venueCode, dateCode, show.ShowTimeCode, sessionId, eventCode].join(":");
+        const startAt = codeToDate(show.ShowDateTime).toISOString();
         const cutoffAt = codeToDate(show.CutOffDateTime).toISOString();
         shows.push({
           naturalKey,
@@ -54,8 +50,11 @@ function discoverShows(dateCode, venueCode) {
           format: child.EventDimension || "",
           attributes: show.Attributes || "",
           screenName: show.ScreenName || "",
+          startAt,
           cutoffAt,
-          captureAt: new Date(codeToDate(show.CutOffDateTime).getTime() - 60_000).toISOString(),
+          captureAt: new Date(new Date(startAt).getTime() + Number(captureStartAfterShowMinutes) * 60_000).toISOString(),
+          finalCaptureAt: new Date(new Date(cutoffAt).getTime() - 60_000).toISOString(),
+          seatLayoutUrl: `https://in.bookmyshow.com/movies/mdnp/seat-layout/${eventCode}/${venueCode}/${sessionId}/${dateCode}`,
           categories: (show.Categories || []).map((category) => ({
             name: category.PriceDesc || "Category",
             priceCode: category.PriceCode || "",
@@ -66,21 +65,6 @@ function discoverShows(dateCode, venueCode) {
     }
   }
   return { venueCode, dateCode, shows };
-}
-
-async function clickShow(show) {
-  const movieLink = document.querySelector(`a[href*="${CSS.escape(show.eventCode)}"]`);
-  if (!movieLink) throw new Error(`Movie ${show.eventCode} is no longer on the venue page`);
-  let scope = movieLink;
-  while (scope.parentElement && !Array.from(scope.querySelectorAll?.('[role="button"]') || []).some((button) => button.getAttribute("aria-label") === `Book ${show.showTimeLabel}`)) {
-    scope = scope.parentElement;
-  }
-  const button = Array.from(scope.querySelectorAll('[role="button"]')).find((item) => item.getAttribute("aria-label") === `Book ${show.showTimeLabel}`);
-  if (!button) throw new Error(`${show.showTimeLabel} booking button was not found`);
-  button.click();
-  await delay(500);
-  const continueButton = Array.from(document.querySelectorAll("button")).find((item) => /^Continue$/i.test(item.textContent.trim()));
-  continueButton?.click();
 }
 
 async function resumePendingCapture() {
@@ -97,7 +81,12 @@ async function resumePendingCapture() {
     const result = await captureSeats(pending);
     await chrome.runtime.sendMessage({ type: "CAPTURE_RESULT", result });
   } catch (error) {
-    await chrome.runtime.sendMessage({ type: "CAPTURE_ERROR", naturalKey: pending.naturalKey, error: error.message });
+    await chrome.runtime.sendMessage({
+      type: "CAPTURE_ERROR",
+      naturalKey: pending.naturalKey,
+      attemptId: pending.attemptId,
+      error: error.message
+    });
   }
 }
 
@@ -108,8 +97,8 @@ async function captureSeats(show) {
   accessibility.click();
   const quantity = await waitFor(() => document.querySelector('select[aria-label="Select number of tickets, required"]'), 20_000);
   setSelect(quantity, Array.from(quantity.options).find((option) => /1 Ticket/i.test(option.label))?.value);
-  const categorySelect = document.querySelector('select[aria-label="Select seat category"]');
-  const rowSelect = document.querySelector('select[aria-label="Select row"]');
+  const categorySelect = await waitFor(() => document.querySelector('select[aria-label="Select seat category"]'), 20_000);
+  const rowSelect = await waitFor(() => document.querySelector('select[aria-label="Select row"]'), 20_000);
   const categoryOptions = Array.from(categorySelect.options).filter((option) => option.value).map((option) => ({ value: option.value, label: option.label }));
   const categories = [];
 
@@ -144,7 +133,13 @@ async function captureSeats(show) {
   }
 
   const capturedAt = new Date().toISOString();
-  return { naturalKey: show.naturalKey, capturedAt, captureMinute: indiaCaptureMinute(capturedAt), categories };
+  return {
+    naturalKey: show.naturalKey,
+    attemptId: show.attemptId,
+    capturedAt,
+    captureMinute: indiaCaptureMinute(capturedAt),
+    categories
+  };
 }
 
 function extractAssignedJson(text) {

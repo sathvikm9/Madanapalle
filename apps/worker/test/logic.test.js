@@ -27,7 +27,7 @@ test("normalizes a local discovery for D1 using UTC-sortable timestamps", () => 
   const result = normalizeDiscovery(discoveryBody);
   assert.equal(result.shows[0].naturalKey, "SKMD:20260820:1100:6220:ET00510230");
   assert.equal(result.shows[0].startAt, "2026-08-20T05:30:00.000Z");
-  assert.equal(result.shows[0].captureAt, "2026-08-20T05:44:00.000Z");
+  assert.equal(result.shows[0].captureAt, "2026-08-20T05:40:00.000Z");
   assert.equal(result.shows[0].cutoffAt, "2026-08-20T05:45:00.000Z");
 });
 
@@ -43,7 +43,7 @@ test("normalizes Ravi using its live per-session cutoff", () => {
   });
   assert.equal(result.shows[0].naturalKey, "RTDM:20260820:1100:16642:ET00510230");
   assert.equal(result.shows[0].venueName, "Ravi A/C 4K Laser Dolby Surround 7.1: Madanapalle");
-  assert.equal(result.shows[0].captureAt, "2026-08-20T05:49:00.000Z");
+  assert.equal(result.shows[0].captureAt, "2026-08-20T05:45:00.000Z");
   assert.equal(result.shows[0].cutoffAt, "2026-08-20T05:50:00.000Z");
 });
 
@@ -65,7 +65,7 @@ test("server recalculates the capture with five rupees removed per category", ()
     id: 1,
     natural_key: "SKMD:20260820:1100:6220:ET00510230",
     is_current: 1,
-    capture_at: "2026-08-20T05:44:00.000Z",
+    capture_at: "2026-08-20T05:40:00.000Z",
     cutoff_at: "2026-08-20T05:45:00.000Z"
   };
   const result = normalizeCapture({
@@ -85,7 +85,7 @@ test("rejects captures with mismatched seat totals", () => {
   const show = {
     natural_key: "key",
     is_current: 1,
-    capture_at: "2026-08-20T05:44:00.000Z",
+    capture_at: "2026-08-20T05:40:00.000Z",
     cutoff_at: "2026-08-20T05:45:00.000Z"
   };
   assert.throws(() => normalizeCapture({
@@ -93,4 +93,23 @@ test("rejects captures with mismatched seat totals", () => {
     capturedAt: "2026-08-20T05:44:15.000Z",
     categories: [{ name: "Reserved", price: 105, capacity: 100, available: 60, sold: 39, unknown: 0 }]
   }, show, new Date("2026-08-20T05:44:16.000Z")), /do not match capacity/);
+});
+
+test("accepts a Sri Krishna backup at 11:10 and rejects anything earlier", () => {
+  const show = {
+    natural_key: "key",
+    is_current: 1,
+    capture_at: "2026-08-20T05:40:00.000Z",
+    cutoff_at: "2026-08-20T05:45:00.000Z"
+  };
+  const body = {
+    naturalKey: "key",
+    capturedAt: "2026-08-20T05:40:05.000Z",
+    categories: [{ name: "Reserved", price: 105, capacity: 100, available: 60, sold: 40, unknown: 0 }]
+  };
+  assert.equal(normalizeCapture(body, show, new Date("2026-08-20T05:40:06.000Z")).sold, 40);
+  assert.throws(
+    () => normalizeCapture({ ...body, capturedAt: "2026-08-20T05:39:59.000Z" }, show, new Date("2026-08-20T05:40:00.000Z")),
+    /configured booking window/
+  );
 });

@@ -18,7 +18,7 @@ test("local agent discovery is normalized and capture time is server-calculated"
     }]
   });
   assert.equal(show.naturalKey, "SKMD:20260820:1100:6220:ET00510230");
-  assert.equal(show.captureAt, "2026-08-20T05:44:00.000Z");
+  assert.equal(show.captureAt, "2026-08-20T05:40:00.000Z");
 });
 
 test("Ravi discovery uses its live BookMyShow cutoff", () => {
@@ -37,5 +37,5 @@ test("Ravi discovery uses its live BookMyShow cutoff", () => {
     }]
   });
   assert.equal(show.naturalKey, "RTDM:20260820:1100:16642:ET00510230");
-  assert.equal(show.captureAt, "2026-08-20T05:49:00.000Z");
+  assert.equal(show.captureAt, "2026-08-20T05:45:00.000Z");
 });

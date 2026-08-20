@@ -1,7 +1,7 @@
 import {
   bmsCodeToIso,
   calculateCollection,
-  captureAtFromCutoff,
+  captureAtFromStart,
   isoDateFromCode
 } from "@skct/core";
 import { venueForCode } from "./venues.js";
@@ -102,7 +102,7 @@ export function normalizeDiscovery(body) {
       showTimeLabel: requiredString(raw?.showTimeLabel, `shows[${index}].showTimeLabel`, 30),
       startAt,
       cutoffAt,
-      captureAt: captureAtFromCutoff(cutoffAt, venue.captureBeforeCutoffMinutes),
+      captureAt: captureAtFromStart(startAt, venue.captureStartAfterShowMinutes),
       sessionId,
       eventCode,
       movieTitle: requiredString(raw?.movieTitle, `shows[${index}].movieTitle`, 300),
@@ -131,7 +131,7 @@ export function normalizeCapture(body, show, receivedAt = new Date()) {
   const captureStart = new Date(show.capture_at);
   const cutoff = new Date(show.cutoff_at);
   if (capturedAt < captureStart || capturedAt >= cutoff) {
-    throw new RequestError("Capture was outside the final booking minute", 409, "outside_capture_window");
+    throw new RequestError("Capture was outside the configured booking window", 409, "outside_capture_window");
   }
   if (Math.abs(receivedAt.getTime() - capturedAt.getTime()) > 5 * 60_000) {
     throw new RequestError("Laptop clock differs from server time by more than five minutes", 409, "clock_skew");
@@ -172,6 +172,7 @@ export function normalizeCapture(body, show, receivedAt = new Date()) {
     capturedAt: capturedAt.toISOString(),
     receivedAt: receivedAt.toISOString(),
     captureMinute: String(body.captureMinute || capturedAt.toISOString().slice(0, 16)).slice(0, 50),
+    attemptId: body.attemptId ? String(body.attemptId).slice(0, 100) : null,
     source: "local-chrome-extension",
     rawHash: body.rawHash ? String(body.rawHash).slice(0, 128) : null
   };

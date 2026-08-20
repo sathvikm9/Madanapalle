@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   calculateCollection,
+  captureAtFromStart,
   captureAtFromCutoff,
   classifyScheduleChanges,
   extractAssignedJson,
@@ -21,6 +22,10 @@ test("subtracts exactly five rupees from each category price", () => {
 
 test("schedules capture one minute before the BookMyShow cutoff", () => {
   assert.equal(captureAtFromCutoff("2026-08-20T05:45:00.000Z", 1), "2026-08-20T05:44:00.000Z");
+});
+
+test("schedules an early backup from the show start", () => {
+  assert.equal(captureAtFromStart("2026-08-20T05:30:00.000Z", 10), "2026-08-20T05:40:00.000Z");
 });
 
 test("extracts JSON without being confused by braces inside strings", () => {
@@ -65,9 +70,9 @@ test("parses Sri Krishna session, cutoff, prices and direct seat URL", () => {
     venueCode: "SKMD",
     name: "Sri Krishna",
     fallbackCutoffMinutes: 15,
-    captureBeforeCutoffMinutes: 1
+    captureStartAfterShowMinutes: 10
   }, "20260820");
-  assert.equal(shows[0].captureAt, "2026-08-20T05:44:00.000Z");
+  assert.equal(shows[0].captureAt, "2026-08-20T05:40:00.000Z");
   assert.equal(shows[0].advertisedCategories[0].listPricePaise, 10_500);
   assert.match(shows[0].seatLayoutUrl, /ET001\/SKMD\/6220\/20260820$/);
 });
