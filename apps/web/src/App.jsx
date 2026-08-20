@@ -20,6 +20,9 @@ const number = new Intl.NumberFormat("en-IN");
 const dateTime = new Intl.DateTimeFormat("en-IN", {
   timeZone: "Asia/Kolkata", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit"
 });
+const displayDate = new Intl.DateTimeFormat("en-IN", {
+  timeZone: "Asia/Kolkata", day: "2-digit", month: "long", year: "numeric"
+});
 
 function StatusPill({ status }) {
   const labels = { completed: "Final", scheduled: "Scheduled", capturing: "Capturing", missed: "Missed", replaced: "Replaced", removed: "Removed" };
@@ -36,9 +39,9 @@ function Metric({ label, value, note, tone }) {
   );
 }
 
-function ShowCard({ show, showVenue }) {
+function ShowCard({ show }) {
   const [open, setOpen] = useState(false);
-  const netPrices = (show.snapshot?.categories || show.advertisedCategories || []).map((category) => ({
+  const prices = (show.snapshot?.categories || show.advertisedCategories || []).map((category) => ({
     name: category.name,
     list: category.listPricePaise,
     net: category.netPricePaise ?? Math.max(category.listPricePaise - 500, 0),
@@ -49,29 +52,38 @@ function ShowCard({ show, showVenue }) {
 
   return (
     <article className={`show-card ${!show.isCurrent ? "show-card--history" : ""}`}>
-      <div className="show-card__time">
-        <span>{show.showTime}</span>
+      <header className="show-card__header">
+        <div className="show-card__identity">
+          <span>{show.venueShortName || show.venueName || show.venueCode}</span>
+          <i aria-hidden="true">—</i>
+          <time>{show.showTime}</time>
+        </div>
         <StatusPill status={show.status} />
+      </header>
+
+      <div className="show-card__content">
+        <div className="show-card__movie">
+          <h3>{show.movieTitle}</h3>
+          <p>{[show.language, show.format].filter(Boolean).join(" · ") || "Details unavailable"}</p>
+        </div>
+
+        <div className={`show-card__result ${show.snapshot ? "" : "show-card__result--pending"}`}>
+          {show.snapshot ? (
+            <>
+              <div><span>Tickets</span><strong>{number.format(show.snapshot.sold)}</strong></div>
+              <div><span>Gross</span><strong>{money.format(show.snapshot.collectionPaise / 100)}</strong></div>
+            </>
+          ) : (
+            <div className="pending-copy">
+              <span>Capture window</span>
+              <strong>{dateTime.format(new Date(show.captureDueAt))}</strong>
+              <small>Final attempt {dateTime.format(new Date(show.finalCaptureDueAt || show.captureDueAt))}</small>
+            </div>
+          )}
+        </div>
       </div>
-      <div className="show-card__movie">
-        {showVenue && <p className="show-card__venue">{show.venueShortName || show.venueName || show.venueCode}</p>}
-        <h3>{show.movieTitle}</h3>
-        <p>{[show.language, show.format].filter(Boolean).join(" · ")} <span>Session {show.sessionId}</span></p>
-      </div>
-      <div className="show-card__result">
-        {show.snapshot ? (
-          <>
-            <div><strong>{number.format(show.snapshot.sold)}</strong><span>tickets</span></div>
-            <div><strong>{money.format(show.snapshot.collectionPaise / 100)}</strong><span>net collection</span></div>
-          </>
-        ) : (
-          <div className="pending-copy">
-            <strong>Backup begins {dateTime.format(new Date(show.captureDueAt))}</strong>
-            <span>Final attempt {dateTime.format(new Date(show.finalCaptureDueAt || show.captureDueAt))}</span>
-          </div>
-        )}
-      </div>
-      <div className="show-card__meta">
+
+      <footer className="show-card__meta">
         {show.snapshot ? (
           <span>Captured {dateTime.format(new Date(show.snapshot.capturedAt))} · {show.snapshot.occupancyPercent}% occupancy</span>
         ) : (
@@ -80,16 +92,16 @@ function ShowCard({ show, showVenue }) {
         <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
           {open ? "Hide breakdown" : "Price breakdown"}
         </button>
-      </div>
+      </footer>
       {open && (
         <div className="price-table" role="region" aria-label={`${show.showTime} price breakdown`}>
-          <div className="price-table__head"><span>Class</span><span>Listed → counted</span><span>Sold</span><span>Collection</span></div>
-          {netPrices.map((category) => (
+          <div className="price-table__head"><span>Class</span><span>Listed → MC adjusted</span><span>Sold</span><span>Gross</span></div>
+          {prices.map((category) => (
             <div className="price-table__row" key={category.name}>
-              <span>{category.name}</span>
-              <span>{money.format(category.list / 100)} → {money.format(category.net / 100)}</span>
-              <span>{category.sold ?? "—"}{category.capacity ? ` / ${category.capacity}` : ""}</span>
-              <span>{category.collection == null ? "—" : money.format(category.collection / 100)}</span>
+              <span data-label="Class">{category.name}</span>
+              <span data-label="Price">{money.format(category.list / 100)} → {money.format(category.net / 100)}</span>
+              <span data-label="Sold">{category.sold ?? "—"}{category.capacity ? ` / ${category.capacity}` : ""}</span>
+              <span data-label="Gross">{category.collection == null ? "—" : money.format(category.collection / 100)}</span>
             </div>
           ))}
         </div>
@@ -132,6 +144,9 @@ export default function App() {
   }, [selectedDate, selectedVenue]);
 
   const currentShows = useMemo(() => data?.shows?.filter((show) => show.isCurrent) || [], [data]);
+  const capturedShows = useMemo(() => currentShows.filter((show) => show.snapshot).length, [currentShows]);
+  const selectedVenueName = data?.venue?.shortName || THEATRE_OPTIONS.find((venue) => venue.code === selectedVenue)?.shortName;
+  const missedNote = `${data?.summary?.missedShows || 0} missed · ${data?.summary?.totalShows || 0} total`;
 
   return (
     <div className="app-shell">
@@ -144,21 +159,18 @@ export default function App() {
       </header>
 
       <main>
-        <section className="hero">
-          <div>
-            <p className="eyebrow">{data?.venue?.shortName || THEATRE_OPTIONS.find((venue) => venue.code === selectedVenue)?.shortName} · {selectedVenue}</p>
-            <h1>Every show, closed with a final count.</h1>
-            <p className="hero__copy">An early backup protects every show, followed by a final attempt before BookMyShow closes. Every listed ticket price is counted after subtracting ₹5.</p>
-          </div>
-          <div className="date-control">
-            <label htmlFor="theatre">Select theatre</label>
+        <section className="date-control" aria-label="Dashboard filters">
+          <div className="control-field">
+            <label htmlFor="theatre">Theatre</label>
             <select id="theatre" value={selectedVenue} onChange={(event) => setSelectedVenue(event.target.value)}>
               {THEATRE_OPTIONS.map((venue) => <option key={venue.code} value={venue.code}>{venue.shortName}</option>)}
             </select>
+          </div>
+          <div className="control-field">
             <label htmlFor="show-date">Show date</label>
             <input id="show-date" type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
-            <button type="button" onClick={load} disabled={loading}>{loading ? "Refreshing…" : "Refresh now"}</button>
           </div>
+          <button type="button" onClick={load} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>
         </section>
 
         {inDemoMode && <div className="notice notice--demo">Demo preview — these are illustrative numbers, not live BookMyShow data.</div>}
@@ -168,21 +180,21 @@ export default function App() {
           <>
             <section className="metrics" aria-label="Daily totals">
               <Metric label="Final tickets" value={number.format(data.summary.ticketsSold)} note={`${data.summary.finalizedShows} of ${data.summary.totalShows} shows finalized`} tone="ink" />
-              <Metric label="Net collection" value={money.format(data.summary.collectionPaise / 100)} note="₹5 removed per sold ticket" tone="red" />
+              <Metric label="Gross" value={money.format(data.summary.collectionPaise / 100)} note="₹5 MC adjusted per ticket" tone="red" />
               <Metric label="Final occupancy" value={`${data.summary.occupancyPercent}%`} note={`${number.format(data.summary.capacity)} finalized seats`} />
-              <Metric label="Still pending" value={data.summary.pendingShows} note={data.summary.missedShows ? `${data.summary.missedShows} capture missed` : "Collector is watching"} />
+              <Metric label="Shows captured" value={capturedShows} note={missedNote} />
             </section>
 
             <section className="section-heading">
-              <div><p className="eyebrow">Show ledger</p><h2>{selectedDate}</h2></div>
-              <p>Updated {dateTime.format(new Date(data.generatedAt))}</p>
+              <div><p className="eyebrow">{selectedVenueName}</p><h1>{displayDate.format(new Date(`${selectedDate}T12:00:00+05:30`))}</h1></div>
+              <p><span className="updated-dot" />Updated {dateTime.format(new Date(data.generatedAt))}</p>
             </section>
 
             <section className="show-list" aria-live="polite">
               {currentShows.length ? currentShows.map((show) => (
-                <ShowCard key={show.id} show={show} showVenue={selectedVenue === "ALL"} />
+                <ShowCard key={show.id} show={show} />
               )) : (
-                <div className="empty"><strong>No shows discovered for this date.</strong><span>The collector checks today and tomorrow automatically.</span></div>
+                <div className="empty"><strong>No shows found for this date.</strong><span>Choose another date or refresh the dashboard.</span></div>
               )}
             </section>
 
@@ -203,8 +215,8 @@ export default function App() {
         )}
       </main>
 
-      <footer>
-        <span>Asia/Kolkata time · ₹5 net adjustment per ticket</span>
+      <footer className="site-footer">
+        <span>Asia/Kolkata time · ₹5 MC adjusted per ticket</span>
         <span>Source: BookMyShow seat availability</span>
       </footer>
     </div>
