@@ -1,0 +1,20 @@
+{
+  "timezone": "Asia/Kolkata",
+  "city": {
+    "name": "Madanapalle",
+    "regionCode": "MDNP",
+    "slug": "mdnp"
+  },
+  "venues": [
+    {
+      "name": "Sri Krishna A/C 4K Dolby Atmos: Madanapalle",
+      "shortName": "Sri Krishna",
+      "venueCode": "SKMD",
+      "slug": "sri-krishna-a-c-4k-dolby-atmos-madanapalle",
+      "platform": "bookmyshow",
+      "captureBeforeCutoffMinutes": 1,
+      "fallbackCutoffMinutes": 15,
+      "active": true
+    }
+  ]
+}

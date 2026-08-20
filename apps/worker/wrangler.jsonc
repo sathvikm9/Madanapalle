@@ -1,0 +1,25 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "sri-krishna-tracker-api",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-19",
+  "workers_dev": true,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "vars": {
+    "CORS_ORIGINS": "http://localhost:5173,https://sathvikm9.github.io"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sri-krishna-tracker",
+      "database_id": "4cb63b7b-f6dd-4d97-9458-45d44d300e9b",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "triggers": {
+    "crons": ["* * * * *"]
+  }
+}

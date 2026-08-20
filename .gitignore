@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.DS_Store
+playwright-data/
+test-results/
+coverage/
+npm-debug.log*
+.wrangler/
+apps/worker/dist/
+.dev.vars

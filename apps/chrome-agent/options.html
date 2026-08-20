@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Sri Krishna Capture Agent</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Local browser collector</p>
+      <h1>Sri Krishna Capture Agent</h1>
+      <p class="intro">This extension keeps a normal BookMyShow tab open in Chrome, discovers schedule changes, and reads the final seat state without relying on a cloud scraper.</p>
+      <form id="settings">
+        <label>API base URL<input id="apiBase" type="url" placeholder="https://tracker-api.example.com" required /></label>
+        <label>Capture agent token<input id="agentToken" type="password" autocomplete="off" required /></label>
+        <label class="toggle"><input id="enabled" type="checkbox" /><span>Enable automatic discovery and final capture</span></label>
+        <div class="actions"><button type="submit">Save settings</button><button id="test" type="button" class="secondary">Save and test now</button></div>
+      </form>
+      <section><h2>Agent status</h2><div id="status" class="status">Not configured yet.</div></section>
+      <aside><strong>Keep Chrome running.</strong> The pinned BookMyShow tab may ask for a Cloudflare check. Complete it manually if prompted; the agent will reuse that browser session.</aside>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>
