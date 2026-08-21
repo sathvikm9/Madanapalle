@@ -48,7 +48,8 @@ function normalizeAdvertisedCategories(categories) {
   return categories.map((category, index) => ({
     name: requiredString(category?.name, `categories[${index}].name`, 100),
     priceCode: String(category?.priceCode || "").slice(0, 100),
-    listPricePaise: safeInteger(category?.listPricePaise, `categories[${index}].listPricePaise`, 100_000)
+    listPricePaise: safeInteger(category?.listPricePaise, `categories[${index}].listPricePaise`, 100_000),
+    availabilityStatus: String(category?.availabilityStatus ?? "").slice(0, 20)
   }));
 }
 
@@ -182,6 +183,45 @@ export function normalizeCapture(body, show, receivedAt = new Date()) {
   if (calculated.categories.some((category) => category.listPricePaise <= 0 || category.listPricePaise > 100_000)) {
     throw new RequestError("Capture contained an invalid ticket price");
   }
+  const venue = venueForCode(show.venue_code);
+  if (venue?.platform === "bookmyshow") {
+    const expected = venue.layoutCategories || [];
+    const actual = new Map(calculated.categories.map((category) => [category.name.trim().toUpperCase(), category.capacity]));
+    if (actual.size !== expected.length || expected.some((category) => actual.get(category.name) !== category.capacity)) {
+      throw new RequestError(`Capture did not match the verified ${venue.shortName} seating layout`);
+    }
+  }
+
+  let source = "local-chrome-extension";
+  if (body.housefullEvidence != null) {
+    const evidence = body.housefullEvidence;
+    if (!evidence || evidence.noTicketOptions !== true || evidence.seatMapVerified !== true) {
+      throw new RequestError("Housefull capture did not include verified BookMyShow seat-map evidence");
+    }
+    if (safeInteger(evidence.confirmationCount, "housefullEvidence.confirmationCount", 10) < 2) {
+      throw new RequestError("Housefull capture requires two independent observations");
+    }
+    const firstObservedAt = new Date(requiredString(evidence.firstObservedAt, "housefullEvidence.firstObservedAt", 50));
+    if (!Number.isFinite(firstObservedAt.getTime()) || firstObservedAt < captureStart || firstObservedAt >= capturedAt) {
+      throw new RequestError("Housefull first observation was outside the capture window");
+    }
+    const confirmationGap = capturedAt.getTime() - firstObservedAt.getTime();
+    if (confirmationGap < 15_000 || confirmationGap > 5 * 60_000) {
+      throw new RequestError("Housefull observations must be 15 seconds to five minutes apart");
+    }
+    if (calculated.available !== 0 || calculated.unknown !== 0 || calculated.sold !== calculated.capacity) {
+      throw new RequestError("Housefull capture did not prove that every exposed seat was sold");
+    }
+    const signature = JSON.stringify(calculated.categories.map((category) => ({
+      name: category.name.trim().toUpperCase(),
+      price: category.listPricePaise / 100,
+      capacity: category.capacity
+    })));
+    if (requiredString(evidence.layoutSignature, "housefullEvidence.layoutSignature", 2_000) !== signature) {
+      throw new RequestError("Housefull layout changed between the browser and server checks");
+    }
+    source = "local-chrome-extension-housefull";
+  }
 
   return {
     naturalKey,
@@ -190,7 +230,7 @@ export function normalizeCapture(body, show, receivedAt = new Date()) {
     receivedAt: receivedAt.toISOString(),
     captureMinute: String(body.captureMinute || capturedAt.toISOString().slice(0, 16)).slice(0, 50),
     attemptId: body.attemptId ? String(body.attemptId).slice(0, 100) : null,
-    source: "local-chrome-extension",
+    source,
     rawHash: body.rawHash ? String(body.rawHash).slice(0, 128) : null
   };
 }

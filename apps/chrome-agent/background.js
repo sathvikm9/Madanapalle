@@ -144,9 +144,36 @@ async function handleMessage(message) {
     if (!pending || pending.attemptId !== message.result.attemptId) {
       throw new Error("Capture result did not match the active attempt");
     }
+    const result = { ...message.result };
+    if (result.housefullEvidence) {
+      const state = await getCaptureState(pending.naturalKey);
+      const observedAt = new Date(result.capturedAt).getTime();
+      const firstObservedAt = new Date(state.housefullCandidateAt || 0).getTime();
+      const sameLayout = state.housefullCandidateSignature === result.housefullEvidence.layoutSignature;
+      const independentlyConfirmed = sameLayout && Number.isFinite(firstObservedAt) &&
+        observedAt - firstObservedAt >= 15_000 && observedAt - firstObservedAt <= 5 * 60_000;
+      if (!independentlyConfirmed) {
+        await removePending(pending.naturalKey);
+        await chrome.alarms.clear(`watchdog:${encodeURIComponent(pending.naturalKey)}`);
+        await updateCaptureState(pending.naturalKey, {
+          housefullCandidateAt: result.capturedAt,
+          housefullCandidateSignature: result.housefullEvidence.layoutSignature,
+          lastError: null
+        });
+        await scheduleShow(pending);
+        const venue = venueFor(pending.venueCode);
+        await recordSuccess(`Housefull signal found for ${venue.shortName} ${pending.showTimeLabel}; confirming again`);
+        return { ok: true, pendingHousefullConfirmation: true };
+      }
+      result.housefullEvidence = {
+        ...result.housefullEvidence,
+        confirmationCount: 2,
+        firstObservedAt: state.housefullCandidateAt
+      };
+    }
     let saved;
     try {
-      saved = await apiPost("/api/agent/capture", message.result);
+      saved = await apiPost("/api/agent/capture", result);
     } catch (error) {
       await failCapture(pending, error, "upload_capture");
       return { ok: false, error: error.message };
@@ -154,18 +181,21 @@ async function handleMessage(message) {
     await removePending(pending.naturalKey);
     await chrome.alarms.clear(`watchdog:${encodeURIComponent(pending.naturalKey)}`);
     await updateCaptureState(pending.naturalKey, {
-      lastSuccessAt: message.result.capturedAt,
-      lastError: null
+      lastSuccessAt: result.capturedAt,
+      lastError: null,
+      housefullCandidateAt: null,
+      housefullCandidateSignature: null
     });
     await scheduleShow(pending);
     const venue = venueFor(pending.venueCode);
-    const isFinalWindow = new Date(message.result.capturedAt).getTime() >= finalCaptureAt(pending);
+    const isFinalWindow = new Date(result.capturedAt).getTime() >= finalCaptureAt(pending);
+    const captureKind = result.housefullEvidence ? "Verified housefull" : (isFinalWindow ? "Final" : "Backup");
     await recordSuccess(
-      `${isFinalWindow ? "Final" : "Backup"} capture ${venue.shortName} ${pending.showTimeLabel}: ${saved.sold} tickets`,
+      `${captureKind} capture ${venue.shortName} ${pending.showTimeLabel}: ${saved.sold} tickets`,
       { lastCapture: saved }
     );
     await notify(
-      `${isFinalWindow ? "Final" : "Backup"} capture uploaded`,
+      `${captureKind} capture uploaded`,
       `${venue.shortName} · ${pending.showTimeLabel} · ${saved.sold} tickets · ₹${Math.round(saved.collectionPaise / 100).toLocaleString("en-IN")}`
     );
     return { ok: true };

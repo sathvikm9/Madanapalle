@@ -127,6 +127,49 @@ test("rejects captures with mismatched seat totals", () => {
   }, show, new Date("2026-08-20T05:44:16.000Z")), /do not match capacity/);
 });
 
+test("accepts only a twice-confirmed BookMyShow housefull seat map", () => {
+  const show = {
+    natural_key: "RTDM:20260821:0730:16648:ET00487933",
+    venue_code: "RTDM",
+    is_current: 1,
+    capture_at: "2026-08-21T02:15:00.000Z",
+    cutoff_at: "2026-08-21T02:20:00.000Z"
+  };
+  const categories = [
+    { name: "BALCONY", price: 105, capacity: 132, available: 0, sold: 132, unknown: 0 },
+    { name: "RESERVED", price: 105, capacity: 213, available: 0, sold: 213, unknown: 0 },
+    { name: "FIRST CLASS", price: 105, capacity: 112, available: 0, sold: 112, unknown: 0 },
+    { name: "SECOND CLASS", price: 84, capacity: 180, available: 0, sold: 180, unknown: 0 }
+  ];
+  const layoutSignature = JSON.stringify(categories.map(({ name, price, capacity }) => ({ name, price, capacity })));
+  const body = {
+    naturalKey: show.natural_key,
+    capturedAt: "2026-08-21T02:16:05.000Z",
+    categories,
+    housefullEvidence: {
+      noTicketOptions: true,
+      seatMapVerified: true,
+      confirmationCount: 2,
+      firstObservedAt: "2026-08-21T02:15:20.000Z",
+      layoutSignature
+    }
+  };
+  const result = normalizeCapture(body, show, new Date("2026-08-21T02:16:06.000Z"));
+  assert.equal(result.source, "local-chrome-extension-housefull");
+  assert.equal(result.sold, 637);
+  assert.equal(result.collectionPaise, 5_992_000);
+  assert.equal(result.occupancyPercent, 100);
+
+  assert.throws(() => normalizeCapture({
+    ...body,
+    housefullEvidence: { ...body.housefullEvidence, confirmationCount: 1 }
+  }, show, new Date("2026-08-21T02:16:06.000Z")), /two independent observations/);
+  assert.throws(() => normalizeCapture({
+    ...body,
+    categories: [{ ...categories[0], available: 1, sold: 131 }, ...categories.slice(1)]
+  }, show, new Date("2026-08-21T02:16:06.000Z")), /every exposed seat was sold/);
+});
+
 test("accepts a Sri Krishna backup at 11:10 and rejects anything earlier", () => {
   const show = {
     natural_key: "key",

@@ -5,6 +5,10 @@ export const VENUES = Object.freeze([
     shortName: "Sri Krishna",
     slug: "sri-krishna-a-c-4k-dolby-atmos-madanapalle",
     platform: "bookmyshow",
+    layoutCategories: Object.freeze([
+      Object.freeze({ name: "RESERVED CLASS", capacity: 493 }),
+      Object.freeze({ name: "SECOND CLASS", capacity: 164 })
+    ]),
     timezone: "Asia/Kolkata",
     captureStartAfterShowMinutes: 10
   }),
@@ -24,6 +28,12 @@ export const VENUES = Object.freeze([
     shortName: "Ravi",
     slug: "ravi-a-c-4k-laser-dolby-surround-71-madanapalle",
     platform: "bookmyshow",
+    layoutCategories: Object.freeze([
+      Object.freeze({ name: "BALCONY", capacity: 132 }),
+      Object.freeze({ name: "RESERVED", capacity: 213 }),
+      Object.freeze({ name: "FIRST CLASS", capacity: 112 }),
+      Object.freeze({ name: "SECOND CLASS", capacity: 180 })
+    ]),
     timezone: "Asia/Kolkata",
     captureStartAfterShowMinutes: 15
   }),
@@ -33,6 +43,10 @@ export const VENUES = Object.freeze([
     shortName: "ASR",
     slug: "asr-a-c-4k-laser-dolby-surround-71-madanapalle",
     platform: "bookmyshow",
+    layoutCategories: Object.freeze([
+      Object.freeze({ name: "RESERVED", capacity: 386 }),
+      Object.freeze({ name: "SECOND CLASS", capacity: 134 })
+    ]),
     timezone: "Asia/Kolkata",
     captureStartAfterShowMinutes: 10
   })

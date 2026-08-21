@@ -70,7 +70,8 @@ function discoverShows(dateCode, venueCode, captureStartAfterShowMinutes = 10) {
           categories: (show.Categories || []).map((category) => ({
             name: category.PriceDesc || "Category",
             priceCode: category.PriceCode || "",
-            listPricePaise: Math.round(Number(category.CurPrice || 0) * 100)
+            listPricePaise: Math.round(Number(category.CurPrice || 0) * 100),
+            availabilityStatus: String(category.AvailStatus ?? "")
           }))
         });
       }
@@ -120,11 +121,13 @@ async function captureSeats(show) {
   const accessibility = await waitFor(() => document.querySelector('button[aria-label="Open accessibility seat selection"]'), 20_000);
   accessibility.click();
   const quantity = await waitFor(() => document.querySelector('select[aria-label="Select number of tickets, required"]'), 20_000);
-  setSelect(quantity, singleTicketOption(quantity)?.value);
+  const ticketOption = globalThis.SKCTBookMyShow.singleTicketOption(quantity);
+  const noTicketOptions = globalThis.SKCTBookMyShow.enabledTicketOptions(quantity).length === 0;
+  if (ticketOption) setSelect(quantity, ticketOption.value);
   const categorySelect = await waitFor(() => document.querySelector('select[aria-label="Select seat category"]'), 20_000);
   const rowSelect = await waitFor(() => document.querySelector('select[aria-label="Select row"]'), 20_000);
   const categoryOptions = Array.from(categorySelect.options).filter((option) => option.value).map((option) => ({ value: option.value, label: option.label }));
-  const categories = [];
+  const observedCategories = [];
 
   for (const category of categoryOptions) {
     setSelect(categorySelect, category.value);
@@ -146,7 +149,7 @@ async function captureSeats(show) {
       }
     }
     const price = Number((category.label.match(/₹\s*([\d.]+)/) || [])[1] || 0);
-    categories.push({
+    observedCategories.push({
       name: category.label.replace(/\s*-\s*₹.*$/, "").trim(),
       price,
       capacity,
@@ -157,21 +160,29 @@ async function captureSeats(show) {
   }
 
   const capturedAt = new Date().toISOString();
+  const categories = globalThis.SKCTBookMyShow.completeFromVerifiedLayout(
+    show.venueCode,
+    show.categories,
+    observedCategories
+  );
+  const fullySold = globalThis.SKCTBookMyShow.isFullySold(categories);
+  if (noTicketOptions && !fullySold) {
+    throw new Error("BookMyShow removed ticket quantities, but the exposed seat map was not completely sold out");
+  }
   return {
     naturalKey: show.naturalKey,
     attemptId: show.attemptId,
     capturedAt,
     captureMinute: indiaCaptureMinute(capturedAt),
-    categories
+    categories,
+    ...(noTicketOptions ? {
+      housefullEvidence: {
+        noTicketOptions: true,
+        seatMapVerified: true,
+        layoutSignature: globalThis.SKCTBookMyShow.layoutSignature(categories)
+      }
+    } : {})
   };
-}
-
-function singleTicketOption(select) {
-  const options = Array.from(select.options).filter((option) => option.value && !option.disabled);
-  return options.find((option) => {
-    const text = `${option.label || ""} ${option.textContent || ""}`.trim();
-    return option.value === "1" || Number(option.value) === 1 || /(^|\D)1(\D|$)/.test(text);
-  }) || options[0];
 }
 
 function extractAssignedJson(text) {
