@@ -48,7 +48,7 @@ export const VENUES = Object.freeze([
       Object.freeze({ name: "SECOND CLASS", capacity: 134 })
     ]),
     timezone: "Asia/Kolkata",
-    captureStartAfterShowMinutes: 10
+    captureStartAfterShowMinutes: 15
   })
 ]);
 

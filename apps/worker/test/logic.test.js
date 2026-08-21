@@ -47,15 +47,19 @@ test("normalizes Ravi using its live per-session cutoff", () => {
   assert.equal(result.shows[0].cutoffAt, "2026-08-20T05:50:00.000Z");
 });
 
-test("normalizes ASR with the Sri Krishna capture window", () => {
+test("normalizes ASR with a 15-minute backup and live 20-minute cutoff", () => {
   const result = normalizeDiscovery({
     ...discoveryBody,
     venueCode: "ASRM",
-    shows: [{ ...discoveryBody.shows[0], sessionId: "7720" }]
+    shows: [{
+      ...discoveryBody.shows[0],
+      sessionId: "7720",
+      cutoffDateTime: "202608201120"
+    }]
   });
   assert.equal(result.shows[0].venueName, "ASR A/C 4K Laser Dolby Surround 7.1: Madanapalle");
-  assert.equal(result.shows[0].captureAt, "2026-08-20T05:40:00.000Z");
-  assert.equal(result.shows[0].cutoffAt, "2026-08-20T05:45:00.000Z");
+  assert.equal(result.shows[0].captureAt, "2026-08-20T05:45:00.000Z");
+  assert.equal(result.shows[0].cutoffAt, "2026-08-20T05:50:00.000Z");
 });
 
 test("normalizes Sai Chitra TicketNew discovery and validates its cinema URL", () => {

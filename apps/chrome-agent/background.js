@@ -28,7 +28,7 @@ const VENUES = [
     shortName: "ASR",
     slug: "asr-a-c-4k-laser-dolby-surround-71-madanapalle",
     platform: "bookmyshow",
-    captureStartAfterShowMinutes: 10
+    captureStartAfterShowMinutes: 15
   }
 ];
 const VENUE_BY_CODE = Object.fromEntries(VENUES.map((venue) => [venue.venueCode, venue]));
