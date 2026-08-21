@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { demoDashboard } from "./demo.js";
+import { groupShowsByMovie, sortMovieGroups } from "./movieGroups.js";
 
 const API_BASE = (import.meta.env.VITE_API_BASE || "http://localhost:8787").replace(/\/$/, "");
 const inDemoMode = new URLSearchParams(window.location.search).get("demo") === "1";
@@ -112,12 +113,76 @@ function ShowCard({ show }) {
   );
 }
 
+function MovieCard({ movie }) {
+  const [open, setOpen] = useState(false);
+  const complete = movie.finalizedShows === movie.shows.length;
+  const progressLabel = complete ? "Complete" : movie.missedShows ? "Partial" : "In progress";
+  const progressTone = complete ? "complete" : movie.missedShows ? "attention" : "progress";
+
+  return (
+    <article className="movie-card">
+      <div className="movie-card__main">
+        <div className="movie-card__title">
+          <div className="movie-card__title-row">
+            <span className={`movie-progress movie-progress--${progressTone}`}>{progressLabel}</span>
+            <span className="movie-card__count">{movie.capturedShows} of {movie.shows.length} shows captured</span>
+          </div>
+          <h3>{movie.movieTitle}</h3>
+          <p>{[movie.language, movie.format].filter(Boolean).join(" · ") || "Details unavailable"}</p>
+          <div className="movie-card__badges" aria-label="Movie capture status">
+            {movie.finalizedShows > 0 && <span>{movie.finalizedShows} final</span>}
+            {movie.missedShows > 0 && <span className="is-missed">{movie.missedShows} missed</span>}
+            {movie.pendingShows > 0 && <span className="is-pending">{movie.pendingShows} pending</span>}
+          </div>
+        </div>
+
+        <div className="movie-card__totals">
+          <div><span>Tickets</span><strong>{number.format(movie.ticketsSold)}</strong></div>
+          <div><span>Gross</span><strong>{money.format(movie.collectionPaise / 100)}</strong></div>
+        </div>
+      </div>
+
+      <footer className="movie-card__footer">
+        <span>
+          {movie.capturedShows
+            ? `${movie.occupancyPercent}% occupancy across ${number.format(movie.capacity)} captured seats`
+            : "No capture available yet"}
+        </span>
+        <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
+          {open ? "Hide theatres" : "Theatre breakdown"}
+        </button>
+      </footer>
+
+      {open && (
+        <div className="movie-breakdown" role="region" aria-label={`${movie.movieTitle} theatre breakdown`}>
+          <div className="movie-breakdown__head">
+            <span>Theatre &amp; show</span><span>Status</span><span>Tickets</span><span>Gross</span>
+          </div>
+          {movie.shows.map((show) => (
+            <div className="movie-breakdown__row" key={show.id}>
+              <div className="movie-breakdown__show">
+                <strong>{show.venueShortName || show.venueName || show.venueCode}</strong>
+                <time>{show.showTime}</time>
+              </div>
+              <div data-label="Status"><StatusPill status={show.status} /></div>
+              <span data-label="Tickets">{show.snapshot ? number.format(show.snapshot.sold) : "—"}</span>
+              <strong data-label="Gross">{show.snapshot ? money.format(show.snapshot.collectionPaise / 100) : "—"}</strong>
+            </div>
+          ))}
+        </div>
+      )}
+    </article>
+  );
+}
+
 export default function App() {
   const [selectedDate, setSelectedDate] = useState(indiaToday());
   const [selectedVenue, setSelectedVenue] = useState("ALL");
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [viewMode, setViewMode] = useState("shows");
+  const [movieSort, setMovieSort] = useState("gross");
 
   async function load() {
     setLoading(true);
@@ -146,6 +211,10 @@ export default function App() {
   }, [selectedDate, selectedVenue]);
 
   const currentShows = useMemo(() => data?.shows?.filter((show) => show.isCurrent) || [], [data]);
+  const movieGroups = useMemo(
+    () => sortMovieGroups(groupShowsByMovie(currentShows), movieSort),
+    [currentShows, movieSort]
+  );
   const capturedShows = useMemo(() => currentShows.filter((show) => show.snapshot).length, [currentShows]);
   const selectedVenueName = data?.venue?.shortName || THEATRE_OPTIONS.find((venue) => venue.code === selectedVenue)?.shortName;
   const missedNote = `${data?.summary?.missedShows || 0} missed · ${data?.summary?.totalShows || 0} total`;
@@ -192,10 +261,31 @@ export default function App() {
               <p><span className="updated-dot" />Updated {dateTime.format(new Date(data.generatedAt))}</p>
             </section>
 
-            <section className="show-list" aria-live="polite">
-              {currentShows.length ? currentShows.map((show) => (
-                <ShowCard key={show.id} show={show} />
-              )) : (
+            <section className="view-toolbar" aria-label="Results view options">
+              <div className="view-switch" role="group" aria-label="View by">
+                <span>View by</span>
+                <button type="button" className={viewMode === "shows" ? "is-active" : ""} aria-pressed={viewMode === "shows"} onClick={() => setViewMode("shows")}>Shows</button>
+                <button type="button" className={viewMode === "movies" ? "is-active" : ""} aria-pressed={viewMode === "movies"} onClick={() => setViewMode("movies")}>Movies</button>
+              </div>
+              {viewMode === "movies" && movieGroups.length > 1 && (
+                <label className="movie-sort">
+                  <span>Sort</span>
+                  <select value={movieSort} onChange={(event) => setMovieSort(event.target.value)}>
+                    <option value="gross">Highest gross</option>
+                    <option value="tickets">Most tickets</option>
+                    <option value="earliest">Earliest show</option>
+                    <option value="name">Movie name</option>
+                  </select>
+                </label>
+              )}
+            </section>
+
+            <section className={viewMode === "movies" ? "movie-list" : "show-list"} aria-live="polite">
+              {currentShows.length ? (
+                viewMode === "movies"
+                  ? movieGroups.map((movie) => <MovieCard key={movie.key} movie={movie} />)
+                  : currentShows.map((show) => <ShowCard key={show.id} show={show} />)
+              ) : (
                 <div className="empty"><strong>No shows found for this date.</strong><span>Choose another date or refresh the dashboard.</span></div>
               )}
             </section>
