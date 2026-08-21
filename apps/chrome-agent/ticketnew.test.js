@@ -69,3 +69,31 @@ test("captures sold seats from TicketNew per-class availability", () => {
   ]);
   assert.equal(result.attemptId, "attempt");
 });
+
+test("uses the TicketNew movie catalogue when a sold-out session is omitted from grouped metadata", () => {
+  const soldOutState = structuredClone(state);
+  const payload = soldOutState.props.pageProps.data.serverState.cinemaSessions["49032026-08-21"];
+  payload.meta.movies = [];
+  payload.pageData.sessions.push({
+    ...payload.pageData.sessions[0],
+    sid: "sold_out_session",
+    showTime: "2026-08-21T15:45",
+    closeTime: "2026-08-21T16:00",
+    areas: payload.pageData.sessions[0].areas.map((area) => ({ ...area, sAvail: 0 }))
+  });
+  payload.pageData.arrangedSessions[0].sessions = [{ sid: "screen__session" }];
+  soldOutState.props.pageProps.data.serverState.currentlyRunningMovies = {
+    madanapalle: { data: { movies: [{ id: "MOV1", name: "Irumudi", label: "Irumudi", lang: "Telugu" }] } }
+  };
+
+  const result = discover(
+    soldOutState,
+    venue,
+    "20260821",
+    "https://ticketnew.com/movies/madanapalle/sai-chitra/4903"
+  );
+  const soldOut = result.shows.find((show) => show.sessionId === "sold_out_session");
+  assert.equal(soldOut.movieTitle, "Irumudi");
+  assert.equal(soldOut.movieVariant, "Irumudi");
+  assert.equal(soldOut.eventCode, "MOV1");
+});

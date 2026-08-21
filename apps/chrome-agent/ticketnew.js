@@ -11,8 +11,8 @@
 
   function discover(state, venue, dateCode, pageUrl) {
     const payload = cinemaPayload(state, venue.cinemaId, dateCode);
-    const sessions = payload.pageData?.sessions || [];
-    const sessionDetails = sessionMetadata(payload);
+    const sessions = sessionList(payload);
+    const sessionDetails = sessionMetadata(payload, state);
     const shows = [];
 
     for (const session of sessions) {
@@ -24,6 +24,9 @@
       const metadata = sessionDetails.get(String(session.sid)) || {};
       const eventCode = String(session.mid || metadata.eventCode || metadata.contentId || "movie");
       const sessionId = String(session.sid || "");
+      if (!metadata.movieTitle) {
+        throw new Error(`TicketNew did not expose a movie title for session ${sessionId || eventCode}`);
+      }
       const showTimeCode = `${local.hour}${local.minute}`;
       const naturalKey = [venue.venueCode, dateCode, showTimeCode, sessionId, eventCode].join(":");
 
@@ -40,8 +43,8 @@
         cutoffDateTime: indiaDateTimeCode(cutoff),
         showTimeCode,
         showTimeLabel: indiaTimeLabel(start),
-        movieTitle: metadata.movieTitle || eventCode,
-        movieVariant: metadata.movieVariant || metadata.movieTitle || eventCode,
+        movieTitle: metadata.movieTitle,
+        movieVariant: metadata.movieVariant || metadata.movieTitle,
         language: session.lang || metadata.language || "",
         format: session.scrnFmt || "",
         attributes: (session.gnrs || []).join(", "),
@@ -60,7 +63,7 @@
 
   function capture(state, show, capturedAt = new Date()) {
     const payload = cinemaPayload(state, show.cinemaId || 4903, show.dateCode);
-    const sessions = payload.pageData?.sessions || [];
+    const sessions = sessionList(payload);
     const session = sessions.find((candidate) => String(candidate.sid) === String(show.sessionId));
     if (!session) throw new Error(`TicketNew session ${show.sessionId} is no longer listed`);
 
@@ -95,35 +98,79 @@
     const payload = sessions[`${cinemaId}${date}`] || Object.values(sessions).find((item) => (
       String(item?.meta?.cinema?.id) === String(cinemaId)
     ));
-    if (!payload?.pageData) throw new Error(`No TicketNew schedule was found for cinema ${cinemaId} on ${date}`);
+    if (!payload || (!payload.pageData && !Array.isArray(payload.arrangedSessions))) {
+      throw new Error(`No TicketNew schedule was found for cinema ${cinemaId} on ${date}`);
+    }
     return payload;
   }
 
-  function sessionMetadata(payload) {
+  function sessionList(payload) {
+    const direct = payload.pageData?.sessions;
+    if (Array.isArray(direct) && direct.length) return direct;
+    return (payload.arrangedSessions || []).flatMap((group) => group.sessions || []);
+  }
+
+  function sessionMetadata(payload, state) {
     const result = new Map();
-    for (const group of payload.pageData?.arrangedSessions || []) {
+    const byMovieCode = movieCatalog(state);
+    const arranged = payload.pageData?.arrangedSessions?.length
+      ? payload.pageData.arrangedSessions
+      : payload.arrangedSessions || [];
+
+    for (const group of arranged) {
+      const metadata = {
+        eventCode: group.data?.id,
+        contentId: group.entityCode,
+        movieTitle: group.entityName || group.data?.label || group.data?.name,
+        movieVariant: group.data?.name || group.entityName,
+        language: group.data?.lang || group.data?.languages
+      };
       for (const session of group.sessions || []) {
-        result.set(String(session.sid), {
-          eventCode: group.data?.id,
-          contentId: group.entityCode,
-          movieTitle: group.entityName || group.data?.label || group.data?.name,
-          movieVariant: group.data?.name || group.entityName,
-          language: group.data?.lang || group.data?.languages
-        });
+        result.set(String(session.sid), metadata);
+        if (session.mid) byMovieCode.set(String(session.mid), metadata);
+      }
+      for (const languageGroup of group.data?.languageFormatGroups || []) {
+        for (const format of languageGroup.screenFormats || []) {
+          if (format.movieCode) byMovieCode.set(String(format.movieCode), metadata);
+        }
       }
     }
     for (const movie of payload.meta?.movies || []) {
-      for (const session of payload.pageData?.sessions || []) {
-        if (String(session.mid) !== String(movie.id) || result.has(String(session.sid))) continue;
-        result.set(String(session.sid), {
-          eventCode: movie.id,
-          contentId: movie.contentId,
-          movieTitle: movie.name,
-          movieVariant: movie.name
-        });
+      byMovieCode.set(String(movie.id), movieMetadata(movie));
+    }
+    for (const session of sessionList(payload)) {
+      if (result.has(String(session.sid))) continue;
+      const metadata = byMovieCode.get(String(session.mid));
+      if (metadata) result.set(String(session.sid), metadata);
+    }
+    return result;
+  }
+
+  function movieCatalog(state) {
+    const result = new Map();
+    const sources = [
+      state?.props?.pageProps?.data?.serverState?.currentlyRunningMovies,
+      state?.props?.pageProps?.initialState?.movies?.currentlyRunningMovies
+    ];
+    for (const source of sources) {
+      for (const city of Object.values(source || {})) {
+        for (const movie of city?.data?.movies || []) {
+          if (movie.id) result.set(String(movie.id), movieMetadata(movie));
+        }
       }
     }
     return result;
+  }
+
+  function movieMetadata(movie) {
+    const title = movie.name || movie.label;
+    return {
+      eventCode: movie.id,
+      contentId: movie.contentId,
+      movieTitle: title,
+      movieVariant: title,
+      language: movie.lang || movie.languages
+    };
   }
 
   function advertisedCategories(areas = []) {
