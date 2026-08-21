@@ -156,7 +156,7 @@ function MovieCard({ movie }) {
       {open && (
         <div className="movie-breakdown" role="region" aria-label={`${movie.movieTitle} theatre breakdown`}>
           <div className="movie-breakdown__head">
-            <span>Theatre &amp; show</span><span>Status</span><span>Tickets</span><span>Gross</span>
+            <span>Theatre &amp; show</span><span>Tickets</span><span>Gross</span>
           </div>
           {movie.shows.map((show) => (
             <div className="movie-breakdown__row" key={show.id}>
@@ -164,7 +164,6 @@ function MovieCard({ movie }) {
                 <strong>{show.venueShortName || show.venueName || show.venueCode}</strong>
                 <time>{show.showTime}</time>
               </div>
-              <div data-label="Status"><StatusPill status={show.status} /></div>
               <span data-label="Tickets">{show.snapshot ? number.format(show.snapshot.sold) : "—"}</span>
               <strong data-label="Gross">{show.snapshot ? money.format(show.snapshot.collectionPaise / 100) : "—"}</strong>
             </div>
