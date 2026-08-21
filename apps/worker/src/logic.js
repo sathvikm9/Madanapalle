@@ -195,7 +195,9 @@ export function normalizeCapture(body, show, receivedAt = new Date()) {
   let source = "local-chrome-extension";
   if (body.housefullEvidence != null) {
     const evidence = body.housefullEvidence;
-    if (!evidence || evidence.noTicketOptions !== true || evidence.seatMapVerified !== true) {
+    const seatMapEvidence = evidence?.noTicketOptions === true && evidence?.seatMapVerified === true;
+    const discoveryEvidence = evidence?.discoveryStatusVerified === true;
+    if (!evidence || (!seatMapEvidence && !discoveryEvidence)) {
       throw new RequestError("Housefull capture did not include verified BookMyShow seat-map evidence");
     }
     if (safeInteger(evidence.confirmationCount, "housefullEvidence.confirmationCount", 10) < 2) {
@@ -211,6 +213,28 @@ export function normalizeCapture(body, show, receivedAt = new Date()) {
     }
     if (calculated.available !== 0 || calculated.unknown !== 0 || calculated.sold !== calculated.capacity) {
       throw new RequestError("Housefull capture did not prove that every exposed seat was sold");
+    }
+    if (discoveryEvidence) {
+      const advertised = parseJson(show.advertised_categories_json, []);
+      const live = new Map(advertised.map((category) => [String(category.name || "").trim().toUpperCase(), category]));
+      const expected = venue?.layoutCategories || [];
+      const discoveryIsFull = live.size === expected.length && expected.every((category) => {
+        const listing = live.get(category.name);
+        const captured = calculated.categories.find((item) => item.name.trim().toUpperCase() === category.name);
+        return listing && String(listing.availabilityStatus) === "0" &&
+          Number(listing.listPricePaise) === Number(captured?.listPricePaise);
+      });
+      if (!discoveryIsFull) {
+        throw new RequestError("BookMyShow discovery no longer marks every category sold out");
+      }
+      const discoveryObservedAt = new Date(requiredString(
+        evidence.discoveryObservedAt,
+        "housefullEvidence.discoveryObservedAt",
+        50
+      ));
+      if (!Number.isFinite(discoveryObservedAt.getTime()) || discoveryObservedAt > capturedAt) {
+        throw new RequestError("Housefull discovery observation is invalid");
+      }
     }
     const signature = JSON.stringify(calculated.categories.map((category) => ({
       name: category.name.trim().toUpperCase(),

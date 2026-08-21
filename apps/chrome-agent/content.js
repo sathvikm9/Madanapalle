@@ -35,6 +35,7 @@ function discoverShows(dateCode, venueCode, captureStartAfterShowMinutes = 10) {
   const details = query?.data?.showDetailsTransformed;
   if (!details) throw new Error(`No ${venueCode} showtime payload was found for ${dateCode}`);
   const shows = [];
+  const discoveredAt = new Date().toISOString();
 
   for (const event of details.Event || []) {
     for (const child of event.ChildEvents || []) {
@@ -49,6 +50,7 @@ function discoverShows(dateCode, venueCode, captureStartAfterShowMinutes = 10) {
           slotKey: [venueCode, dateCode, show.ShowTimeCode].join(":"),
           venueCode,
           platform: "bookmyshow",
+          discoveredAt,
           dateCode,
           eventCode,
           sessionId,

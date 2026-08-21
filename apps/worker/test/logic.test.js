@@ -174,6 +174,54 @@ test("accepts only a twice-confirmed BookMyShow housefull seat map", () => {
   }, show, new Date("2026-08-21T02:16:06.000Z")), /every exposed seat was sold/);
 });
 
+test("accepts a twice-confirmed all-category sold-out discovery when BookMyShow removes the seat page", () => {
+  const categories = [
+    { name: "RESERVED", price: 105, capacity: 386, available: 0, sold: 386, unknown: 0 },
+    { name: "SECOND CLASS", price: 84, capacity: 134, available: 0, sold: 134, unknown: 0 }
+  ];
+  const show = {
+    natural_key: "ASRM:20260821:1800:8888:ET00487933",
+    venue_code: "ASRM",
+    advertised_categories_json: JSON.stringify([
+      { name: "RESERVED", listPricePaise: 10500, availabilityStatus: "0" },
+      { name: "SECOND CLASS", listPricePaise: 8400, availabilityStatus: "0" }
+    ]),
+    is_current: 1,
+    capture_at: "2026-08-21T12:45:00.000Z",
+    cutoff_at: "2026-08-21T12:50:00.000Z"
+  };
+  const body = {
+    naturalKey: show.natural_key,
+    capturedAt: "2026-08-21T12:46:05.000Z",
+    categories,
+    housefullEvidence: {
+      noTicketOptions: false,
+      seatMapVerified: false,
+      discoveryStatusVerified: true,
+      discoveryObservedAt: "2026-08-21T12:45:50.000Z",
+      confirmationCount: 2,
+      firstObservedAt: "2026-08-21T12:45:05.000Z",
+      layoutSignature: JSON.stringify(categories.map(({ name, price, capacity }) => ({ name, price, capacity })))
+    }
+  };
+  const result = normalizeCapture(body, show, new Date("2026-08-21T12:46:06.000Z"));
+  assert.equal(result.source, "local-chrome-extension-housefull");
+  assert.equal(result.sold, 520);
+  assert.equal(result.collectionPaise, 4_918_600);
+
+  const partialShow = {
+    ...show,
+    advertised_categories_json: JSON.stringify([
+      { name: "RESERVED", listPricePaise: 10500, availabilityStatus: "0" },
+      { name: "SECOND CLASS", listPricePaise: 8400, availabilityStatus: "3" }
+    ])
+  };
+  assert.throws(
+    () => normalizeCapture(body, partialShow, new Date("2026-08-21T12:46:06.000Z")),
+    /no longer marks every category sold out/
+  );
+});
+
 test("accepts a Sri Krishna backup at 11:10 and rejects anything earlier", () => {
   const show = {
     natural_key: "key",

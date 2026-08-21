@@ -1,4 +1,5 @@
 import { finalCaptureAt, nextCaptureWhen, preflightTimes } from "./schedule.js";
+import "./bookmyshow.js";
 
 const VENUES = [
   {
@@ -150,18 +151,32 @@ async function handleMessage(message) {
       const observedAt = new Date(result.capturedAt).getTime();
       const firstObservedAt = new Date(state.housefullCandidateAt || 0).getTime();
       const sameLayout = state.housefullCandidateSignature === result.housefullEvidence.layoutSignature;
+      const differentDiscovery = !result.housefullEvidence.discoveryStatusVerified || (
+        state.housefullCandidateObservationId &&
+        result.housefullEvidence.discoveryObservedAt &&
+        state.housefullCandidateObservationId !== result.housefullEvidence.discoveryObservedAt
+      );
       const independentlyConfirmed = sameLayout && Number.isFinite(firstObservedAt) &&
-        observedAt - firstObservedAt >= 15_000 && observedAt - firstObservedAt <= 5 * 60_000;
+        differentDiscovery && observedAt - firstObservedAt >= 15_000 && observedAt - firstObservedAt <= 5 * 60_000;
       if (!independentlyConfirmed) {
         await removePending(pending.naturalKey);
         await chrome.alarms.clear(`watchdog:${encodeURIComponent(pending.naturalKey)}`);
         await updateCaptureState(pending.naturalKey, {
           housefullCandidateAt: result.capturedAt,
           housefullCandidateSignature: result.housefullEvidence.layoutSignature,
+          housefullCandidateObservationId: result.housefullEvidence.discoveryObservedAt || null,
           lastError: null
         });
-        await scheduleShow(pending);
         const venue = venueFor(pending.venueCode);
+        if (result.housefullEvidence.discoveryStatusVerified) {
+          try {
+            await discoverVenue(pending.venueCode, pending.dateCode, { allowImminent: true });
+          } catch {
+            await scheduleShow(pending);
+          }
+        } else {
+          await scheduleShow(pending);
+        }
         await recordSuccess(`Housefull signal found for ${venue.shortName} ${pending.showTimeLabel}; confirming again`);
         return { ok: true, pendingHousefullConfirmation: true };
       }
@@ -184,7 +199,8 @@ async function handleMessage(message) {
       lastSuccessAt: result.capturedAt,
       lastError: null,
       housefullCandidateAt: null,
-      housefullCandidateSignature: null
+      housefullCandidateSignature: null,
+      housefullCandidateObservationId: null
     });
     await scheduleShow(pending);
     const venue = venueFor(pending.venueCode);
@@ -267,9 +283,44 @@ async function beginCapture(show) {
   await updateCaptureState(show.naturalKey, { lastAttemptAt: attemptStartedAt });
   await addPending(pending);
   await postCaptureEvent(pending, "capture_started");
+  const discoveryHousefull = discoveryHousefullResult(pending, venue);
+  if (discoveryHousefull) {
+    await handleMessage({ type: "CAPTURE_RESULT", result: discoveryHousefull });
+    return;
+  }
   await chrome.alarms.create(`watchdog:${encodeURIComponent(show.naturalKey)}`, { when: Date.now() + 50_000 });
   await openSeatLayout(pending);
   await recordSuccess(`Opening ${venue.shortName} ${show.showTimeLabel} seat map`);
+}
+
+function discoveryHousefullResult(show, venue) {
+  if (venue.platform !== "bookmyshow" || !show.discoveredAt) return null;
+  let categories;
+  try {
+    categories = globalThis.SKCTBookMyShow.completeFromVerifiedLayout(
+      show.venueCode,
+      show.categories,
+      []
+    );
+  } catch {
+    return null;
+  }
+  if (!globalThis.SKCTBookMyShow.isFullySold(categories)) return null;
+  const capturedAt = new Date().toISOString();
+  return {
+    naturalKey: show.naturalKey,
+    attemptId: show.attemptId,
+    capturedAt,
+    captureMinute: indiaCaptureMinute(capturedAt),
+    categories,
+    housefullEvidence: {
+      noTicketOptions: false,
+      seatMapVerified: false,
+      discoveryStatusVerified: true,
+      discoveryObservedAt: show.discoveredAt,
+      layoutSignature: globalThis.SKCTBookMyShow.layoutSignature(categories)
+    }
+  };
 }
 
 async function handleCaptureWatchdog(name) {
@@ -530,6 +581,13 @@ function indiaDateCode(daysAhead) {
   }).formatToParts(shifted);
   const values = Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
   return `${values.year}${values.month}${values.day}`;
+}
+
+function indiaCaptureMinute(value) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
+  }).format(new Date(value));
 }
 
 async function recordSuccess(message, extra = {}) {
