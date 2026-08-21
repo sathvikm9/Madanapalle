@@ -120,7 +120,7 @@ async function captureSeats(show) {
   const accessibility = await waitFor(() => document.querySelector('button[aria-label="Open accessibility seat selection"]'), 20_000);
   accessibility.click();
   const quantity = await waitFor(() => document.querySelector('select[aria-label="Select number of tickets, required"]'), 20_000);
-  setSelect(quantity, Array.from(quantity.options).find((option) => /1 Ticket/i.test(option.label))?.value);
+  setSelect(quantity, singleTicketOption(quantity)?.value);
   const categorySelect = await waitFor(() => document.querySelector('select[aria-label="Select seat category"]'), 20_000);
   const rowSelect = await waitFor(() => document.querySelector('select[aria-label="Select row"]'), 20_000);
   const categoryOptions = Array.from(categorySelect.options).filter((option) => option.value).map((option) => ({ value: option.value, label: option.label }));
@@ -164,6 +164,14 @@ async function captureSeats(show) {
     captureMinute: indiaCaptureMinute(capturedAt),
     categories
   };
+}
+
+function singleTicketOption(select) {
+  const options = Array.from(select.options).filter((option) => option.value && !option.disabled);
+  return options.find((option) => {
+    const text = `${option.label || ""} ${option.textContent || ""}`.trim();
+    return option.value === "1" || Number(option.value) === 1 || /(^|\D)1(\D|$)/.test(text);
+  }) || options[0];
 }
 
 function extractAssignedJson(text) {
