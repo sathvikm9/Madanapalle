@@ -47,3 +47,18 @@ export function preflightTimes(show) {
   return [windowStart - 90_000, finalStart - 45_000]
     .filter((value, index, values) => values.indexOf(value) === index);
 }
+
+export function canPauseVenueDiscovery(shows = [], captureStates = {}, now = Date.now()) {
+  const lastShow = shows.reduce((latest, show) => {
+    const cutoff = timestamp(show.cutoffAt);
+    if (cutoff == null) return latest;
+    return !latest || cutoff > latest.cutoff ? { show, cutoff } : latest;
+  }, null);
+  if (!lastShow || now < lastShow.cutoff) return false;
+
+  const state = captureStates[lastShow.show.naturalKey] || {};
+  const lastSuccess = timestamp(state.lastSuccessAt);
+  const captureStart = timestamp(lastShow.show.captureAt);
+  return lastSuccess != null && captureStart != null &&
+    lastSuccess >= captureStart && lastSuccess < lastShow.cutoff;
+}

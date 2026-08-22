@@ -1,4 +1,4 @@
-import { finalCaptureAt, nextCaptureWhen, preflightTimes } from "./schedule.js";
+import { canPauseVenueDiscovery, finalCaptureAt, nextCaptureWhen, preflightTimes } from "./schedule.js";
 import "./bookmyshow.js";
 
 const VENUES = [
@@ -88,7 +88,7 @@ async function migrateSingleTheatreStorage() {
 
 async function ensureBaseAlarms() {
   await chrome.alarms.clear(LEGACY_DISCOVERY_TOMORROW);
-  await chrome.alarms.create(DISCOVERY_TODAY, { delayInMinutes: 0.1, periodInMinutes: 5 });
+  await chrome.alarms.create(DISCOVERY_TODAY, { delayInMinutes: 0.1, periodInMinutes: 15 });
   await scheduleIndiaDayRollover();
 }
 
@@ -108,7 +108,7 @@ async function handleAlarm(alarm) {
       if (settings.enabled) {
         const today = indiaDateCode(0);
         await clearShowAlarmsOutsideDate(today);
-        await discoverAll(today);
+        await discoverAll(today, { force: true });
       }
     } finally {
       await scheduleIndiaDayRollover();
@@ -138,7 +138,7 @@ async function handleAlarm(alarm) {
 
 async function handleMessage(message) {
   if (message.type === "RUN_DISCOVERY") {
-    return { ok: true, result: await discoverAll(indiaDateCode(0)) };
+    return { ok: true, result: await discoverAll(indiaDateCode(0), { force: true }) };
   }
   if (message.type === "CAPTURE_RESULT") {
     const pending = await getPending(message.result.naturalKey);
@@ -229,10 +229,16 @@ async function handleMessage(message) {
   return { ok: false, error: "Unknown message" };
 }
 
-async function discoverAll(dateCode) {
+async function discoverAll(dateCode, { force = false } = {}) {
   const results = [];
   const failures = [];
+  const local = await chrome.storage.local.get({ knownShows: {}, captureStates: {} });
   for (const venue of VENUES) {
+    const knownVenueShows = local.knownShows[`${venue.venueCode}:${dateCode}`] || [];
+    if (!force && canPauseVenueDiscovery(knownVenueShows, local.captureStates)) {
+      results.push({ venueCode: venue.venueCode, venueName: venue.shortName, shows: 0, skipped: "last show captured" });
+      continue;
+    }
     try {
       results.push(await discoverVenue(venue.venueCode, dateCode));
     } catch (error) {
@@ -242,10 +248,11 @@ async function discoverAll(dateCode) {
   }
   if (failures.length) throw new Error(failures.join(" · "));
   const shows = results.reduce((total, result) => total + Number(result.shows || 0), 0);
-  await recordSuccess(
-    `Discovered ${shows} shows across ${VENUES.length} theatres for ${dateCode}`,
-    { lastDiscovery: { dateCode, shows, venues: results } }
-  );
+  const allComplete = results.every((result) => result.skipped === "last show captured");
+  await recordSuccess(allComplete
+    ? `Daily captures complete for ${dateCode}; routine discovery paused until India date rollover`
+    : `Discovered ${shows} shows across ${VENUES.length} theatres for ${dateCode}`,
+  { lastDiscovery: { dateCode, shows, venues: results } });
   return { dateCode, shows, venues: results };
 }
 

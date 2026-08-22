@@ -14,12 +14,14 @@ The extension creates one pinned BookMyShow or TicketNew tab per theatre. Keep C
 
 ## Behavior
 
-- today's schedule refreshes every five minutes
+- today's schedule refreshes every fifteen minutes
+- each theatre's routine discovery pauses after its final known show has a successful capture and passes cutoff
+- **Save and test now** always forces a fresh discovery, including after the routine pause
 - tomorrow is never opened early; discovery rolls to the new India date just after 12:00 AM IST
 - Sri Krishna backup capture starts shortly after showtime +10 minutes
 - Sai Chitra backup capture starts shortly after showtime +10 minutes
 - Ravi backup capture starts shortly after showtime +15 minutes
-- ASR backup capture starts shortly after showtime +10 minutes
+- ASR backup capture starts shortly after showtime +15 minutes
 - a second preflight refreshes the schedule before the final attempt
 - a successful backup waits until the final minute; a failed backup retries once per minute
 - the newest successful snapshot is finalized after cutoff, so a failed final attempt keeps the backup

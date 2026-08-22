@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { nextCaptureWhen, preflightTimes } from "./schedule.js";
+import { canPauseVenueDiscovery, nextCaptureWhen, preflightTimes } from "./schedule.js";
 
 const sriKrishna = {
   captureAt: "2026-08-20T05:40:00.000Z",
@@ -48,4 +48,26 @@ test("schedules backup and final preflights", () => {
     new Date("2026-08-20T05:38:30.000Z").getTime(),
     new Date("2026-08-20T05:43:15.000Z").getTime()
   ]);
+});
+
+test("pauses routine venue discovery only after its last show was captured", () => {
+  const shows = [
+    {
+      naturalKey: "SKMD:20260820:1100:first",
+      captureAt: "2026-08-20T05:40:00.000Z",
+      cutoffAt: "2026-08-20T05:45:00.000Z"
+    },
+    {
+      naturalKey: "SKMD:20260820:2100:last",
+      captureAt: "2026-08-20T15:40:00.000Z",
+      cutoffAt: "2026-08-20T15:45:00.000Z"
+    }
+  ];
+  const captureStates = {
+    "SKMD:20260820:2100:last": { lastSuccessAt: "2026-08-20T15:44:20.000Z" }
+  };
+
+  assert.equal(canPauseVenueDiscovery(shows, captureStates, new Date("2026-08-20T15:44:59.000Z").getTime()), false);
+  assert.equal(canPauseVenueDiscovery(shows, captureStates, new Date("2026-08-20T15:45:01.000Z").getTime()), true);
+  assert.equal(canPauseVenueDiscovery(shows, {}, new Date("2026-08-20T15:45:01.000Z").getTime()), false);
 });

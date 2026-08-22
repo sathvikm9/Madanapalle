@@ -25,7 +25,7 @@ flowchart LR
 
 ### Discovery
 
-The local Chrome agent refreshes only the current India-date Sri Krishna and Ravi pages every five minutes and switches dates just after 12:00 AM IST. It never opens tomorrow's schedule early. Each theatre has an independent pinned tab and pending-capture job, so matching showtimes can be captured concurrently. It parses the embedded `window.__INITIAL_STATE__`, which provides the event code, movie, session ID, show time, prices and BookMyShow cutoff.
+The local Chrome agent refreshes the four configured current India-date theatre pages every fifteen minutes and switches dates just after 12:00 AM IST. Routine discovery pauses independently for a theatre after its final known show has a successful capture and passes cutoff. It never opens tomorrow's schedule early. Each theatre has an independent pinned tab and pending-capture job, so matching showtimes can be captured concurrently. It parses the booking platform's embedded state, which provides the event code, movie, session ID, show time, prices and booking cutoff.
 
 Discovery is deliberately lighter than seat counting. Seat layouts normally open twice: once for the early backup and once for the final attempt.
 
@@ -47,7 +47,7 @@ When the slot remains 6:00 PM but the event/session changes, the old revision is
 - final attempt: 7:14:00
 - BookMyShow cutoff: 7:15:00
 
-Ravi uses showtime +15 minutes for its backup because its observed cutoff is +20 minutes. The agent preflights before both the backup and final attempts. After a successful backup it waits for the final minute; after a failed backup it retries once per minute. Once cutoff passes, the newest successful snapshot becomes final. Every attempt and error is also written to the durable collector log.
+Ravi and ASR use showtime +15 minutes for their backups because their observed cutoffs are +20 minutes. The agent preflights before both the backup and final attempts. After a successful backup it waits for the final minute; after a failed backup it retries once per minute. Once cutoff passes, the newest successful snapshot becomes final. Every attempt and error is also written to the durable collector log.
 
 ### Calculation
 
