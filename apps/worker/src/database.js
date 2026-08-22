@@ -1,5 +1,5 @@
 import { classifyScheduleChanges } from "@skct/core";
-import { parseJson, RequestError } from "./logic.js";
+import { parseJson, RequestError, resolveInternalMovieCodes } from "./logic.js";
 import { dashboardVenueForCode, publicVenues, venueForCode } from "./venues.js";
 
 const UPSERT_SHOW = `
@@ -345,7 +345,7 @@ export async function dashboardData(db, date, venueCode, now = new Date()) {
     ? await changesStatement.bind(date).all()
     : await changesStatement.bind(venueCode, date).all();
 
-  const shows = (showResult.results || []).map((row) => ({
+  const shows = resolveInternalMovieCodes((showResult.results || []).map((row) => ({
     id: String(row.id),
     venueCode: row.venue_code,
     venueName: row.venue_name,
@@ -379,7 +379,7 @@ export async function dashboardData(db, date, venueCode, now = new Date()) {
       source: row.source,
       categories: parseJson(row.categories_json, [])
     } : null
-  }));
+  })));
 
   const currentShows = shows.filter((show) => show.isCurrent);
   const finalized = currentShows.filter((show) => show.status === "completed" && show.snapshot);

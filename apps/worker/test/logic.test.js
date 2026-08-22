@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeCapture, normalizeDiscovery, validDate } from "../src/logic.js";
+import { normalizeCapture, normalizeDiscovery, resolveInternalMovieCodes, validDate } from "../src/logic.js";
 
 const discoveryBody = {
   venueCode: "SKMD",
@@ -81,6 +81,15 @@ test("normalizes Sai Chitra TicketNew discovery and validates its cinema URL", (
     venueCode: "SCM",
     shows: [{ ...discoveryBody.shows[0], seatLayoutUrl: "https://example.com/4903" }]
   }), /configured TicketNew cinema/);
+});
+
+test("replaces a TicketNew event code title from matching movie sessions", () => {
+  const shows = resolveInternalMovieCodes([
+    { venueCode: "SCM", eventCode: "OBAV6L", movieTitle: "Irumudi", movieVariant: "Irumudi" },
+    { venueCode: "SCM", eventCode: "OBAV6L", movieTitle: "OBAV6L", movieVariant: "OBAV6L" }
+  ]);
+  assert.equal(shows[1].movieTitle, "Irumudi");
+  assert.equal(shows[1].movieVariant, "Irumudi");
 });
 
 test("rejects discoveries for unconfigured theatres", () => {

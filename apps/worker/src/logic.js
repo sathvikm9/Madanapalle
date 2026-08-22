@@ -70,6 +70,32 @@ function bookingUrl(rawUrl, venue, eventCode, sessionId, dateCode) {
   return url.toString();
 }
 
+export function resolveInternalMovieCodes(shows = []) {
+  const knownTitles = new Map();
+  const keyFor = (show) => `${String(show.venueCode || "").toUpperCase()}|${String(show.eventCode || "").toUpperCase()}`;
+  const equalsCode = (value, code) => String(value || "").trim().toUpperCase() === String(code || "").trim().toUpperCase();
+
+  for (const show of shows) {
+    if (show.movieTitle && !equalsCode(show.movieTitle, show.eventCode)) {
+      knownTitles.set(keyFor(show), {
+        movieTitle: show.movieTitle,
+        movieVariant: show.movieVariant || show.movieTitle
+      });
+    }
+  }
+
+  return shows.map((show) => {
+    if (!equalsCode(show.movieTitle, show.eventCode)) return show;
+    const known = knownTitles.get(keyFor(show));
+    if (!known) return show;
+    return {
+      ...show,
+      movieTitle: known.movieTitle,
+      movieVariant: equalsCode(show.movieVariant, show.eventCode) ? known.movieVariant : show.movieVariant
+    };
+  });
+}
+
 export function normalizeDiscovery(body) {
   if (!body || typeof body !== "object") throw new RequestError("JSON body is required");
   const venueCode = requiredString(body.venueCode, "venueCode", 20);
@@ -134,7 +160,12 @@ export function normalizeDiscovery(body) {
     };
   });
 
-  return { venueCode, dateCode, showDate: isoDateFromCode(dateCode), shows };
+  return {
+    venueCode,
+    dateCode,
+    showDate: isoDateFromCode(dateCode),
+    shows: resolveInternalMovieCodes(shows)
+  };
 }
 
 export function normalizeCapture(body, show, receivedAt = new Date()) {
