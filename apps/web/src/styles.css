@@ -405,6 +405,8 @@ main { max-width: 1120px; margin: 0 auto; padding: 30px 24px 88px; }
   .movie-card__count { padding-top: 4px; font-size: 10px; text-align: right; }
   .movie-card__title h3 { font-size: 26px; }
   .movie-card__badges { margin-top: 13px; }
+  .movie-card__badges .is-final { display: none; }
+  .movie-card__badges:not(.has-exceptions) { display: none; }
   .movie-card__totals { padding: 16px 14px; border-top: 1px solid var(--line); border-left: 0; }
   .movie-card__totals strong { font-size: clamp(25px, 8vw, 32px); }
   .movie-card__footer { align-items: flex-start; gap: 12px; padding: 10px 14px; font-size: 10px; }

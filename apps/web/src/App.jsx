@@ -129,8 +129,11 @@ function MovieCard({ movie }) {
           </div>
           <h3>{movie.movieTitle}</h3>
           <p>{[movie.language, movie.format].filter(Boolean).join(" · ") || "Details unavailable"}</p>
-          <div className="movie-card__badges" aria-label="Movie capture status">
-            {movie.finalizedShows > 0 && <span>{movie.finalizedShows} final</span>}
+          <div
+            className={`movie-card__badges${movie.missedShows || movie.pendingShows ? " has-exceptions" : ""}`}
+            aria-label="Movie capture status"
+          >
+            {movie.finalizedShows > 0 && <span className="is-final">{movie.finalizedShows} final</span>}
             {movie.missedShows > 0 && <span className="is-missed">{movie.missedShows} missed</span>}
             {movie.pendingShows > 0 && <span className="is-pending">{movie.pendingShows} pending</span>}
           </div>
