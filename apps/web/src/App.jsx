@@ -42,6 +42,21 @@ function Metric({ label, value, note, tone }) {
   );
 }
 
+function DashboardSkeleton() {
+  return (
+    <section className="dashboard-skeleton" aria-label="Loading daily theatre data" aria-live="polite">
+      <span className="sr-only">Loading daily theatre data…</span>
+      <div className="dashboard-skeleton__metrics" aria-hidden="true">
+        {Array.from({ length: 4 }, (_, index) => <i key={index} />)}
+      </div>
+      <div className="dashboard-skeleton__heading" aria-hidden="true"><i /><i /></div>
+      <div className="dashboard-skeleton__cards" aria-hidden="true">
+        {Array.from({ length: 3 }, (_, index) => <i key={index} />)}
+      </div>
+    </section>
+  );
+}
+
 function ShowCard({ show }) {
   const [open, setOpen] = useState(false);
   const prices = (show.snapshot?.categories || show.advertisedCategories || []).map((category) => ({
@@ -248,6 +263,7 @@ export default function App() {
 
         {inDemoMode && <div className="notice notice--demo">Demo preview — these are illustrative numbers, not live BookMyShow data.</div>}
         {error && <div className="notice notice--error"><strong>Unable to load the tracker.</strong> {error} <button onClick={load}>Try again</button></div>}
+        {loading && !data && <DashboardSkeleton />}
 
         {data && (
           <>
