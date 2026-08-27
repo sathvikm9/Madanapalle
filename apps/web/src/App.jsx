@@ -3,8 +3,10 @@ import { demoDashboard } from "./demo.js";
 import { groupShowsByMovie, sortMovieGroups } from "./movieGroups.js";
 
 const API_BASE = (import.meta.env.VITE_API_BASE || "http://localhost:8787").replace(/\/$/, "");
-const inDemoMode = new URLSearchParams(window.location.search).get("demo") === "1";
-const installPreview = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("installPreview") : "";
+const pageParams = new URLSearchParams(window.location.search);
+const inDemoMode = pageParams.get("demo") === "1";
+const installRequested = pageParams.get("install") === "1";
+const installPreview = import.meta.env.DEV ? pageParams.get("installPreview") : "";
 const INSTALL_DISMISSED_KEY = "mpltalkies-install-dismissed-at";
 const INSTALL_DISMISS_MS = 30 * 24 * 60 * 60 * 1000;
 const THEATRE_OPTIONS = [
@@ -82,13 +84,13 @@ function installPromptWasDismissed() {
   }
 }
 
-function InstallCard({ installPrompt, onInstalled, previewPlatform }) {
-  const [showSteps, setShowSteps] = useState(false);
+function InstallCard({ installPrompt, onInstalled, previewPlatform, requested = false }) {
   const ios = previewPlatform === "ios" || isIosDevice();
+  const [showSteps, setShowSteps] = useState(() => requested && ios);
 
   async function install() {
     if (!installPrompt) {
-      setShowSteps(true);
+      setShowSteps((visible) => !visible);
       return;
     }
 
@@ -98,14 +100,14 @@ function InstallCard({ installPrompt, onInstalled, previewPlatform }) {
   }
 
   return (
-    <aside className="install-card" aria-label="Install MPLTalkies">
+    <aside className={`install-card${requested ? " install-card--requested" : ""}`} aria-label="Install MPLTalkies">
       <div className="install-card__icon" aria-hidden="true">MPL</div>
       <div className="install-card__copy">
-        <strong>Add MPLTalkies to your home screen</strong>
+        <strong>{requested ? "Install MPLTalkies" : "Add MPLTalkies to your home screen"}</strong>
         <span>Open the live collection desk in one tap.</span>
       </div>
       <button className="install-card__action" type="button" onClick={install}>
-        {ios || !installPrompt ? "Show steps" : "Install"}
+        {installPrompt ? "Install" : showSteps ? "Hide steps" : "Show steps"}
       </button>
       <button className="install-card__dismiss" type="button" onClick={() => onInstalled(true)} aria-label="Dismiss install suggestion">×</button>
 
@@ -119,7 +121,8 @@ function InstallCard({ installPrompt, onInstalled, previewPlatform }) {
             </ol>
           ) : (
             <ol>
-              <li>Open your browser menu <strong>⋮</strong>.</li>
+              <li>If this opened inside WhatsApp or Instagram, choose <strong>Open in Chrome</strong> from its menu.</li>
+              <li>In Chrome, open the menu <strong>⋮</strong>.</li>
               <li>Choose <strong>Install app</strong> or <strong>Add to Home screen</strong>.</li>
             </ol>
           )}
@@ -275,7 +278,8 @@ export default function App() {
   const [movieSort, setMovieSort] = useState("gross");
   const [installPrompt, setInstallPrompt] = useState(null);
   const [showInstallCard, setShowInstallCard] = useState(
-    () => (isMobileDevice() || Boolean(installPreview)) && !isStandaloneApp() && !installPromptWasDismissed()
+    () => !isStandaloneApp()
+      && (installRequested || ((isMobileDevice() || Boolean(installPreview)) && !installPromptWasDismissed()))
   );
 
   async function load() {
@@ -359,6 +363,15 @@ export default function App() {
       </header>
 
       <main>
+        {showInstallCard && installRequested && (
+          <InstallCard
+            installPrompt={installPrompt}
+            onInstalled={closeInstallCard}
+            previewPlatform={installPreview}
+            requested
+          />
+        )}
+
         <section className="date-control" aria-label="Dashboard filters">
           <div className="control-field">
             <label htmlFor="theatre">Theatre</label>
@@ -373,7 +386,7 @@ export default function App() {
           <button type="button" onClick={load} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>
         </section>
 
-        {showInstallCard && (
+        {showInstallCard && !installRequested && (
           <InstallCard installPrompt={installPrompt} onInstalled={closeInstallCard} previewPlatform={installPreview} />
         )}
 

@@ -136,6 +136,12 @@ main { max-width: 1120px; margin: 0 auto; padding: 30px 24px 88px; }
   background: var(--paper);
   box-shadow: var(--shadow);
 }
+.install-card--requested {
+  margin-top: 0;
+  margin-bottom: 14px;
+  border-color: rgba(40, 165, 120, .42);
+  box-shadow: 0 12px 30px rgba(31, 37, 35, .075), inset 4px 0 0 #28a578;
+}
 .install-card__icon {
   display: grid;
   place-items: center;
