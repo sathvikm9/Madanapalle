@@ -21,7 +21,7 @@ function compactTime(time) {
 }
 
 function copiedGross(collectionPaise) {
-  return `*${copyNumber.format(Math.round((collectionPaise || 0) / 100))}/-*`;
+  return `${copyNumber.format(Math.round((collectionPaise || 0) / 100))}/-`;
 }
 
 function showResult(show) {

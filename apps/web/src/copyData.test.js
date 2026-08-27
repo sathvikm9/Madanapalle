@@ -24,8 +24,8 @@ test("copies a single theatre and repeats a single movie only once", () => {
   assert.equal(text, [
     "27th August - Sri Krishna",
     "Irumudi",
-    "11:00AM - *4,458/-*",
-    "02:00PM - *55,180/-*"
+    "11:00AM - 4,458/-",
+    "02:00PM - 55,180/-"
   ].join("\n"));
 });
 
@@ -38,8 +38,8 @@ test("includes each movie title when a theatre screens multiple movies", () => {
 
   assert.equal(text, [
     "21st August - Sri Krishna",
-    "11:00AM - Irumudi - *4,458/-*",
-    "02:00PM - Vishwanath and Sons - *4,458/-*"
+    "11:00AM - Irumudi - 4,458/-",
+    "02:00PM - Vishwanath and Sons - 4,458/-"
   ].join("\n"));
 });
 
@@ -68,7 +68,7 @@ test("copies movie totals with singular and plural show labels", () => {
 
   assert.equal(text, [
     "27th August - Sri Krishna",
-    "Irumudi - 1 Show - *33,569/-*",
-    "Vishwanath and Sons - 3 Shows - *21,611/-*"
+    "Irumudi - 1 Show - 33,569/-",
+    "Vishwanath and Sons - 3 Shows - 21,611/-"
   ].join("\n"));
 });
