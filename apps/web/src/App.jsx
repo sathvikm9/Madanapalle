@@ -4,6 +4,9 @@ import { groupShowsByMovie, sortMovieGroups } from "./movieGroups.js";
 
 const API_BASE = (import.meta.env.VITE_API_BASE || "http://localhost:8787").replace(/\/$/, "");
 const inDemoMode = new URLSearchParams(window.location.search).get("demo") === "1";
+const installPreview = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("installPreview") : "";
+const INSTALL_DISMISSED_KEY = "mpltalkies-install-dismissed-at";
+const INSTALL_DISMISS_MS = 30 * 24 * 60 * 60 * 1000;
 const THEATRE_OPTIONS = [
   { code: "ALL", shortName: "All theatres" },
   { code: "SKMD", shortName: "Sri Krishna" },
@@ -54,6 +57,76 @@ function DashboardSkeleton() {
         {Array.from({ length: 3 }, (_, index) => <i key={index} />)}
       </div>
     </section>
+  );
+}
+
+function isIosDevice() {
+  return /iphone|ipad|ipod/i.test(window.navigator.userAgent)
+    || (window.navigator.platform === "MacIntel" && window.navigator.maxTouchPoints > 1);
+}
+
+function isMobileDevice() {
+  return /android|iphone|ipad|ipod/i.test(window.navigator.userAgent) || isIosDevice();
+}
+
+function isStandaloneApp() {
+  return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+}
+
+function installPromptWasDismissed() {
+  try {
+    const dismissedAt = Number(window.localStorage.getItem(INSTALL_DISMISSED_KEY));
+    return Number.isFinite(dismissedAt) && Date.now() - dismissedAt < INSTALL_DISMISS_MS;
+  } catch {
+    return false;
+  }
+}
+
+function InstallCard({ installPrompt, onInstalled, previewPlatform }) {
+  const [showSteps, setShowSteps] = useState(false);
+  const ios = previewPlatform === "ios" || isIosDevice();
+
+  async function install() {
+    if (!installPrompt) {
+      setShowSteps(true);
+      return;
+    }
+
+    await installPrompt.prompt();
+    const choice = await installPrompt.userChoice;
+    onInstalled(choice.outcome !== "accepted");
+  }
+
+  return (
+    <aside className="install-card" aria-label="Install MPLTalkies">
+      <div className="install-card__icon" aria-hidden="true">MPL</div>
+      <div className="install-card__copy">
+        <strong>Add MPLTalkies to your home screen</strong>
+        <span>Open the live collection desk in one tap.</span>
+      </div>
+      <button className="install-card__action" type="button" onClick={install}>
+        {ios || !installPrompt ? "Show steps" : "Install"}
+      </button>
+      <button className="install-card__dismiss" type="button" onClick={() => onInstalled(true)} aria-label="Dismiss install suggestion">×</button>
+
+      {showSteps && (
+        <div className="install-card__steps" role="status">
+          {ios ? (
+            <ol>
+              <li>Open this page in <strong>Safari</strong>.</li>
+              <li>Tap the <strong>Share</strong> button.</li>
+              <li>Choose <strong>Add to Home Screen</strong>, then tap <strong>Add</strong>.</li>
+            </ol>
+          ) : (
+            <ol>
+              <li>Open your browser menu <strong>⋮</strong>.</li>
+              <li>Choose <strong>Install app</strong> or <strong>Add to Home screen</strong>.</li>
+            </ol>
+          )}
+          <button type="button" onClick={() => setShowSteps(false)}>Got it</button>
+        </div>
+      )}
+    </aside>
   );
 }
 
@@ -200,6 +273,10 @@ export default function App() {
   const [error, setError] = useState("");
   const [viewMode, setViewMode] = useState("shows");
   const [movieSort, setMovieSort] = useState("gross");
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [showInstallCard, setShowInstallCard] = useState(
+    () => (isMobileDevice() || Boolean(installPreview)) && !isStandaloneApp() && !installPromptWasDismissed()
+  );
 
   async function load() {
     setLoading(true);
@@ -226,6 +303,41 @@ export default function App() {
     const timer = setInterval(load, 30_000);
     return () => clearInterval(timer);
   }, [selectedDate, selectedVenue]);
+  useEffect(() => {
+    function captureInstallPrompt(event) {
+      event.preventDefault();
+      setInstallPrompt(event);
+      if (isMobileDevice() && !installPromptWasDismissed()) setShowInstallCard(true);
+    }
+
+    function markInstalled() {
+      setInstallPrompt(null);
+      setShowInstallCard(false);
+      try {
+        window.localStorage.removeItem(INSTALL_DISMISSED_KEY);
+      } catch {
+        // Installed state is still reflected in memory when storage is unavailable.
+      }
+    }
+
+    window.addEventListener("beforeinstallprompt", captureInstallPrompt);
+    window.addEventListener("appinstalled", markInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", captureInstallPrompt);
+      window.removeEventListener("appinstalled", markInstalled);
+    };
+  }, []);
+
+  function closeInstallCard(dismissed = false) {
+    try {
+      if (dismissed) window.localStorage.setItem(INSTALL_DISMISSED_KEY, String(Date.now()));
+      else window.localStorage.removeItem(INSTALL_DISMISSED_KEY);
+    } catch {
+      // Installation must continue to work when browser storage is unavailable.
+    }
+    setInstallPrompt(null);
+    setShowInstallCard(false);
+  }
 
   const currentShows = useMemo(() => data?.shows?.filter((show) => show.isCurrent) || [], [data]);
   const movieGroups = useMemo(
@@ -239,9 +351,9 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <a className="brand" href="./" aria-label="Madanapalle theatre tracker home">
-          <span className="brand__mark">MD</span>
-          <span><strong>Collection Desk</strong><small>Madanapalle</small></span>
+        <a className="brand" href="./" aria-label="MPLTalkies home">
+          <span className="brand__mark">MPL</span>
+          <span><strong>MPLTalkies</strong><small>Collection Desk</small></span>
         </a>
         <div className="live-indicator"><i /> Automatic backup + final capture</div>
       </header>
@@ -260,6 +372,10 @@ export default function App() {
           </div>
           <button type="button" onClick={load} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>
         </section>
+
+        {showInstallCard && (
+          <InstallCard installPrompt={installPrompt} onInstalled={closeInstallCard} previewPlatform={installPreview} />
+        )}
 
         {inDemoMode && <div className="notice notice--demo">Demo preview — these are illustrative numbers, not live BookMyShow data.</div>}
         {error && <div className="notice notice--error"><strong>Unable to load the tracker.</strong> {error} <button onClick={load}>Try again</button></div>}
