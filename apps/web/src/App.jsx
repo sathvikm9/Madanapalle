@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { demoDashboard } from "./demo.js";
 import { groupShowsByMovie, sortMovieGroups } from "./movieGroups.js";
+import { buildMoviesCopyText, buildShowsCopyText } from "./copyData.js";
 
 const API_BASE = (import.meta.env.VITE_API_BASE || "http://localhost:8787").replace(/\/$/, "");
 const pageParams = new URLSearchParams(window.location.search);
@@ -276,6 +277,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [viewMode, setViewMode] = useState("shows");
   const [movieSort, setMovieSort] = useState("gross");
+  const [copyStatus, setCopyStatus] = useState("idle");
   const [installPrompt, setInstallPrompt] = useState(null);
   const [showInstallCard, setShowInstallCard] = useState(
     () => !isStandaloneApp()
@@ -343,6 +345,39 @@ export default function App() {
     setShowInstallCard(false);
   }
 
+  async function copyData() {
+    const text = viewMode === "movies"
+      ? buildMoviesCopyText({ date: selectedDate, theatre: selectedVenueName, movies: movieGroups })
+      : buildShowsCopyText({
+          date: selectedDate,
+          theatre: selectedVenueName,
+          shows: currentShows,
+          allTheatres: selectedVenue === "ALL"
+        });
+
+    try {
+      if (window.navigator.clipboard?.writeText) {
+        await window.navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        const copied = document.execCommand("copy");
+        textarea.remove();
+        if (!copied) throw new Error("Clipboard copy was rejected");
+      }
+      setCopyStatus("copied");
+    } catch {
+      setCopyStatus("failed");
+    }
+
+    window.setTimeout(() => setCopyStatus("idle"), 2200);
+  }
+
   const currentShows = useMemo(() => data?.shows?.filter((show) => show.isCurrent) || [], [data]);
   const movieGroups = useMemo(
     () => sortMovieGroups(groupShowsByMovie(currentShows), movieSort),
@@ -405,7 +440,18 @@ export default function App() {
 
             <section className="section-heading">
               <div><p className="eyebrow">{selectedVenueName}</p><h1>{displayDate.format(new Date(`${selectedDate}T12:00:00+05:30`))}</h1></div>
-              <p><span className="updated-dot" />Updated {dateTime.format(new Date(data.generatedAt))}</p>
+              <div className="section-heading__actions">
+                <button
+                  className={`copy-data-button${copyStatus === "copied" ? " is-copied" : ""}`}
+                  type="button"
+                  onClick={copyData}
+                  disabled={!currentShows.length}
+                  aria-live="polite"
+                >
+                  {copyStatus === "copied" ? "Copied!" : copyStatus === "failed" ? "Try again" : "Copy Data"}
+                </button>
+                <p className="section-heading__updated"><span className="updated-dot" />Updated {dateTime.format(new Date(data.generatedAt))}</p>
+              </div>
             </section>
 
             <section className="view-toolbar" aria-label="Results view options">
