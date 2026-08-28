@@ -98,13 +98,25 @@ main { max-width: 1120px; margin: 0 auto; padding: 30px 24px 88px; }
   -webkit-appearance: none;
   appearance: none;
   overflow: hidden;
+  line-height: 46px;
+  text-align: left;
 }
 .date-control input[type="date"]::-webkit-date-and-time-value {
+  display: flex;
+  align-items: center;
   min-width: 0;
+  height: 100%;
   margin: 0;
   text-align: left;
 }
-.date-control input[type="date"]::-webkit-datetime-edit { min-width: 0; padding: 0; }
+.date-control input[type="date"]::-webkit-datetime-edit {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+}
+.date-control input[type="date"]::-webkit-datetime-edit-fields-wrapper { padding: 0; }
 .date-control input:focus, .date-control select:focus {
   border-color: var(--ink);
   box-shadow: 0 0 0 3px rgba(23, 32, 30, .08);
