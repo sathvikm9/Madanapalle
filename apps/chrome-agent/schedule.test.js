@@ -33,6 +33,28 @@ test("after a failed backup retries in the next minute", () => {
   );
 });
 
+test("recovery mode keeps the same minute-by-minute retry and final timing", () => {
+  const recoveryAfterFailure = {
+    recoveryMode: true,
+    lastAttemptAt: "2026-08-20T05:40:07.000Z"
+  };
+  assert.equal(
+    nextCaptureWhen(sriKrishna, recoveryAfterFailure, new Date("2026-08-20T05:40:35.000Z").getTime()),
+    new Date("2026-08-20T05:41:05.000Z").getTime()
+  );
+
+  const protectedRecoveryBackup = {
+    ...recoveryAfterFailure,
+    lastAttemptAt: "2026-08-20T05:41:05.000Z",
+    lastSuccessAt: "2026-08-20T05:41:32.000Z",
+    lastRecoverySuccessAt: "2026-08-20T05:41:32.000Z"
+  };
+  assert.equal(
+    nextCaptureWhen(sriKrishna, protectedRecoveryBackup, new Date("2026-08-20T05:42:00.000Z").getTime()),
+    new Date("2026-08-20T05:44:05.000Z").getTime()
+  );
+});
+
 test("does not retry after the final-minute attempt", () => {
   assert.equal(
     nextCaptureWhen(sriKrishna, {

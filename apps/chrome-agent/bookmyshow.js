@@ -79,12 +79,23 @@
     });
   }
 
+  function recoveryAction(controls = {}) {
+    if (controls.quantity && controls.categorySelect && controls.rowSelect) return "ready";
+    if (controls.categorySelect && controls.rowSelect) return "seat_controls_ready";
+    if (controls.quantity) return "quantity_ready";
+    if (controls.accessibility) return "click_accessibility";
+    if (controls.selectSeats) return "click_select_seats";
+    if (controls.visualSeatMap) return "visual_seat_map_without_accessibility_controls";
+    return "wait_booking_entry_control";
+  }
+
   root.SKCTBookMyShow = {
     VERIFIED_LAYOUTS,
     enabledTicketOptions,
     singleTicketOption,
     isFullySold,
     layoutSignature,
-    completeFromVerifiedLayout
+    completeFromVerifiedLayout,
+    recoveryAction
   };
 })(globalThis);

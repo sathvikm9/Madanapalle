@@ -120,36 +120,19 @@ async function captureSeats(show) {
     const state = globalThis.SKCTTicketNew.readState(document);
     return globalThis.SKCTTicketNew.capture(state, show);
   }
-  const selectSeats = await waitForControl(
-    () => Array.from(document.querySelectorAll("button")).find((button) => button.textContent.trim() === "Select Seats"),
-    "select_seats_button",
-    20_000
-  );
-  selectSeats.click();
-  const accessibility = await waitForControl(
-    () => document.querySelector('button[aria-label="Open accessibility seat selection"]'),
-    "accessibility_seat_button",
-    20_000
-  );
-  accessibility.click();
-  const quantity = await waitForControl(
-    () => document.querySelector('select[aria-label="Select number of tickets, required"]'),
-    "ticket_quantity_select",
-    20_000
-  );
+  const recoveryMode = show.captureMode === "recovery";
+  const recoveryDeadline = recoveryMode ? Date.now() + 28_000 : null;
+  const quantity = recoveryMode
+    ? await recoveryQuantityControl(recoveryDeadline)
+    : await primaryQuantityControl();
   const ticketOption = globalThis.SKCTBookMyShow.singleTicketOption(quantity);
-  const noTicketOptions = globalThis.SKCTBookMyShow.enabledTicketOptions(quantity).length === 0;
+  const noTicketOptions = quantity
+    ? globalThis.SKCTBookMyShow.enabledTicketOptions(quantity).length === 0
+    : false;
   if (ticketOption) setSelect(quantity, ticketOption.value);
-  const categorySelect = await waitForControl(
-    () => document.querySelector('select[aria-label="Select seat category"]'),
-    "seat_category_select",
-    20_000
-  );
-  const rowSelect = await waitForControl(
-    () => document.querySelector('select[aria-label="Select row"]'),
-    "seat_row_select",
-    20_000
-  );
+  const { categorySelect, rowSelect } = recoveryMode
+    ? await recoveryCategoryControls(recoveryDeadline)
+    : await primaryCategoryControls();
   const categoryOptions = Array.from(categorySelect.options).filter((option) => option.value).map((option) => ({ value: option.value, label: option.label }));
   const observedCategories = [];
 
@@ -214,6 +197,97 @@ async function captureSeats(show) {
   };
 }
 
+async function primaryQuantityControl() {
+  const selectSeats = await waitForControl(
+    () => currentBookMyShowControls().selectSeats,
+    "select_seats_button",
+    20_000
+  );
+  selectSeats.click();
+  const accessibility = await waitForControl(
+    () => currentBookMyShowControls().accessibility,
+    "accessibility_seat_button",
+    20_000
+  );
+  accessibility.click();
+  return waitForControl(
+    () => currentBookMyShowControls().quantity,
+    "ticket_quantity_select",
+    20_000
+  );
+}
+
+async function primaryCategoryControls() {
+  const categorySelect = await waitForControl(
+    () => currentBookMyShowControls().categorySelect,
+    "seat_category_select",
+    20_000
+  );
+  const rowSelect = await waitForControl(
+    () => currentBookMyShowControls().rowSelect,
+    "seat_row_select",
+    20_000
+  );
+  return { categorySelect, rowSelect };
+}
+
+async function recoveryQuantityControl(deadline) {
+  let lastAction = "wait_booking_entry_control";
+  let lastClickedAt = 0;
+
+  while (Date.now() < deadline) {
+    const pageKind = detectPageKind(document.body?.innerText || "");
+    if (pageKind === "cloudflare_challenge" || pageKind === "booking_closed") {
+      throwCaptureControlError(pageKind, { recoveryAction: lastAction });
+    }
+
+    const controls = currentBookMyShowControls();
+    lastAction = globalThis.SKCTBookMyShow.recoveryAction(controls);
+    if (controls.quantity) return controls.quantity;
+    if (lastAction === "seat_controls_ready") return null;
+
+    const clickable = lastAction === "click_accessibility"
+      ? controls.accessibility
+      : lastAction === "click_select_seats" ? controls.selectSeats : null;
+    if (clickable && Date.now() - lastClickedAt >= 2_000) {
+      clickable.click();
+      lastClickedAt = Date.now();
+    }
+    await delay(100);
+  }
+
+  throwCaptureControlError(lastAction, { recoveryMode: true });
+}
+
+async function recoveryCategoryControls(deadline) {
+  while (Date.now() < deadline) {
+    const pageKind = detectPageKind(document.body?.innerText || "");
+    if (pageKind === "cloudflare_challenge" || pageKind === "booking_closed") {
+      throwCaptureControlError(pageKind, { recoveryMode: true });
+    }
+    const controls = currentBookMyShowControls();
+    if (controls.categorySelect && controls.rowSelect) {
+      return { categorySelect: controls.categorySelect, rowSelect: controls.rowSelect };
+    }
+    await delay(100);
+  }
+  const controls = currentBookMyShowControls();
+  const missing = !controls.categorySelect ? "seat_category_select" : "seat_row_select";
+  throwCaptureControlError(missing, { recoveryMode: true, quantityPresent: Boolean(controls.quantity) });
+}
+
+function currentBookMyShowControls() {
+  return {
+    selectSeats: Array.from(document.querySelectorAll("button"))
+      .find((button) => button.textContent.trim() === "Select Seats") || null,
+    accessibility: document.querySelector('button[aria-label="Open accessibility seat selection"]'),
+    quantity: document.querySelector('select[aria-label="Select number of tickets, required"]'),
+    categorySelect: document.querySelector('select[aria-label="Select seat category"]'),
+    rowSelect: document.querySelector('select[aria-label="Select row"]'),
+    visualSeatMap: Boolean(document.querySelector('[aria-label^="Seats for Row"], [aria-label^="Select seat"]'))
+  };
+}
+
 function extractAssignedJson(text) {
   const marker = text.indexOf("window.__INITIAL_STATE__");
   const start = text.indexOf("{", marker);
@@ -248,6 +322,10 @@ async function waitForControl(find, control, timeout, context = {}) {
     if (result) return result;
     await delay(100);
   }
+  throwCaptureControlError(control, context);
+}
+
+function throwCaptureControlError(control, context = {}) {
   const error = new Error(`BookMyShow did not expose ${control.replaceAll("_", " ")}`);
   error.captureStage = `wait_${control}`;
   error.captureDiagnostics = capturePageDiagnostics(control, context);
@@ -262,7 +340,7 @@ function capturePageDiagnostics(missingControl, context = {}) {
     .slice(0, 12)
     .map((label) => label.slice(0, 80));
   const selectLabels = Array.from(document.querySelectorAll("select"))
-    .map((select) => select.getAttribute("aria-label") || "unlabelled")
+    .map((select) => (select.getAttribute("aria-label") || "unlabelled").slice(0, 80))
     .slice(0, 12);
   const url = new URL(location.href);
 

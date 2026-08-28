@@ -7,7 +7,8 @@ const {
   singleTicketOption,
   isFullySold,
   layoutSignature,
-  completeFromVerifiedLayout
+  completeFromVerifiedLayout,
+  recoveryAction
 } = globalThis.SKCTBookMyShow;
 
 function select(options) {
@@ -83,4 +84,16 @@ test("rejects a missing BookMyShow class unless the session marks it sold out", 
     () => completeFromVerifiedLayout("ASRM", advertised, [{ name: "SECOND CLASS", capacity: 134, available: 134, sold: 0, unknown: 0 }]),
     /disappeared without BookMyShow marking it sold out/
   );
+});
+
+test("recovery resumes from the furthest usable BookMyShow control", () => {
+  assert.equal(recoveryAction({
+    quantity: {}, categorySelect: {}, rowSelect: {}, accessibility: {}, selectSeats: {}
+  }), "ready");
+  assert.equal(recoveryAction({ categorySelect: {}, rowSelect: {} }), "seat_controls_ready");
+  assert.equal(recoveryAction({ quantity: {}, accessibility: {}, selectSeats: {} }), "quantity_ready");
+  assert.equal(recoveryAction({ accessibility: {}, selectSeats: {} }), "click_accessibility");
+  assert.equal(recoveryAction({ selectSeats: {} }), "click_select_seats");
+  assert.equal(recoveryAction({ visualSeatMap: true }), "visual_seat_map_without_accessibility_controls");
+  assert.equal(recoveryAction({}), "wait_booking_entry_control");
 });

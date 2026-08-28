@@ -13,7 +13,7 @@
     "start": "npm run start --workspace @skct/api",
     "build": "npm run build --workspace @skct/web",
     "test": "node --test packages/core/test/*.test.js apps/api/test/*.test.js apps/worker/test/*.test.js apps/chrome-agent/*.test.js apps/web/src/*.test.js",
-    "check:extension": "node --check apps/chrome-agent/background.js && node --check apps/chrome-agent/content.js && node --check apps/chrome-agent/ticketnew.js && node --check apps/chrome-agent/bookmyshow.js && node --check apps/chrome-agent/options.js && node --check apps/chrome-agent/schedule.js && node -e \"JSON.parse(require('fs').readFileSync('apps/chrome-agent/manifest.json','utf8'))\"",
+    "check:extension": "node --check apps/chrome-agent/background.js && node --check apps/chrome-agent/content.js && node --check apps/chrome-agent/ticketnew.js && node --check apps/chrome-agent/bookmyshow.js && node --check apps/chrome-agent/options.js && node --check apps/chrome-agent/schedule.js && node --check apps/chrome-agent/recovery.js && node -e \"JSON.parse(require('fs').readFileSync('apps/chrome-agent/manifest.json','utf8'))\"",
     "check": "npm run test && npm run check:extension && npm run check --workspace @skct/worker && npm run build",
     "worker:migrate:local": "npm run migrate:local --workspace @skct/worker",
     "worker:migrate:remote": "npm run migrate:remote --workspace @skct/worker",

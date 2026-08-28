@@ -2,6 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { demoDashboard } from "./demo.js";
 import { groupShowsByMovie, sortMovieGroups } from "./movieGroups.js";
 import { buildMoviesCopyText, buildShowsCopyText } from "./copyData.js";
+import {
+  clampDashboardDate,
+  FIRST_LIVE_DATE,
+  indiaToday,
+  millisecondsUntilNextIndiaMidnight
+} from "./dateRange.js";
 
 const API_BASE = (import.meta.env.VITE_API_BASE || "http://localhost:8787").replace(/\/$/, "");
 const pageParams = new URLSearchParams(window.location.search);
@@ -17,12 +23,6 @@ const THEATRE_OPTIONS = [
   { code: "RTDM", shortName: "Ravi" },
   { code: "ASRM", shortName: "ASR" }
 ];
-
-function indiaToday() {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit"
-  }).format(new Date());
-}
 
 const money = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 const number = new Intl.NumberFormat("en-IN");
@@ -284,7 +284,11 @@ function MovieCard({ movie }) {
 }
 
 export default function App() {
-  const [selectedDate, setSelectedDate] = useState(indiaToday());
+  const initialIndiaDate = indiaToday();
+  const [latestDate, setLatestDate] = useState(initialIndiaDate);
+  const [selectedDate, setSelectedDate] = useState(
+    () => clampDashboardDate(pageParams.get("date") || initialIndiaDate, initialIndiaDate)
+  );
   const [selectedVenue, setSelectedVenue] = useState("ALL");
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -318,6 +322,22 @@ export default function App() {
   }
 
   useEffect(() => { load(); }, [selectedDate, selectedVenue]);
+  useEffect(() => {
+    let timer;
+    const refreshIndiaDate = () => {
+      const nextLatestDate = indiaToday();
+      setLatestDate(nextLatestDate);
+      setSelectedDate((current) => clampDashboardDate(current, nextLatestDate));
+    };
+    const scheduleRollover = () => {
+      timer = setTimeout(() => {
+        refreshIndiaDate();
+        scheduleRollover();
+      }, millisecondsUntilNextIndiaMidnight() + 250);
+    };
+    scheduleRollover();
+    return () => clearTimeout(timer);
+  }, []);
   useEffect(() => {
     if (inDemoMode) return undefined;
     const timer = setInterval(load, 30_000);
@@ -430,7 +450,14 @@ export default function App() {
           </div>
           <div className="control-field">
             <label htmlFor="show-date">Show date</label>
-            <input id="show-date" type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
+            <input
+              id="show-date"
+              type="date"
+              min={FIRST_LIVE_DATE}
+              max={latestDate}
+              value={selectedDate}
+              onChange={(event) => setSelectedDate(clampDashboardDate(event.target.value, latestDate))}
+            />
           </div>
           <button type="button" onClick={load} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>
         </section>

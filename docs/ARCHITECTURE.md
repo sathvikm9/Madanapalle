@@ -49,6 +49,8 @@ When the slot remains 6:00 PM but the event/session changes, the old revision is
 
 Ravi and ASR use showtime +15 minutes for their backups because their observed cutoffs are +20 minutes. The agent preflights before both the backup and final attempts. After a successful backup it waits for the final minute; after a failed backup it retries once per minute. Once cutoff passes, the newest successful snapshot becomes final. Every attempt and error is also written to the durable collector log.
 
+For Sri Krishna, Ravi and ASR, the first failed BookMyShow page read switches only that show into recovery mode. The agent immediately refreshes that theatre's exact current-date session, preserves the normal retry schedule, prepares a separate active tab, and uses a state-aware reader that can resume from the category/row, ticket quantity, accessibility, or Select Seats stage rather than repeating one rigid interaction. A successful recovery becomes the protected backup; the final-minute attempt remains in recovery mode and can replace it. Recovery is cleared just after cutoff. Sai Chitra stays on its independent TicketNew flow and never enters this BookMyShow recovery mode.
+
 ### Calculation
 
 For each category:

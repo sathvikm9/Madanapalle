@@ -1,4 +1,5 @@
 import { canPauseVenueDiscovery, finalCaptureAt, nextCaptureWhen, preflightTimes } from "./schedule.js";
+import { captureModeFor, recoveryChanges, refreshedRecoveryShow } from "./recovery.js";
 import "./bookmyshow.js";
 
 const VENUES = [
@@ -67,7 +68,8 @@ async function migrateSingleTheatreStorage() {
     pendingCapture: null,
     pendingCaptures: {},
     knownShows: {},
-    captureStates: {}
+    captureStates: {},
+    recoveryTabIds: {}
   });
   const agentTabIds = { ...local.agentTabIds };
   const pendingCaptures = { ...local.pendingCaptures };
@@ -82,7 +84,13 @@ async function migrateSingleTheatreStorage() {
       delete knownShows[key];
     }
   }
-  await chrome.storage.local.set({ agentTabIds, pendingCaptures, knownShows, captureStates: local.captureStates });
+  await chrome.storage.local.set({
+    agentTabIds,
+    pendingCaptures,
+    knownShows,
+    captureStates: local.captureStates,
+    recoveryTabIds: local.recoveryTabIds
+  });
   await chrome.storage.local.remove(["agentTabId", "pendingCapture"]);
 }
 
@@ -108,6 +116,7 @@ async function handleAlarm(alarm) {
       if (settings.enabled) {
         const today = indiaDateCode(0);
         await clearShowAlarmsOutsideDate(today);
+        await closeAllRecoveryTabs();
         await discoverAll(today, { force: true });
       }
     } finally {
@@ -119,7 +128,19 @@ async function handleAlarm(alarm) {
   if (alarm.name === DISCOVERY_TODAY) return discoverAll(indiaDateCode(0));
   if (alarm.name.startsWith("preflight:") || alarm.name.startsWith("final-preflight:")) {
     const show = await showForAlarm(alarm.name);
-    if (show) await discoverVenue(show.venueCode, show.dateCode, { allowImminent: true });
+    if (show) {
+      let discoveryError = null;
+      try {
+        await discoverVenue(show.venueCode, show.dateCode, { allowImminent: true });
+      } catch (error) {
+        discoveryError = error;
+      }
+      const state = await getCaptureState(show.naturalKey);
+      if (captureModeFor(show, state) === "recovery") {
+        await prepareRecoverySeatLayout(show);
+      }
+      if (discoveryError) throw discoveryError;
+    }
     return;
   }
   if (alarm.name.startsWith("capture:")) {
@@ -130,6 +151,14 @@ async function handleAlarm(alarm) {
       } catch (error) {
         await failCapture((await getPending(show.naturalKey)) || show, error, "open_seat_page");
       }
+    }
+    return;
+  }
+  if (alarm.name.startsWith("recovery-cleanup:")) {
+    const show = await showForAlarm(alarm.name);
+    if (show) {
+      await updateCaptureState(show.naturalKey, { recoveryMode: false, recoveryEndedAt: new Date().toISOString() });
+      await closeRecoveryTab(show.venueCode);
     }
     return;
   }
@@ -195,8 +224,10 @@ async function handleMessage(message) {
     }
     await removePending(pending.naturalKey);
     await chrome.alarms.clear(`watchdog:${encodeURIComponent(pending.naturalKey)}`);
+    const isFinalWindow = new Date(result.capturedAt).getTime() >= finalCaptureAt(pending);
     await updateCaptureState(pending.naturalKey, {
       lastSuccessAt: result.capturedAt,
+      ...(pending.captureMode === "recovery" ? { lastRecoverySuccessAt: result.capturedAt } : {}),
       lastError: null,
       housefullCandidateAt: null,
       housefullCandidateSignature: null,
@@ -204,7 +235,6 @@ async function handleMessage(message) {
     });
     await scheduleShow(pending);
     const venue = venueFor(pending.venueCode);
-    const isFinalWindow = new Date(result.capturedAt).getTime() >= finalCaptureAt(pending);
     const captureKind = result.housefullEvidence ? "Verified housefull" : (isFinalWindow ? "Final" : "Backup");
     await recordSuccess(
       `${captureKind} capture ${venue.shortName} ${pending.showTimeLabel}: ${saved.sold} tickets`,
@@ -263,6 +293,14 @@ async function discoverVenue(venueCode, dateCode, { allowImminent = false } = {}
   if (!allowImminent && await hasImminentCapture(venueCode, dateCode)) {
     return { venueCode, shows: 0, skipped: "final capture is imminent" };
   }
+  const data = await readVenuePage(venue, dateCode);
+  const result = await apiPost("/api/agent/discovery", data);
+  await saveKnownShows(venueCode, dateCode, data.shows);
+  await scheduleShows(data.shows);
+  return { venueCode, venueName: venue.shortName, ...result };
+}
+
+async function readVenuePage(venue, dateCode) {
   const tab = await ensureAgentTab(venue, dateCode, true);
   const payload = await sendToTab(tab.id, {
     type: "DISCOVER",
@@ -273,10 +311,7 @@ async function discoverVenue(venueCode, dateCode, { allowImminent = false } = {}
     captureStartAfterShowMinutes: venue.captureStartAfterShowMinutes
   });
   if (!payload?.ok) throw new Error(payload?.error || `${venue.shortName} discovery failed`);
-  const result = await apiPost("/api/agent/discovery", payload.data);
-  await saveKnownShows(venueCode, dateCode, payload.data.shows);
-  await scheduleShows(payload.data.shows);
-  return { venueCode, venueName: venue.shortName, ...result };
+  return payload.data;
 }
 
 async function beginCapture(show) {
@@ -285,20 +320,23 @@ async function beginCapture(show) {
     throw new Error(`${venue.shortName} ${show.showTimeLabel} capture alarm ran after cutoff`);
   }
   if (await getPending(show.naturalKey)) return;
+  const state = await getCaptureState(show.naturalKey);
+  const captureMode = captureModeFor(show, state);
   const attemptStartedAt = new Date().toISOString();
   const attemptId = `${Date.now()}-${crypto.randomUUID()}`;
-  const pending = { ...show, attemptId, attemptStartedAt };
+  const pending = { ...show, attemptId, attemptStartedAt, captureMode };
   await updateCaptureState(show.naturalKey, { lastAttemptAt: attemptStartedAt });
   await addPending(pending);
-  await postCaptureEvent(pending, "capture_started");
+  await postCaptureEvent(pending, "capture_started", { stage: `${captureMode}_capture` });
   const discoveryHousefull = discoveryHousefullResult(pending, venue);
   if (discoveryHousefull) {
     await handleMessage({ type: "CAPTURE_RESULT", result: discoveryHousefull });
     return;
   }
   await chrome.alarms.create(`watchdog:${encodeURIComponent(show.naturalKey)}`, { when: Date.now() + 50_000 });
-  await openSeatLayout(pending);
-  await recordSuccess(`Opening ${venue.shortName} ${show.showTimeLabel} seat map`);
+  if (captureMode === "recovery") await openRecoverySeatLayout(pending);
+  else await openSeatLayout(pending);
+  await recordSuccess(`Opening ${venue.shortName} ${show.showTimeLabel} ${captureMode} seat map`);
 }
 
 function discoveryHousefullResult(show, venue) {
@@ -344,14 +382,69 @@ async function handleCaptureWatchdog(name) {
 async function failCapture(show, error, stage, { pendingAlreadyRemoved = false } = {}) {
   if (!pendingAlreadyRemoved) await removePending(show.naturalKey);
   await chrome.alarms.clear(`watchdog:${encodeURIComponent(show.naturalKey)}`);
-  await updateCaptureState(show.naturalKey, { lastError: String(error?.message || error) });
-  await postCaptureEvent(show, "capture_failed", {
+  const message = String(error?.message || error);
+  const state = await getCaptureState(show.naturalKey);
+  const recovery = recoveryChanges(show, state, {
     stage,
-    error: String(error?.message || error),
+    error: message,
     diagnostics: error?.captureDiagnostics || null
   });
+  const recoveryJustActivated = Boolean(recovery) && !state.recoveryMode;
+  await updateCaptureState(show.naturalKey, { lastError: message, ...(recovery || {}) });
+  await postCaptureEvent(show, "capture_failed", {
+    stage,
+    error: message,
+    diagnostics: {
+      ...(error?.captureDiagnostics || {}),
+      captureMode: show.captureMode || "primary",
+      recoveryActivated: Boolean(recovery)
+    }
+  });
   await scheduleShow(show);
+  if (recovery) {
+    let recoveryShow = show;
+    try {
+      if (recoveryJustActivated) recoveryShow = await refreshRecoveryShow(show, recovery, state);
+      await prepareRecoverySeatLayout(recoveryShow);
+    } catch (recoveryError) {
+      await updateCaptureState(show.naturalKey, {
+        lastRecoveryPreparationError: String(recoveryError?.message || recoveryError)
+      });
+    }
+  }
   await recordFailure(error);
+}
+
+async function refreshRecoveryShow(show, recovery, previousState) {
+  try {
+    const venue = venueFor(show.venueCode);
+    const data = await readVenuePage(venue, show.dateCode);
+    const slotFound = data.shows.some((candidate) => candidate.slotKey === show.slotKey);
+    if (!slotFound) {
+      await updateCaptureState(show.naturalKey, {
+        lastRecoveryDiscoveryError: `The refreshed ${venue.shortName} page did not expose ${show.showTimeLabel}; preserving the known session`
+      });
+      return show;
+    }
+    await apiPost("/api/agent/discovery", data);
+    await saveKnownShows(show.venueCode, show.dateCode, data.shows);
+    await scheduleShows(data.shows);
+    const refreshed = refreshedRecoveryShow(show, data.shows);
+    if (refreshed.naturalKey !== show.naturalKey) {
+      await updateCaptureState(refreshed.naturalKey, {
+        ...recovery,
+        lastAttemptAt: previousState.lastAttemptAt || new Date().toISOString(),
+        recoveryReason: `Session refreshed after ${recovery.recoveryReason}`.slice(0, 500)
+      });
+      await scheduleShow(refreshed);
+    }
+    return refreshed;
+  } catch (error) {
+    await updateCaptureState(show.naturalKey, {
+      lastRecoveryDiscoveryError: String(error?.message || error)
+    });
+    return show;
+  }
 }
 
 async function scheduleShows(shows) {
@@ -369,6 +462,11 @@ async function scheduleShow(show) {
     await chrome.alarms.create(`final-preflight:${encoded}`, { when: finalPreflight });
   }
   const state = await getCaptureState(show.naturalKey);
+  if (state.recoveryMode) {
+    await chrome.alarms.create(`recovery-cleanup:${encoded}`, {
+      when: new Date(show.cutoffAt).getTime() + 1_000
+    });
+  }
   const when = nextCaptureWhen(show, state);
   if (when != null) await chrome.alarms.create(`capture:${encoded}`, { when });
 }
@@ -376,7 +474,7 @@ async function scheduleShow(show) {
 async function clearShowAlarmsOutsideDate(dateCode) {
   const alarms = await chrome.alarms.getAll();
   for (const alarm of alarms) {
-    if (!/^(preflight|final-preflight|capture|watchdog):/.test(alarm.name)) continue;
+    if (!/^(preflight|final-preflight|capture|watchdog|recovery-cleanup):/.test(alarm.name)) continue;
     const naturalKey = decodeAlarmKey(alarm.name);
     if (naturalKey.split(":")[1] !== dateCode) await chrome.alarms.clear(alarm.name);
   }
@@ -453,6 +551,69 @@ async function openSeatLayout(show) {
     tab = await chrome.tabs.update(tab.id, { url: show.seatLayoutUrl, active: false });
   }
   await waitForComplete(tab.id);
+}
+
+async function prepareRecoverySeatLayout(show) {
+  const stored = await chrome.storage.local.get({ recoveryTabIds: {} });
+  const recoveryTabIds = { ...stored.recoveryTabIds };
+  const existingId = recoveryTabIds[show.venueCode];
+  if (existingId) await safeRemoveRecoveryTab(existingId, show.venueCode);
+  const tab = await chrome.tabs.create({ url: show.seatLayoutUrl, active: true, pinned: true });
+  recoveryTabIds[show.venueCode] = tab.id;
+  await chrome.storage.local.set({ recoveryTabIds });
+  return tab;
+}
+
+async function openRecoverySeatLayout(show) {
+  const stored = await chrome.storage.local.get({ recoveryTabIds: {} });
+  const recoveryTabIds = { ...stored.recoveryTabIds };
+  let tab = recoveryTabIds[show.venueCode]
+    ? await chrome.tabs.get(recoveryTabIds[show.venueCode]).catch(() => null)
+    : null;
+  if (tab && !tabMatchesRecovery(tab.url, show.venueCode)) tab = null;
+  if (!tab) {
+    tab = await chrome.tabs.create({ url: show.seatLayoutUrl, active: true, pinned: true });
+    recoveryTabIds[show.venueCode] = tab.id;
+    await chrome.storage.local.set({ recoveryTabIds });
+  } else if (tab.url === show.seatLayoutUrl) {
+    await chrome.tabs.update(tab.id, { active: true });
+    await chrome.tabs.reload(tab.id);
+  } else {
+    tab = await chrome.tabs.update(tab.id, { url: show.seatLayoutUrl, active: true });
+  }
+  await waitForComplete(tab.id);
+}
+
+async function closeRecoveryTab(venueCode) {
+  const stored = await chrome.storage.local.get({ recoveryTabIds: {} });
+  const recoveryTabIds = { ...stored.recoveryTabIds };
+  const tabId = recoveryTabIds[venueCode];
+  if (tabId) await safeRemoveRecoveryTab(tabId, venueCode);
+  delete recoveryTabIds[venueCode];
+  await chrome.storage.local.set({ recoveryTabIds });
+}
+
+async function closeAllRecoveryTabs() {
+  const stored = await chrome.storage.local.get({ recoveryTabIds: {} });
+  await Promise.all(Object.entries(stored.recoveryTabIds)
+    .map(([venueCode, tabId]) => safeRemoveRecoveryTab(tabId, venueCode)));
+  await chrome.storage.local.set({ recoveryTabIds: {} });
+}
+
+async function safeRemoveRecoveryTab(tabId, venueCode) {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (tab && tabMatchesRecovery(tab.url, venueCode)) await chrome.tabs.remove(tabId).catch(() => {});
+}
+
+function tabMatchesRecovery(tabUrl, venueCode) {
+  try {
+    const url = new URL(tabUrl);
+    return url.hostname === "in.bookmyshow.com" &&
+      url.pathname.includes("/seat-layout/") &&
+      url.pathname.includes(`/${venueCode}/`);
+  } catch {
+    return false;
+  }
 }
 
 async function waitForComplete(tabId) {

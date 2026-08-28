@@ -24,6 +24,8 @@ The extension creates one pinned BookMyShow or TicketNew tab per theatre. Keep C
 - ASR backup capture starts shortly after showtime +15 minutes
 - a second preflight refreshes the schedule before the final attempt
 - a successful backup waits until the final minute; a failed backup retries once per minute
+- a failed Sri Krishna, Ravi, or ASR page read refreshes that exact session, then switches the show to a separate active recovery tab and a state-aware BookMyShow reader for every remaining attempt
+- Sai Chitra remains on its independent TicketNew flow and never enters BookMyShow recovery mode
 - the newest successful snapshot is finalized after cutoff, so a failed final attempt keeps the backup
 - simultaneous theatre captures use independent tabs and pending jobs
 - capture starts/failures/successes are stored in the server audit log
