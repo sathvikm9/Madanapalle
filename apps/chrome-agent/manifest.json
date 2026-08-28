@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Madanapalle Theatre Capture Agent",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "description": "Uses your normal Chrome session for early backup and final seat captures at four Madanapalle theatres.",
   "permissions": ["alarms", "notifications", "storage", "tabs"],
   "host_permissions": [

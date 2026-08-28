@@ -305,7 +305,7 @@ async function readVenuePage(venue, dateCode) {
   const payload = await sendToTab(tab.id, {
     type: "DISCOVER",
     dateCode,
-    venueCode,
+    venueCode: venue.venueCode,
     platform: venue.platform,
     cinemaId: venue.cinemaId,
     captureStartAfterShowMinutes: venue.captureStartAfterShowMinutes
