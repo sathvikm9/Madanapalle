@@ -249,7 +249,8 @@ export async function recordCaptureEvent(db, show, event, now = new Date()) {
         eventType: event.eventType,
         attemptId: event.attemptId,
         clientAt: event.clientAt,
-        stage: event.stage
+        stage: event.stage,
+        diagnostics: event.diagnostics || null
       })
     )
   ];

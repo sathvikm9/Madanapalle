@@ -108,7 +108,9 @@ async function resumePendingCapture() {
       type: "CAPTURE_ERROR",
       naturalKey: pending.naturalKey,
       attemptId: pending.attemptId,
-      error: error.message
+      error: error.message,
+      stage: error.captureStage || "read_seat_map",
+      diagnostics: error.captureDiagnostics || capturePageDiagnostics("seat_capture")
     });
   }
 }
@@ -118,16 +120,36 @@ async function captureSeats(show) {
     const state = globalThis.SKCTTicketNew.readState(document);
     return globalThis.SKCTTicketNew.capture(state, show);
   }
-  const selectSeats = await waitFor(() => Array.from(document.querySelectorAll("button")).find((button) => button.textContent.trim() === "Select Seats"), 20_000);
+  const selectSeats = await waitForControl(
+    () => Array.from(document.querySelectorAll("button")).find((button) => button.textContent.trim() === "Select Seats"),
+    "select_seats_button",
+    20_000
+  );
   selectSeats.click();
-  const accessibility = await waitFor(() => document.querySelector('button[aria-label="Open accessibility seat selection"]'), 20_000);
+  const accessibility = await waitForControl(
+    () => document.querySelector('button[aria-label="Open accessibility seat selection"]'),
+    "accessibility_seat_button",
+    20_000
+  );
   accessibility.click();
-  const quantity = await waitFor(() => document.querySelector('select[aria-label="Select number of tickets, required"]'), 20_000);
+  const quantity = await waitForControl(
+    () => document.querySelector('select[aria-label="Select number of tickets, required"]'),
+    "ticket_quantity_select",
+    20_000
+  );
   const ticketOption = globalThis.SKCTBookMyShow.singleTicketOption(quantity);
   const noTicketOptions = globalThis.SKCTBookMyShow.enabledTicketOptions(quantity).length === 0;
   if (ticketOption) setSelect(quantity, ticketOption.value);
-  const categorySelect = await waitFor(() => document.querySelector('select[aria-label="Select seat category"]'), 20_000);
-  const rowSelect = await waitFor(() => document.querySelector('select[aria-label="Select row"]'), 20_000);
+  const categorySelect = await waitForControl(
+    () => document.querySelector('select[aria-label="Select seat category"]'),
+    "seat_category_select",
+    20_000
+  );
+  const rowSelect = await waitForControl(
+    () => document.querySelector('select[aria-label="Select row"]'),
+    "seat_row_select",
+    20_000
+  );
   const categoryOptions = Array.from(categorySelect.options).filter((option) => option.value).map((option) => ({ value: option.value, label: option.label }));
   const observedCategories = [];
 
@@ -138,7 +160,12 @@ async function captureSeats(show) {
     let capacity = 0, available = 0, sold = 0, unknown = 0;
     for (const row of rows) {
       setSelect(rowSelect, row);
-      const grid = await waitFor(() => document.querySelector('[aria-label^="Seats for Row"]'), 5_000);
+      const grid = await waitForControl(
+        () => document.querySelector('[aria-label^="Seats for Row"]'),
+        "seat_grid",
+        5_000,
+        { category: category.label, row }
+      );
       await delay(25);
       for (const seat of grid.querySelectorAll("[aria-label]")) {
         const label = seat.getAttribute("aria-label") || "";
@@ -214,14 +241,56 @@ function setSelect(element, value) {
   element.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
-async function waitFor(find, timeout) {
+async function waitForControl(find, control, timeout, context = {}) {
   const started = Date.now();
   while (Date.now() - started < timeout) {
     const result = find();
     if (result) return result;
     await delay(100);
   }
-  throw new Error("BookMyShow did not expose the expected booking control");
+  const error = new Error(`BookMyShow did not expose ${control.replaceAll("_", " ")}`);
+  error.captureStage = `wait_${control}`;
+  error.captureDiagnostics = capturePageDiagnostics(control, context);
+  throw error;
+}
+
+function capturePageDiagnostics(missingControl, context = {}) {
+  const pageText = document.body?.innerText || "";
+  const buttonLabels = Array.from(document.querySelectorAll("button"))
+    .map((button) => (button.getAttribute("aria-label") || button.textContent || "").trim())
+    .filter(Boolean)
+    .slice(0, 12)
+    .map((label) => label.slice(0, 80));
+  const selectLabels = Array.from(document.querySelectorAll("select"))
+    .map((select) => select.getAttribute("aria-label") || "unlabelled")
+    .slice(0, 12);
+  const url = new URL(location.href);
+
+  return {
+    missingControl,
+    pageKind: detectPageKind(pageText),
+    pageUrl: `${url.origin}${url.pathname}`.slice(0, 500),
+    pageTitle: document.title.slice(0, 160),
+    readyState: document.readyState,
+    initialStatePresent: Array.from(document.scripts).some((script) => script.textContent?.includes("window.__INITIAL_STATE__")),
+    buttonLabels,
+    selectLabels,
+    bodyTextLength: pageText.length,
+    context
+  };
+}
+
+function detectPageKind(pageText) {
+  if (
+    /just a moment|attention required|verify you are human|checking your browser/i.test(document.title) ||
+    document.querySelector('#challenge-running, .cf-challenge, iframe[src*="challenges.cloudflare.com"]')
+  ) return "cloudflare_challenge";
+  if (/booking(?:s)? (?:are )?closed|sales (?:are )?closed|show has (?:already )?started/i.test(pageText)) {
+    return "booking_closed";
+  }
+  if (location.pathname.includes("/seat-layout/")) return "bookmyshow_seat_layout";
+  if (location.hostname.includes("bookmyshow.com")) return "bookmyshow_other";
+  return "unknown";
 }
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));

@@ -219,8 +219,9 @@ async function handleMessage(message) {
   if (message.type === "CAPTURE_ERROR") {
     const pending = message.naturalKey ? await getPending(message.naturalKey) : null;
     const error = new Error(message.error || "The page capture failed");
+    error.captureDiagnostics = message.diagnostics || null;
     if (pending && (!message.attemptId || pending.attemptId === message.attemptId)) {
-      await failCapture(pending, error, "read_seat_map");
+      await failCapture(pending, error, message.stage || "read_seat_map");
     } else {
       await recordFailure(error);
     }
@@ -344,7 +345,11 @@ async function failCapture(show, error, stage, { pendingAlreadyRemoved = false }
   if (!pendingAlreadyRemoved) await removePending(show.naturalKey);
   await chrome.alarms.clear(`watchdog:${encodeURIComponent(show.naturalKey)}`);
   await updateCaptureState(show.naturalKey, { lastError: String(error?.message || error) });
-  await postCaptureEvent(show, "capture_failed", { stage, error: String(error?.message || error) });
+  await postCaptureEvent(show, "capture_failed", {
+    stage,
+    error: String(error?.message || error),
+    diagnostics: error?.captureDiagnostics || null
+  });
   await scheduleShow(show);
   await recordFailure(error);
 }

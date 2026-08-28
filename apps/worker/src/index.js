@@ -135,12 +135,22 @@ async function route(request, env, origin) {
     if (!show) throw new RequestError("The show is no longer current", 409, "stale_show");
     const clientAt = new Date(requiredString(body?.clientAt, "clientAt", 50));
     if (!Number.isFinite(clientAt.getTime())) throw new RequestError("clientAt is invalid");
+    let diagnostics = null;
+    if (body?.diagnostics != null) {
+      if (typeof body.diagnostics !== "object" || Array.isArray(body.diagnostics)) {
+        throw new RequestError("diagnostics must be an object");
+      }
+      const encodedDiagnostics = JSON.stringify(body.diagnostics);
+      if (encodedDiagnostics.length > 4000) throw new RequestError("diagnostics is too large");
+      diagnostics = JSON.parse(encodedDiagnostics);
+    }
     const event = {
       eventType,
       clientAt: clientAt.toISOString(),
       attemptId: body?.attemptId ? String(body.attemptId).slice(0, 100) : null,
       stage: body?.stage ? String(body.stage).slice(0, 100) : null,
-      error: body?.error ? String(body.error).slice(0, 500) : null
+      error: body?.error ? String(body.error).slice(0, 500) : null,
+      diagnostics
     };
     return json(await recordCaptureEvent(env.DB, show, event), 200, origin);
   }
