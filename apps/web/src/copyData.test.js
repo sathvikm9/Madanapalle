@@ -23,9 +23,11 @@ test("copies a single theatre and repeats a single movie only once", () => {
 
   assert.equal(text, [
     "27th August - Sri Krishna",
+    "",
     "Irumudi",
     "11:00AM - 4,458/-",
-    "02:00PM - 55,180/-"
+    "02:00PM - 55,180/-",
+    "Total - 59,638/-"
   ].join("\n"));
 });
 
@@ -38,8 +40,10 @@ test("includes each movie title when a theatre screens multiple movies", () => {
 
   assert.equal(text, [
     "21st August - Sri Krishna",
+    "",
     "11:00AM - Irumudi - 4,458/-",
-    "02:00PM - Vishwanath and Sons - 4,458/-"
+    "02:00PM - Vishwanath and Sons - 4,458/-",
+    "Total - 8,916/-"
   ].join("\n"));
 });
 
@@ -52,8 +56,8 @@ test("groups all-theatre show data by theatre", () => {
   });
 
   assert.match(text, /^22nd August - All theatres/);
-  assert.match(text, /Sri Krishna\nIrumudi\n11:00AM/);
-  assert.match(text, /Ravi\nIrumudi\n07:30AM/);
+  assert.match(text, /Sri Krishna\nIrumudi\n11:00AM - 4,458\/-\nTotal - 4,458\/-/);
+  assert.match(text, /Ravi\nIrumudi\n07:30AM - 4,458\/-\nTotal - 4,458\/-/);
 });
 
 test("copies movie totals with singular and plural show labels", () => {
@@ -68,6 +72,7 @@ test("copies movie totals with singular and plural show labels", () => {
 
   assert.equal(text, [
     "27th August - Sri Krishna",
+    "",
     "Irumudi - 1 Show - 33,569/-",
     "Vishwanath and Sons - 3 Shows - 21,611/-"
   ].join("\n"));

@@ -24,6 +24,10 @@ function copiedGross(collectionPaise) {
   return `${copyNumber.format(Math.round((collectionPaise || 0) / 100))}/-`;
 }
 
+function showsTotal(shows) {
+  return shows.reduce((total, show) => total + (show.snapshot?.collectionPaise || 0), 0);
+}
+
 function showResult(show) {
   if (show.snapshot) return copiedGross(show.snapshot.collectionPaise);
   if (show.status === "missed") return "Missed";
@@ -49,6 +53,8 @@ function formatTheatreShows(shows) {
     lines.push(pieces.join(" - "));
   }
 
+  lines.push(`Total - ${copiedGross(showsTotal(shows))}`);
+
   return lines;
 }
 
@@ -56,7 +62,7 @@ export function buildShowsCopyText({ date, theatre, shows, allTheatres = false }
   const heading = `${copyDate(date)} - ${theatre}`;
   if (!shows.length) return `${heading}\nNo shows found.`;
 
-  if (!allTheatres) return [heading, ...formatTheatreShows(shows)].join("\n");
+  if (!allTheatres) return [heading, "", ...formatTheatreShows(shows)].join("\n");
 
   const groups = new Map();
   for (const show of shows) {
@@ -79,5 +85,5 @@ export function buildMoviesCopyText({ date, theatre, movies }) {
     const count = movie.shows.length;
     return `${movie.movieTitle} - ${count} ${count === 1 ? "Show" : "Shows"} - ${copiedGross(movie.collectionPaise)}`;
   });
-  return [heading, ...lines].join("\n");
+  return [heading, "", ...lines].join("\n");
 }
