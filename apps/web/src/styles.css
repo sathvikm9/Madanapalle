@@ -248,7 +248,24 @@ main { max-width: 1120px; margin: 0 auto; padding: 30px 24px 88px; }
 .section-heading__actions { display: flex; align-items: center; gap: 12px; }
 .section-heading__updated { display: flex; align-items: center; gap: 9px; margin: 0 0 3px; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .section-heading .updated-dot { display: inline-block; flex: 0 0 7px; }
-.copy-data-button { display: none; }
+.copy-data-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 88px;
+  min-height: 42px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  color: var(--ink);
+  background: var(--paper);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.copy-data-button--mobile { display: none; }
+.copy-data-button.is-copied { color: #126345; border-color: #b9dfcf; background: #e6f5ee; }
+.copy-data-button:disabled { opacity: .48; cursor: not-allowed; }
 
 .view-toolbar {
   display: flex;
@@ -257,6 +274,7 @@ main { max-width: 1120px; margin: 0 auto; padding: 30px 24px 88px; }
   gap: 16px;
   margin-bottom: 14px;
 }
+.view-toolbar__primary { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .view-switch {
   display: inline-flex;
   align-items: center;
@@ -475,25 +493,17 @@ main { max-width: 1120px; margin: 0 auto; padding: 30px 24px 88px; }
   .section-heading > div:first-child { min-width: 0; }
   .section-heading h1 { font-size: clamp(25px, 7.4vw, 29px); }
   .section-heading__updated { display: none; }
-  .copy-data-button {
+  .copy-data-button--mobile {
     display: inline-flex;
-    align-items: center;
-    justify-content: center;
     min-width: 84px;
     min-height: 40px;
     padding: 0 12px;
-    border: 1px solid var(--line);
     border-radius: 10px;
-    color: var(--ink);
-    background: var(--paper);
-    font-size: 11px;
-    font-weight: 700;
-    white-space: nowrap;
   }
-  .copy-data-button.is-copied { color: #126345; border-color: #b9dfcf; background: #e6f5ee; }
-  .copy-data-button:disabled { opacity: .48; cursor: not-allowed; }
+  .copy-data-button--desktop { display: none; }
 
   .view-toolbar { align-items: stretch; gap: 9px; margin-bottom: 11px; }
+  .view-toolbar__primary { flex: 1 1 auto; min-width: 0; }
   .view-switch { flex: 1 1 auto; min-width: 0; }
   .view-switch > span { display: none; }
   .view-switch button { flex: 1 1 50%; padding: 0 11px; }

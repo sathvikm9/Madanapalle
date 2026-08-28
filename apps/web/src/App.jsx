@@ -48,6 +48,20 @@ function Metric({ label, value, note, tone }) {
   );
 }
 
+function CopyDataButton({ copyStatus, disabled, onCopy, placement }) {
+  return (
+    <button
+      className={`copy-data-button copy-data-button--${placement}${copyStatus === "copied" ? " is-copied" : ""}`}
+      type="button"
+      onClick={onCopy}
+      disabled={disabled}
+      aria-live="polite"
+    >
+      {copyStatus === "copied" ? "Copied!" : copyStatus === "failed" ? "Try again" : "Copy Data"}
+    </button>
+  );
+}
+
 function DashboardSkeleton() {
   return (
     <section className="dashboard-skeleton" aria-label="Loading daily theatre data" aria-live="polite">
@@ -441,24 +455,19 @@ export default function App() {
             <section className="section-heading">
               <div><p className="eyebrow">{selectedVenueName}</p><h1>{displayDate.format(new Date(`${selectedDate}T12:00:00+05:30`))}</h1></div>
               <div className="section-heading__actions">
-                <button
-                  className={`copy-data-button${copyStatus === "copied" ? " is-copied" : ""}`}
-                  type="button"
-                  onClick={copyData}
-                  disabled={!currentShows.length}
-                  aria-live="polite"
-                >
-                  {copyStatus === "copied" ? "Copied!" : copyStatus === "failed" ? "Try again" : "Copy Data"}
-                </button>
+                <CopyDataButton copyStatus={copyStatus} disabled={!currentShows.length} onCopy={copyData} placement="mobile" />
                 <p className="section-heading__updated"><span className="updated-dot" />Updated {dateTime.format(new Date(data.generatedAt))}</p>
               </div>
             </section>
 
             <section className="view-toolbar" aria-label="Results view options">
-              <div className="view-switch" role="group" aria-label="View by">
-                <span>View by</span>
-                <button type="button" className={viewMode === "shows" ? "is-active" : ""} aria-pressed={viewMode === "shows"} onClick={() => setViewMode("shows")}>Shows</button>
-                <button type="button" className={viewMode === "movies" ? "is-active" : ""} aria-pressed={viewMode === "movies"} onClick={() => setViewMode("movies")}>Movies</button>
+              <div className="view-toolbar__primary">
+                <div className="view-switch" role="group" aria-label="View by">
+                  <span>View by</span>
+                  <button type="button" className={viewMode === "shows" ? "is-active" : ""} aria-pressed={viewMode === "shows"} onClick={() => setViewMode("shows")}>Shows</button>
+                  <button type="button" className={viewMode === "movies" ? "is-active" : ""} aria-pressed={viewMode === "movies"} onClick={() => setViewMode("movies")}>Movies</button>
+                </div>
+                <CopyDataButton copyStatus={copyStatus} disabled={!currentShows.length} onCopy={copyData} placement="desktop" />
               </div>
               {viewMode === "movies" && movieGroups.length > 1 && (
                 <label className="movie-sort">
