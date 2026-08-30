@@ -164,7 +164,7 @@ function movieAliases(movies) {
       .filter((word) => !ignoredInitialWords.has(word))
       .map((word) => word[0])
       .join("");
-    if (initials.length >= 2) aliases.add(initials);
+    if (initials.length >= 2 && initials !== "vs") aliases.add(initials);
     return { movie, aliases };
   });
   const aliasCounts = new Map();

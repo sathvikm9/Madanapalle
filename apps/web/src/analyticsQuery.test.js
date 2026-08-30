@@ -116,6 +116,12 @@ test("parses movie and movie-day comparisons", () => {
     ["2026-08-28", "2026-08-30"]
   ]);
 
+  const shortcut = parseAnalyticsQuestion("iru vs tox 1we", catalog, now).request;
+  assert.deepEqual(shortcut.entries.map((entry) => entry.movieTitle), [
+    "Irumudi",
+    "Toxic: A Fairy Tale for Grown-ups"
+  ]);
+
   const context = parseAnalyticsQuestion("Irumudi g", catalog, now).request;
   const days = parseAnalyticsQuestion("Compare Day 1 and Day 2", catalog, now, context).request;
   assert.equal(days.comparisonType, "periods");
