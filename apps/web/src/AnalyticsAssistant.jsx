@@ -39,12 +39,23 @@ export default function AnalyticsAssistant({ apiBase }) {
 
   useEffect(() => {
     if (!open) return undefined;
-    inputRef.current?.focus();
+    const usesMobileKeyboard = window.matchMedia("(max-width: 640px), (pointer: coarse)").matches;
+    const previousBodyOverflow = document.body.style.overflow;
+
+    if (usesMobileKeyboard) {
+      document.body.style.overflow = "hidden";
+    } else {
+      inputRef.current?.focus({ preventScroll: true });
+    }
+
     function closeOnEscape(event) {
       if (event.key === "Escape") setOpen(false);
     }
     window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
   }, [open]);
 
   useEffect(() => {

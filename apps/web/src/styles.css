@@ -658,12 +658,20 @@ main { max-width: 1120px; margin: 0 auto; padding: 30px 24px 88px; }
   .change-row time { grid-column: 2; }
   .site-footer { flex-direction: column; gap: 7px; padding: 19px 14px; }
   .assistant-launcher { right: 14px; bottom: 14px; min-height: 46px; padding: 0 15px; }
-  .analytics-assistant { inset: auto 8px 8px; width: auto; height: min(76vh, 680px); border-radius: 18px; }
+  .analytics-assistant {
+    inset: auto 8px max(8px, env(safe-area-inset-bottom));
+    width: auto;
+    height: min(76vh, 680px);
+    height: min(76dvh, 680px);
+    max-height: calc(100dvh - max(16px, env(safe-area-inset-top)) - max(8px, env(safe-area-inset-bottom)));
+    border-radius: 18px;
+  }
   .analytics-assistant__header { min-height: 62px; padding: 9px 10px; }
   .analytics-assistant__readonly { display: none; }
   .analytics-assistant__conversation { padding: 15px 12px; }
   .analytics-assistant__welcome h2 { font-size: 26px; }
   .assistant-message { max-width: 92%; }
+  .analytics-assistant__composer textarea { font-size: 16px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
