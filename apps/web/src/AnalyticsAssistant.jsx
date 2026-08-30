@@ -2,14 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { formatAnalyticsAnswer, formatComparisonAnswer, parseAnalyticsQuestion } from "./analyticsQuery.js";
 import { formatFullGrossAnswer, parseFullGrossQuestion } from "./fullGrossCalculator.js";
 
-const suggestions = [
-  "iru 1w g",
-  "28 rpt",
-  "rv 170 100",
-  "iru vs tox 1we",
-  "all full gross",
-  "help"
-];
 const CATALOG_MAX_AGE_MS = 10 * 60 * 1000;
 
 let nextMessageId = 1;
@@ -163,12 +155,6 @@ export default function AnalyticsAssistant({ apiBase }) {
               <div className="analytics-assistant__welcome">
                 <p className="eyebrow">Ask the collection desk</p>
                 <h2>Fast answers from captured show data.</h2>
-                <p>Full questions, shortcuts, typo correction, comparisons, and rankings work. Try “iru 1w g”, “iru vs tox 1we”, or type “help”.</p>
-                <div className="analytics-assistant__suggestions">
-                  {suggestions.map((suggestion) => (
-                    <button type="button" key={suggestion} onClick={() => ask(suggestion)}>{suggestion}</button>
-                  ))}
-                </div>
               </div>
             )}
 

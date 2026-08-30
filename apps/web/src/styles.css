@@ -529,10 +529,6 @@ main { max-width: 1120px; margin: 0 auto; padding: 30px 24px 88px; }
 .analytics-assistant__conversation { min-height: 0; padding: 18px 15px; overflow-y: auto; overscroll-behavior: contain; background: #f6f3ed; }
 .analytics-assistant__welcome { padding: 5px 3px 12px; }
 .analytics-assistant__welcome h2 { margin: 0; max-width: 330px; font-family: "DM Serif Display", Georgia, serif; font-size: 28px; font-weight: 400; line-height: 1.08; letter-spacing: -.025em; }
-.analytics-assistant__welcome > p:last-of-type { margin: 11px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
-.analytics-assistant__suggestions { display: grid; gap: 8px; margin-top: 18px; }
-.analytics-assistant__suggestions button { padding: 11px 12px; border: 1px solid var(--line); border-radius: 11px; color: var(--ink); background: var(--paper); font-size: 11px; font-weight: 600; line-height: 1.35; text-align: left; }
-.analytics-assistant__suggestions button:hover { border-color: #aaa398; }
 .assistant-message { max-width: 88%; margin-bottom: 14px; }
 .assistant-message > span { display: block; margin: 0 4px 5px; color: var(--muted); font-size: 8px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .assistant-message p { margin: 0; padding: 12px 13px; border: 1px solid var(--line); border-radius: 14px 14px 14px 4px; background: var(--paper); font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
