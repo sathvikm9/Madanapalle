@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { demoDashboard } from "./demo.js";
 import { groupShowsByMovie, sortMovieGroups } from "./movieGroups.js";
 import { buildMoviesCopyText, buildShowsCopyText } from "./copyData.js";
+import AnalyticsAssistant from "./AnalyticsAssistant.jsx";
 import {
   clampDashboardDate,
   FIRST_LIVE_DATE,
@@ -535,6 +536,8 @@ export default function App() {
           </>
         )}
       </main>
+
+      {!inDemoMode && <AnalyticsAssistant apiBase={API_BASE} />}
 
       <footer className="site-footer">
         <span>Asia/Kolkata time · ₹5 MC adjusted per ticket</span>

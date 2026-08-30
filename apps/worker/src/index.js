@@ -7,6 +7,7 @@ import {
   reconcileDiscovery,
   saveCapture
 } from "./database.js";
+import { analyticsCatalog, analyticsSummary } from "./analytics.js";
 import {
   normalizeCapture,
   normalizeDiscovery,
@@ -94,6 +95,23 @@ async function route(request, env, origin) {
     if (!validDate(date)) throw new RequestError("date must be a real YYYY-MM-DD date");
     if (!dashboardVenueForCode(venueCode)) throw new RequestError(`Venue ${venueCode} is not configured`);
     return json(await dashboardData(env.DB, date, venueCode), 200, origin);
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/analytics/catalog") {
+    return json(await analyticsCatalog(env.DB), 200, origin);
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/analytics/summary") {
+    const movieTitle = requiredString(url.searchParams.get("movie"), "movie", 300);
+    const venueCode = String(url.searchParams.get("venueCode") || "ALL");
+    const startDate = String(url.searchParams.get("startDate") || "");
+    const endDate = String(url.searchParams.get("endDate") || "");
+    if (!dashboardVenueForCode(venueCode)) throw new RequestError(`Venue ${venueCode} is not configured`);
+    if (!validDate(startDate) || !validDate(endDate)) {
+      throw new RequestError("startDate and endDate must be real YYYY-MM-DD dates");
+    }
+    if (startDate > endDate) throw new RequestError("startDate must be on or before endDate");
+    return json(await analyticsSummary(env.DB, { movieTitle, venueCode, startDate, endDate }), 200, origin);
   }
 
   const captureHistoryMatch = url.pathname.match(/^\/api\/shows\/(\d+)\/captures$/);
