@@ -1,5 +1,10 @@
 import { canPauseVenueDiscovery, finalCaptureAt, nextCaptureWhen, preflightTimes } from "./schedule.js";
-import { captureModeFor, recoveryChanges, refreshedRecoveryShow } from "./recovery.js";
+import {
+  captureModeFor,
+  recoveryChanges,
+  refreshedRecoveryShow,
+  successfulAttemptAlreadyHandled
+} from "./recovery.js";
 import "./bookmyshow.js";
 
 const VENUES = [
@@ -149,6 +154,11 @@ async function handleAlarm(alarm) {
       try {
         await beginCapture(show);
       } catch (error) {
+        const state = await getCaptureState(show.naturalKey);
+        if (successfulAttemptAlreadyHandled(error, state)) {
+          await recordIgnoredLatePageError(show.naturalKey, error);
+          return;
+        }
         await failCapture((await getPending(show.naturalKey)) || show, error, "open_seat_page");
       }
     }
@@ -222,17 +232,18 @@ async function handleMessage(message) {
       await failCapture(pending, error, "upload_capture");
       return { ok: false, error: error.message };
     }
-    await removePending(pending.naturalKey);
-    await chrome.alarms.clear(`watchdog:${encodeURIComponent(pending.naturalKey)}`);
     const isFinalWindow = new Date(result.capturedAt).getTime() >= finalCaptureAt(pending);
     await updateCaptureState(pending.naturalKey, {
       lastSuccessAt: result.capturedAt,
+      lastSuccessAttemptId: pending.attemptId,
       ...(pending.captureMode === "recovery" ? { lastRecoverySuccessAt: result.capturedAt } : {}),
       lastError: null,
       housefullCandidateAt: null,
       housefullCandidateSignature: null,
       housefullCandidateObservationId: null
     });
+    await removePending(pending.naturalKey);
+    await chrome.alarms.clear(`watchdog:${encodeURIComponent(pending.naturalKey)}`);
     await scheduleShow(pending);
     const venue = venueFor(pending.venueCode);
     const captureKind = result.housefullEvidence ? "Verified housefull" : (isFinalWindow ? "Final" : "Backup");
@@ -249,10 +260,16 @@ async function handleMessage(message) {
   if (message.type === "CAPTURE_ERROR") {
     const pending = message.naturalKey ? await getPending(message.naturalKey) : null;
     const error = new Error(message.error || "The page capture failed");
+    error.captureAttemptId = message.attemptId || null;
     error.captureDiagnostics = message.diagnostics || null;
     if (pending && (!message.attemptId || pending.attemptId === message.attemptId)) {
       await failCapture(pending, error, message.stage || "read_seat_map");
     } else {
+      const state = message.naturalKey ? await getCaptureState(message.naturalKey) : {};
+      if (successfulAttemptAlreadyHandled(error, state)) {
+        await recordIgnoredLatePageError(message.naturalKey, error);
+        return { ok: true, ignoredLatePageError: true };
+      }
       await recordFailure(error);
     }
     return { ok: false, error: error.message };
@@ -334,8 +351,14 @@ async function beginCapture(show) {
     return;
   }
   await chrome.alarms.create(`watchdog:${encodeURIComponent(show.naturalKey)}`, { when: Date.now() + 50_000 });
-  if (captureMode === "recovery") await openRecoverySeatLayout(pending);
-  else await openSeatLayout(pending);
+  try {
+    if (captureMode === "recovery") await openRecoverySeatLayout(pending);
+    else await openSeatLayout(pending);
+  } catch (error) {
+    const taggedError = new Error(String(error?.message || error), { cause: error });
+    taggedError.captureAttemptId = attemptId;
+    throw taggedError;
+  }
   await recordSuccess(`Opening ${venue.shortName} ${show.showTimeLabel} ${captureMode} seat map`);
 }
 
@@ -413,6 +436,13 @@ async function failCapture(show, error, stage, { pendingAlreadyRemoved = false }
     }
   }
   await recordFailure(error);
+}
+
+async function recordIgnoredLatePageError(naturalKey, error) {
+  await updateCaptureState(naturalKey, {
+    lastIgnoredLatePageErrorAt: new Date().toISOString(),
+    lastIgnoredLatePageError: String(error?.message || error).slice(0, 500)
+  });
 }
 
 async function refreshRecoveryShow(show, recovery, previousState) {

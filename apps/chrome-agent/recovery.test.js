@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { captureModeFor, recoveryChanges, refreshedRecoveryShow, supportsRecovery } from "./recovery.js";
+import {
+  captureModeFor,
+  recoveryChanges,
+  refreshedRecoveryShow,
+  successfulAttemptAlreadyHandled,
+  supportsRecovery
+} from "./recovery.js";
 
 const bookMyShow = (venueCode) => ({ venueCode, platform: "bookmyshow" });
 
@@ -50,4 +56,13 @@ test("recovery follows a refreshed session in the same theatre slot", () => {
   const replacement = { naturalKey: "new", slotKey: "SKMD:20260828:2100" };
   assert.equal(refreshedRecoveryShow(failed, [replacement]), replacement);
   assert.equal(refreshedRecoveryShow(failed, [{ naturalKey: "other", slotKey: "SKMD:20260828:1800" }]), failed);
+});
+
+test("ignores only a late page error from the exact attempt already uploaded", () => {
+  const state = { lastSuccessAttemptId: "attempt-backup" };
+
+  assert.equal(successfulAttemptAlreadyHandled({ captureAttemptId: "attempt-backup" }, state), true);
+  assert.equal(successfulAttemptAlreadyHandled({ captureAttemptId: "attempt-final" }, state), false);
+  assert.equal(successfulAttemptAlreadyHandled(new Error("ordinary failure"), state), false);
+  assert.equal(successfulAttemptAlreadyHandled({ captureAttemptId: "attempt-backup" }, {}), false);
 });

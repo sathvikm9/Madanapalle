@@ -29,6 +29,7 @@ The extension creates one pinned BookMyShow or TicketNew tab per theatre. Keep C
 - the newest successful snapshot is finalized after cutoff, so a failed final attempt keeps the backup
 - simultaneous theatre captures use independent tabs and pending jobs
 - capture starts/failures/successes are stored in the server audit log
+- a late Chrome page-loading error is ignored only when that exact capture attempt already uploaded successfully
 - a Chrome notification requests attention when a booking platform requires human verification
 - no seat is selected and no booking/payment action is performed
 

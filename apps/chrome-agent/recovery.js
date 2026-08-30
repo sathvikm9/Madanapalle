@@ -10,6 +10,11 @@ export function captureModeFor(show, state = {}) {
   return supportsRecovery(show) && state.recoveryMode ? "recovery" : "primary";
 }
 
+export function successfulAttemptAlreadyHandled(error, state = {}) {
+  const failedAttemptId = String(error?.captureAttemptId || "");
+  return Boolean(failedAttemptId && state.lastSuccessAttemptId === failedAttemptId);
+}
+
 export function refreshedRecoveryShow(show, candidates = []) {
   return candidates.find((candidate) => candidate.slotKey === show?.slotKey) || show;
 }
