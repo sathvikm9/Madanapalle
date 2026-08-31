@@ -106,6 +106,23 @@ test("asks for clarification when a typo is genuinely ambiguous", () => {
   assert.match(result.reply, /Maya or Mala|Mala or Maya/);
 });
 
+test("asks for clarification when a shortened title belongs to multiple movies", () => {
+  const paradiseCatalog = {
+    ...catalog,
+    movies: [
+      { title: "The Paradise", firstTrackedDate: "2026-08-21" },
+      { title: "Paradise Lost", firstTrackedDate: "2026-08-21" }
+    ]
+  };
+  const result = parseAnalyticsQuestion("Paradise first week gross", paradiseCatalog, now);
+  assert.match(result.reply, /not certain/i);
+  assert.match(result.reply, /The Paradise/);
+  assert.match(result.reply, /Paradise Lost/);
+
+  const exact = parseAnalyticsQuestion("The Paradise first week gross", paradiseCatalog, now);
+  assert.equal(exact.request.movieTitle, "The Paradise");
+});
+
 test("parses movie and movie-day comparisons", () => {
   const movies = parseAnalyticsQuestion("Compare Irumudi and Toxic first weekend", catalog, now).request;
   assert.equal(movies.mode, "comparison");

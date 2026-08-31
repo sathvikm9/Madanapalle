@@ -5,6 +5,12 @@ import {
   refreshedRecoveryShow,
   successfulAttemptAlreadyHandled
 } from "./recovery.js";
+import {
+  discoveryRetryDelay,
+  discoveryTabError,
+  isDiscoveryTabFailure,
+  tabBelongsToVenue
+} from "./tab-health.js";
 import "./bookmyshow.js";
 
 const VENUES = [
@@ -42,8 +48,11 @@ const VENUE_BY_CODE = Object.fromEntries(VENUES.map((venue) => [venue.venueCode,
 const DISCOVERY_TODAY = "discovery:today";
 const LEGACY_DISCOVERY_TOMORROW = "discovery:tomorrow";
 const INDIA_DAY_ROLLOVER = "discovery:india-day-rollover";
+const DISCOVERY_RETRY_PREFIX = "discovery-retry:";
 let pendingMutation = Promise.resolve();
 let captureStateMutation = Promise.resolve();
+let agentDiagnosticMutation = Promise.resolve();
+const venueDiscoveryOperations = new Map();
 
 chrome.runtime.onInstalled.addListener(async () => {
   await initializeAgent();
@@ -60,6 +69,7 @@ async function initializeAgent() {
   const { knownShows = {} } = await chrome.storage.local.get({ knownShows: {} });
   const today = indiaDateCode(0);
   await clearShowAlarmsOutsideDate(today);
+  await clearDiscoveryRetryAlarmsOutsideDate(today);
   const todayShows = Object.entries(knownShows)
     .filter(([key]) => key.endsWith(`:${today}`))
     .flatMap(([, shows]) => shows);
@@ -121,7 +131,9 @@ async function handleAlarm(alarm) {
       if (settings.enabled) {
         const today = indiaDateCode(0);
         await clearShowAlarmsOutsideDate(today);
+        await clearDiscoveryRetryAlarmsOutsideDate(today);
         await closeAllRecoveryTabs();
+        await resetAgentTabsForNewDay(today);
         await discoverAll(today, { force: true });
       }
     } finally {
@@ -130,6 +142,32 @@ async function handleAlarm(alarm) {
     return;
   }
   if (!settings.enabled) return;
+  if (alarm.name.startsWith(DISCOVERY_RETRY_PREFIX)) {
+    const { venueCode, dateCode } = discoveryRetryDetails(alarm.name);
+    if (!VENUE_BY_CODE[venueCode] || dateCode !== indiaDateCode(0)) {
+      await chrome.alarms.clear(alarm.name);
+      return;
+    }
+    try {
+      const result = await discoverVenue(venueCode, dateCode);
+      await recordSuccess(`${VENUE_BY_CODE[venueCode].shortName} discovery recovered: ${result.shows || 0} shows found`);
+    } catch (error) {
+      const retry = isDiscoveryTabFailure(error)
+        ? await discoveryRetryState(venueCode, dateCode)
+        : null;
+      if (!retry) await clearVenueDiscoveryFailure(venueCode, dateCode);
+      await chrome.storage.local.set({
+        status: {
+          ok: false,
+          message: retry
+            ? `${VENUE_BY_CODE[venueCode].shortName} discovery still unavailable; retry ${retry.failureCount} scheduled`
+            : `${VENUE_BY_CODE[venueCode].shortName} discovery failed outside the tab; normal discovery will retry`,
+          at: new Date().toISOString()
+        }
+      });
+    }
+    return;
+  }
   if (alarm.name === DISCOVERY_TODAY) return discoverAll(indiaDateCode(0));
   if (alarm.name.startsWith("preflight:") || alarm.name.startsWith("final-preflight:")) {
     const show = await showForAlarm(alarm.name);
@@ -304,7 +342,25 @@ async function discoverAll(dateCode, { force = false } = {}) {
   return { dateCode, shows, venues: results };
 }
 
-async function discoverVenue(venueCode, dateCode, { allowImminent = false } = {}) {
+async function discoverVenue(venueCode, dateCode, options = {}) {
+  const previous = venueDiscoveryOperations.get(venueCode) || Promise.resolve();
+  const operation = previous.catch(() => {}).then(() => discoverVenueUnlocked(venueCode, dateCode, options));
+  venueDiscoveryOperations.set(venueCode, operation);
+  try {
+    const result = await operation;
+    await clearVenueDiscoveryFailure(venueCode, dateCode);
+    return result;
+  } catch (error) {
+    if (isDiscoveryTabFailure(error)) {
+      await scheduleVenueDiscoveryRetry(venueCode, dateCode, error);
+    }
+    throw error;
+  } finally {
+    if (venueDiscoveryOperations.get(venueCode) === operation) venueDiscoveryOperations.delete(venueCode);
+  }
+}
+
+async function discoverVenueUnlocked(venueCode, dateCode, { allowImminent = false } = {}) {
   const venue = venueFor(venueCode);
   if (await hasPendingForVenue(venueCode)) return { venueCode, shows: 0, skipped: "capture in progress" };
   if (!allowImminent && await hasImminentCapture(venueCode, dateCode)) {
@@ -318,16 +374,78 @@ async function discoverVenue(venueCode, dateCode, { allowImminent = false } = {}
 }
 
 async function readVenuePage(venue, dateCode) {
-  const tab = await ensureAgentTab(venue, dateCode, true);
-  const payload = await sendToTab(tab.id, {
-    type: "DISCOVER",
-    dateCode,
-    venueCode: venue.venueCode,
-    platform: venue.platform,
-    cinemaId: venue.cinemaId,
-    captureStartAfterShowMinutes: venue.captureStartAfterShowMinutes
-  });
-  if (!payload?.ok) throw new Error(payload?.error || `${venue.shortName} discovery failed`);
+  try {
+    return await readVenuePageOnce(venue, dateCode, true);
+  } catch (error) {
+    if (!isDiscoveryTabFailure(error)) throw error;
+    await appendAgentDiagnostic({
+      type: "discovery_tab_repair_started",
+      venueCode: venue.venueCode,
+      dateCode,
+      stage: error.discoveryStage,
+      error: error.message,
+      oldTabId: error.tabId || null
+    });
+    try {
+      const replacement = await replaceAgentTab(venue, dateCode);
+      const data = await readVenuePageOnce(venue, dateCode, false);
+      await appendAgentDiagnostic({
+        type: "discovery_tab_recovered",
+        venueCode: venue.venueCode,
+        dateCode,
+        newTabId: replacement.id,
+        shows: data.shows.length
+      });
+      return data;
+    } catch (replacementError) {
+      const tagged = isDiscoveryTabFailure(replacementError)
+        ? replacementError
+        : discoveryTabError(replacementError, "fresh_tab_retry");
+      tagged.tabRepairAttempted = true;
+      await appendAgentDiagnostic({
+        type: "discovery_tab_repair_failed",
+        venueCode: venue.venueCode,
+        dateCode,
+        stage: tagged.discoveryStage,
+        error: tagged.message,
+        newTabId: tagged.tabId || null
+      });
+      throw tagged;
+    }
+  }
+}
+
+async function readVenuePageOnce(venue, dateCode, reload) {
+  let tab;
+  try {
+    tab = await ensureAgentTab(venue, dateCode, reload);
+  } catch (error) {
+    throw discoveryTabError(error, "wait_for_complete", {
+      tabId: error?.tabId || null,
+      tabStatus: error?.tabStatus || null,
+      tabUrl: error?.tabUrl || null
+    });
+  }
+  let payload;
+  try {
+    payload = await sendToTab(tab.id, {
+      type: "DISCOVER",
+      dateCode,
+      venueCode: venue.venueCode,
+      platform: venue.platform,
+      cinemaId: venue.cinemaId,
+      captureStartAfterShowMinutes: venue.captureStartAfterShowMinutes
+    });
+  } catch (error) {
+    throw discoveryTabError(error, "content_script_unreachable", { tabId: tab.id, tabUrl: tab.url || null });
+  }
+  if (!payload?.ok || !Array.isArray(payload?.data?.shows)) {
+    throw discoveryTabError(
+      new Error(payload?.error || `${venue.shortName} discovery returned an invalid page result`),
+      "invalid_discovery_payload",
+      { tabId: tab.id, tabUrl: tab.url || null }
+    );
+  }
   return payload.data;
 }
 
@@ -510,6 +628,14 @@ async function clearShowAlarmsOutsideDate(dateCode) {
   }
 }
 
+async function clearDiscoveryRetryAlarmsOutsideDate(dateCode) {
+  const alarms = await chrome.alarms.getAll();
+  for (const alarm of alarms) {
+    if (!alarm.name.startsWith(DISCOVERY_RETRY_PREFIX)) continue;
+    if (discoveryRetryDetails(alarm.name).dateCode !== dateCode) await chrome.alarms.clear(alarm.name);
+  }
+}
+
 async function scheduleIndiaDayRollover() {
   const tomorrow = indiaDateCode(1);
   const midnight = new Date(
@@ -562,6 +688,48 @@ async function ensureAgentTab(venue, dateCode, reload) {
   }
   await waitForComplete(tab.id);
   return chrome.tabs.get(tab.id);
+}
+
+async function replaceAgentTab(venue, dateCode) {
+  const url = discoveryUrl(venue, dateCode);
+  const stored = await chrome.storage.local.get({ agentTabIds: {} });
+  const agentTabIds = { ...stored.agentTabIds };
+  const oldTabId = agentTabIds[venue.venueCode];
+  if (oldTabId) {
+    const oldTab = await chrome.tabs.get(oldTabId).catch(() => null);
+    if (oldTab && tabBelongsToVenue(oldTab, venue)) await chrome.tabs.remove(oldTabId).catch(() => {});
+    delete agentTabIds[venue.venueCode];
+    await chrome.storage.local.set({ agentTabIds });
+  }
+  const tab = await chrome.tabs.create({ url, active: false, pinned: true });
+  agentTabIds[venue.venueCode] = tab.id;
+  await chrome.storage.local.set({ agentTabIds });
+  try {
+    await waitForComplete(tab.id);
+  } catch (error) {
+    throw discoveryTabError(error, "fresh_tab_load", {
+      tabId: tab.id,
+      tabStatus: error?.tabStatus || null,
+      tabUrl: error?.tabUrl || url
+    });
+  }
+  return chrome.tabs.get(tab.id);
+}
+
+async function resetAgentTabsForNewDay(dateCode) {
+  const stored = await chrome.storage.local.get({ agentTabIds: {}, pendingCaptures: {} });
+  if (Object.keys(stored.pendingCaptures).length) {
+    await appendAgentDiagnostic({ type: "daily_tab_reset_skipped", dateCode, reason: "capture in progress" });
+    return false;
+  }
+  for (const [venueCode, tabId] of Object.entries(stored.agentTabIds)) {
+    const venue = VENUE_BY_CODE[venueCode];
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (venue && tab && tabBelongsToVenue(tab, venue)) await chrome.tabs.remove(tabId).catch(() => {});
+  }
+  await chrome.storage.local.set({ agentTabIds: {} });
+  await appendAgentDiagnostic({ type: "daily_tab_reset", dateCode });
+  return true;
 }
 
 async function openSeatLayout(show) {
@@ -648,14 +816,25 @@ function tabMatchesRecovery(tabUrl, venueCode) {
 
 async function waitForComplete(tabId) {
   for (let attempt = 0; attempt < 120; attempt += 1) {
-    const tab = await chrome.tabs.get(tabId);
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (!tab) {
+      const error = new Error(`The booking tab ${tabId} was closed before it finished loading`);
+      error.tabId = tabId;
+      error.tabStatus = "closed";
+      throw error;
+    }
     if (tab.status === "complete") {
       await delay(800);
       return;
     }
     await delay(250);
   }
-  throw new Error("The booking tab did not finish loading");
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  const error = new Error(`The booking tab did not finish loading within 30 seconds`);
+  error.tabId = tabId;
+  error.tabStatus = tab?.status || "missing";
+  error.tabUrl = tab?.pendingUrl || tab?.url || null;
+  throw error;
 }
 
 function discoveryUrl(venue, dateCode) {
@@ -678,6 +857,78 @@ function tabMatchesDiscovery(tabUrl, venue, dateCode) {
   } catch {
     return false;
   }
+}
+
+function discoveryRetryAlarmName(venueCode, dateCode) {
+  return `${DISCOVERY_RETRY_PREFIX}${venueCode}:${dateCode}`;
+}
+
+function discoveryRetryStorageKey(venueCode, dateCode) {
+  return `discoveryFailure:${venueCode}:${dateCode}`;
+}
+
+function discoveryRetryDetails(name) {
+  const [venueCode = "", dateCode = ""] = name.slice(DISCOVERY_RETRY_PREFIX.length).split(":");
+  return { venueCode, dateCode };
+}
+
+async function discoveryRetryState(venueCode, dateCode) {
+  const key = discoveryRetryStorageKey(venueCode, dateCode);
+  return (await chrome.storage.local.get(key))[key] || null;
+}
+
+async function scheduleVenueDiscoveryRetry(venueCode, dateCode, error) {
+  const key = discoveryRetryStorageKey(venueCode, dateCode);
+  const previous = (await chrome.storage.local.get(key))[key] || {};
+  const failureCount = Number(previous.failureCount || 0) + 1;
+  const delayMs = discoveryRetryDelay(failureCount);
+  const retryAt = new Date(Date.now() + delayMs).toISOString();
+  const state = {
+    failureCount,
+    lastFailedAt: new Date().toISOString(),
+    retryAt,
+    stage: error.discoveryStage || "discovery_tab",
+    error: String(error.message || error).slice(0, 500),
+    tabRepairAttempted: Boolean(error.tabRepairAttempted)
+  };
+  await chrome.storage.local.set({ [key]: state });
+  await chrome.alarms.create(discoveryRetryAlarmName(venueCode, dateCode), {
+    when: new Date(retryAt).getTime()
+  });
+  await appendAgentDiagnostic({
+    type: "discovery_retry_scheduled",
+    venueCode,
+    dateCode,
+    failureCount,
+    retryAt,
+    stage: state.stage,
+    error: state.error
+  });
+  return state;
+}
+
+async function clearVenueDiscoveryFailure(venueCode, dateCode) {
+  const key = discoveryRetryStorageKey(venueCode, dateCode);
+  const previous = (await chrome.storage.local.get(key))[key];
+  await chrome.alarms.clear(discoveryRetryAlarmName(venueCode, dateCode));
+  if (!previous) return;
+  await chrome.storage.local.remove(key);
+  await appendAgentDiagnostic({
+    type: "discovery_retry_cleared",
+    venueCode,
+    dateCode,
+    recoveredAfterFailures: Number(previous.failureCount || 0)
+  });
+}
+
+async function appendAgentDiagnostic(entry) {
+  const operation = agentDiagnosticMutation.then(async () => {
+    const { agentDiagnostics = [] } = await chrome.storage.local.get({ agentDiagnostics: [] });
+    const next = [...agentDiagnostics, { at: new Date().toISOString(), ...entry }].slice(-60);
+    await chrome.storage.local.set({ agentDiagnostics: next });
+  });
+  agentDiagnosticMutation = operation.catch(() => {});
+  return operation;
 }
 
 async function sendToTab(tabId, message) {

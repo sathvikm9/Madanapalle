@@ -149,9 +149,9 @@ export function indiaDate(now = new Date()) {
   }).format(now);
 }
 
-function movieAliases(movies) {
+function movieAliasCandidates(movies) {
   const ignoredInitialWords = new Set(["a", "an", "and", "for", "of", "the", "to"]);
-  const candidates = movies.map((movie) => {
+  return movies.map((movie) => {
     const full = normalize(movie.title);
     const beforeColon = normalize(String(movie.title).split(":")[0]);
     const first = full.split(" ")[0];
@@ -167,6 +167,10 @@ function movieAliases(movies) {
     if (initials.length >= 2 && initials !== "vs") aliases.add(initials);
     return { movie, aliases };
   });
+}
+
+function movieAliases(movies) {
+  const candidates = movieAliasCandidates(movies);
   const aliasCounts = new Map();
   for (const candidate of candidates) {
     for (const alias of candidate.aliases) aliasCounts.set(alias, (aliasCounts.get(alias) || 0) + 1);
@@ -175,6 +179,21 @@ function movieAliases(movies) {
     .filter((alias) => aliasCounts.get(alias) === 1)
     .map((alias) => ({ alias, movie })))
     .sort((left, right) => right.alias.length - left.alias.length);
+}
+
+function ambiguousMovieAlias(question, movies) {
+  const padded = ` ${normalize(question)} `;
+  const aliases = new Map();
+  for (const { movie, aliases: candidateAliases } of movieAliasCandidates(movies)) {
+    for (const alias of candidateAliases) {
+      if (!aliases.has(alias)) aliases.set(alias, []);
+      aliases.get(alias).push(movie);
+    }
+  }
+
+  return Array.from(aliases.entries())
+    .filter(([alias, matches]) => matches.length > 1 && padded.includes(` ${alias} `))
+    .sort((left, right) => right[0].length - left[0].length)[0]?.[1] || [];
 }
 
 function editDistance(left, right) {
@@ -221,6 +240,11 @@ function findMovies(question, movies) {
 function findMovieMatch(question, movies) {
   const exact = findMovies(question, movies);
   if (exact.length) return { movie: exact[0], movies: exact, fuzzy: false };
+
+  const sharedAliasMatches = ambiguousMovieAlias(question, movies);
+  if (sharedAliasMatches.length) {
+    return { movie: null, movies: [], fuzzy: false, uncertain: sharedAliasMatches };
+  }
 
   const candidates = new Map();
   for (const phrase of questionPhrases(question)) {

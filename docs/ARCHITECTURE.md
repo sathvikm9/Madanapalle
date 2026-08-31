@@ -25,7 +25,7 @@ flowchart LR
 
 ### Discovery
 
-The local Chrome agent refreshes the four configured current India-date theatre pages every fifteen minutes and switches dates just after 12:00 AM IST. Routine discovery pauses independently for a theatre after its final known show has a successful capture and passes cutoff. It never opens tomorrow's schedule early. Each theatre has an independent pinned tab and pending-capture job, so matching showtimes can be captured concurrently. It parses the booking platform's embedded state, which provides the event code, movie, session ID, show time, prices and booking cutoff.
+The local Chrome agent refreshes the four configured current India-date theatre pages every fifteen minutes and switches dates just after 12:00 AM IST. At rollover it discards only its own stale collector tabs and opens fresh current-date tabs. A tab that remains loading for 30 seconds, loses its content script, or returns an invalid page result is replaced once immediately. If the fresh tab also fails, only that theatre retries after 2, 5, then 15 minutes; successful discovery clears the failure state. Routine discovery pauses independently for a theatre after its final known show has a successful capture and passes cutoff. It never opens tomorrow's schedule early. Each theatre has an independent pinned tab and pending-capture job, so matching showtimes can be captured concurrently. It parses the booking platform's embedded state, which provides the event code, movie, session ID, show time, prices and booking cutoff.
 
 Discovery is deliberately lighter than seat counting. Seat layouts normally open twice: once for the early backup and once for the final attempt.
 
@@ -73,6 +73,7 @@ Automated datacenter/headless browsers are frequently challenged or blocked by C
 - a successful backup is preserved if the final attempt fails
 - no successful capture becomes `missed`, not zero
 - Chrome startup rebuilds the known preflight and capture alarms
+- stuck extension-owned discovery tabs are replaced without closing unrelated user tabs
 - the Worker independently finalizes the latest valid snapshot after cutoff
 
 ## Hosting decision

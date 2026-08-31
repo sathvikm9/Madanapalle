@@ -3,12 +3,18 @@ import { formatAnalyticsAnswer, formatComparisonAnswer, parseAnalyticsQuestion }
 import { formatFullGrossAnswer, parseFullGrossQuestion } from "./fullGrossCalculator.js";
 
 const CATALOG_MAX_AGE_MS = 10 * 60 * 1000;
+const CONTEXT_IDLE_MS = 15 * 60 * 1000;
 
 let nextMessageId = 1;
 
 function message(role, text) {
   const uniquePart = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${nextMessageId++}`;
   return { id: `${role}-${uniquePart}`, role, text };
+}
+
+function shouldTryAiFallback(reply) {
+  return /^I couldn’t identify the movie\b/i.test(reply || "")
+    || /^Name two movies to compare\b/i.test(reply || "");
 }
 
 async function responseJson(response) {
@@ -41,7 +47,7 @@ export default function AnalyticsAssistant({ apiBase }) {
     }
 
     function closeOnEscape(event) {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") closeAssistant();
     }
     window.addEventListener("keydown", closeOnEscape);
     return () => {
@@ -63,6 +69,41 @@ export default function AnalyticsAssistant({ apiBase }) {
     return catalogRef.current;
   }
 
+  function closeAssistant() {
+    setOpen(false);
+    setInput("");
+    setMessages([]);
+    setCopiedId(null);
+    lastContextRef.current = null;
+  }
+
+  function activeContext() {
+    const saved = lastContextRef.current;
+    if (!saved) return null;
+    if (Date.now() - saved.updatedAt >= CONTEXT_IDLE_MS) {
+      lastContextRef.current = null;
+      return null;
+    }
+    return saved;
+  }
+
+  function rememberContext(type, request) {
+    lastContextRef.current = { type, request, updatedAt: Date.now() };
+  }
+
+  async function aiInterpretation(question, context) {
+    try {
+      return await responseJson(await fetch(`${apiBase}/api/analytics/interpret`, {
+        method: "POST",
+        cache: "no-store",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ question, context })
+      }));
+    } catch {
+      return { status: "unavailable" };
+    }
+  }
+
   async function ask(rawQuestion) {
     const question = String(rawQuestion || "").trim();
     if (!question || loading) return;
@@ -72,20 +113,39 @@ export default function AnalyticsAssistant({ apiBase }) {
 
     try {
       let catalog = await loadCatalog();
-      const capacityContext = lastContextRef.current?.type === "capacity" ? lastContextRef.current.request : null;
+      const conversationContext = activeContext();
+      const capacityContext = conversationContext?.type === "capacity" ? conversationContext.request : null;
       const capacityParsed = parseFullGrossQuestion(question, catalog, capacityContext);
       if (capacityParsed) {
         const answer = capacityParsed.reply || formatFullGrossAnswer(capacityParsed.request, catalog);
-        if (capacityParsed.request) lastContextRef.current = { type: "capacity", request: capacityParsed.request };
+        if (capacityParsed.request) rememberContext("capacity", capacityParsed.request);
         setMessages((current) => [...current, message("assistant", answer)]);
         return;
       }
 
-      const analyticsContext = lastContextRef.current?.type === "analytics" ? lastContextRef.current.request : null;
+      const analyticsContext = conversationContext?.type === "analytics" ? conversationContext.request : null;
       let parsed = parseAnalyticsQuestion(question, catalog, new Date(), analyticsContext);
       if (parsed.reply?.startsWith("I couldn’t identify the movie")) {
         catalog = await loadCatalog(true);
         parsed = parseAnalyticsQuestion(question, catalog, new Date(), analyticsContext);
+      }
+      if (parsed.reply && shouldTryAiFallback(parsed.reply)) {
+        const interpreted = await aiInterpretation(question, conversationContext);
+        if (interpreted.status === "clarify" || interpreted.status === "unsupported") {
+          setMessages((current) => [...current, message("assistant", interpreted.reply)]);
+          return;
+        }
+        if (interpreted.status === "resolved" && interpreted.canonicalQuestion) {
+          const aiCapacityParsed = parseFullGrossQuestion(interpreted.canonicalQuestion, catalog, capacityContext);
+          if (aiCapacityParsed) {
+            const answer = aiCapacityParsed.reply || formatFullGrossAnswer(aiCapacityParsed.request, catalog);
+            if (aiCapacityParsed.request) rememberContext("capacity", aiCapacityParsed.request);
+            setMessages((current) => [...current, message("assistant", answer)]);
+            return;
+          }
+          const aiParsed = parseAnalyticsQuestion(interpreted.canonicalQuestion, catalog, new Date(), analyticsContext);
+          if (!aiParsed.reply) parsed = aiParsed;
+        }
       }
       if (parsed.reply) {
         setMessages((current) => [...current, message("assistant", parsed.reply)]);
@@ -102,7 +162,7 @@ export default function AnalyticsAssistant({ apiBase }) {
           });
           return responseJson(await fetch(`${apiBase}/api/analytics/summary?${query}`, { cache: "no-store" }));
         }));
-        lastContextRef.current = { type: "analytics", request: parsed.request.contextRequest };
+        rememberContext("analytics", parsed.request.contextRequest);
         setMessages((current) => [...current, message("assistant", formatComparisonAnswer(parsed.request, summaries))]);
         return;
       }
@@ -114,7 +174,7 @@ export default function AnalyticsAssistant({ apiBase }) {
         endDate: parsed.request.endDate
       });
       const summary = await responseJson(await fetch(`${apiBase}/api/analytics/summary?${query}`, { cache: "no-store" }));
-      lastContextRef.current = { type: "analytics", request: parsed.request };
+      rememberContext("analytics", parsed.request);
       setMessages((current) => [...current, message("assistant", formatAnalyticsAnswer(parsed.request, summary))]);
     } catch (error) {
       setMessages((current) => [...current, message("assistant", `I couldn’t read the captured data. ${error.message}`)]);
@@ -147,7 +207,7 @@ export default function AnalyticsAssistant({ apiBase }) {
               <span><strong id="analytics-assistant-title">Collection Assistant</strong><small>Captured records only</small></span>
             </div>
             <span className="analytics-assistant__readonly">Read-only</span>
-            <button type="button" onClick={() => setOpen(false)} aria-label="Close collection assistant">×</button>
+            <button type="button" onClick={closeAssistant} aria-label="Close collection assistant">×</button>
           </header>
 
           <div className="analytics-assistant__conversation" ref={conversationRef} aria-live="polite">

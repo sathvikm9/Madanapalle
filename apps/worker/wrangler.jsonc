@@ -9,7 +9,11 @@
     "head_sampling_rate": 1
   },
   "vars": {
-    "CORS_ORIGINS": "http://localhost:5173,https://sathvikm9.github.io"
+    "CORS_ORIGINS": "http://localhost:5173,https://sathvikm9.github.io",
+    "AI_MODEL": "@cf/meta/llama-4-scout-17b-16e-instruct"
+  },
+  "ai": {
+    "binding": "AI"
   },
   "d1_databases": [
     {

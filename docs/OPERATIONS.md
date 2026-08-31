@@ -47,13 +47,17 @@ Symptoms: `No seat categories`, `zero-seat layout`, or unknown seat-state errors
 
 Restart Chrome and confirm the extension is enabled. It reconstructs alarms immediately from its last known schedule and then performs a fresh discovery. If it returns after cutoff with no snapshot, the show is correctly marked `missed`.
 
+### A theatre tab remains loading
+
+The agent waits up to 30 seconds, replaces the stuck extension-owned tab once, and retries discovery immediately. If the replacement also fails, that theatre retries after 2, 5, then 15 minutes while the other theatres continue normally. The India-date rollover also starts with fresh collector tabs. Unrelated tabs are never closed. Repeated Cloudflare verification still requires manual completion.
+
 ### Cloudflare verification appeared
 
 The extension raises a notification and leaves the pinned BookMyShow tab visible. Complete the verification manually. Do not add CAPTCHA solvers or rotating proxy bypasses; they are unreliable and can violate site controls. If challenges become frequent, reduce discovery frequency or pursue an authorized partner data feed.
 
 ### Movie changed suddenly
 
-The next five-minute discovery pass creates a replacement revision. A preflight 90 seconds before the final window performs an additional refresh close to capture time.
+The next fifteen-minute discovery pass creates a replacement revision. A preflight before the backup and final windows performs additional refreshes close to capture time.
 
 ### Database backup
 

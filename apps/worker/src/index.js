@@ -8,6 +8,7 @@ import {
   saveCapture
 } from "./database.js";
 import { analyticsCatalog, analyticsSummary } from "./analytics.js";
+import { interpretChatQuestion } from "./ai-chat.js";
 import {
   normalizeCapture,
   normalizeDiscovery,
@@ -112,6 +113,20 @@ async function route(request, env, origin) {
     }
     if (startDate > endDate) throw new RequestError("startDate must be on or before endDate");
     return json(await analyticsSummary(env.DB, { movieTitle, venueCode, startDate, endDate }), 200, origin);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/analytics/interpret") {
+    if (!origin) throw new RequestError("An approved dashboard origin is required", 403, "origin_required");
+    const body = await bodyJson(request);
+    const question = requiredString(body?.question, "question", 240);
+    const catalog = await analyticsCatalog(env.DB);
+    const interpretation = await interpretChatQuestion(env.AI, {
+      question,
+      context: body?.context,
+      catalog,
+      model: String(env.AI_MODEL || "").trim() || undefined
+    });
+    return json(interpretation, 200, origin);
   }
 
   const captureHistoryMatch = url.pathname.match(/^\/api\/shows\/(\d+)\/captures$/);

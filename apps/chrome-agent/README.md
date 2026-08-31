@@ -18,6 +18,8 @@ The extension creates one pinned BookMyShow or TicketNew tab per theatre. Keep C
 - each theatre's routine discovery pauses after its final known show has a successful capture and passes cutoff
 - **Save and test now** always forces a fresh discovery, including after the routine pause
 - tomorrow is never opened early; discovery rolls to the new India date just after 12:00 AM IST
+- the India-date rollover discards the extension-owned collector tabs and opens fresh current-date tabs
+- a tab that remains loading or cannot run discovery is replaced once immediately; continued failures retry only that theatre after 2, 5, then 15 minutes
 - Sri Krishna backup capture starts shortly after showtime +10 minutes
 - Sai Chitra backup capture starts shortly after showtime +10 minutes
 - Ravi backup capture starts shortly after showtime +15 minutes
@@ -30,6 +32,7 @@ The extension creates one pinned BookMyShow or TicketNew tab per theatre. Keep C
 - simultaneous theatre captures use independent tabs and pending jobs
 - capture starts/failures/successes are stored in the server audit log
 - a late Chrome page-loading error is ignored only when that exact capture attempt already uploaded successfully
+- the last 60 tab-repair and discovery-retry diagnostics stay in local extension storage for troubleshooting
 - a Chrome notification requests attention when a booking platform requires human verification
 - no seat is selected and no booking/payment action is performed
 
