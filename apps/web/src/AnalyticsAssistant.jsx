@@ -4,6 +4,22 @@ import { formatFullGrossAnswer, parseFullGrossQuestion } from "./fullGrossCalcul
 
 const CATALOG_MAX_AGE_MS = 10 * 60 * 1000;
 const CONTEXT_IDLE_MS = 15 * 60 * 1000;
+const PRIMARY_EXAMPLES = [
+  "Give Irumudi report till now",
+  "Give Irumudi first week theatre wise data",
+  "How many Irumudi shows were housefull?",
+  "Give yesterday’s all-theatre report",
+  "Which theatre has the highest Irumudi gross?",
+  "What movies data do you have?"
+];
+const MORE_EXAMPLES = [
+  "Give Sri Krishna yesterday’s report",
+  "Give 30 August theatre-wise report",
+  "Give day-wise Irumudi gross",
+  "Compare Irumudi and Toxic first weekend",
+  "Calculate Ravi full show gross and 5 shows with ₹170 and ₹100 prices",
+  "Calculate Ravi, Sai Chitra, ASR and Sri Krishna full show gross and 5 shows with ₹250 and ₹150 prices"
+];
 
 let nextMessageId = 1;
 
@@ -29,6 +45,7 @@ export default function AnalyticsAssistant({ apiBase }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [copiedId, setCopiedId] = useState(null);
+  const [showMoreExamples, setShowMoreExamples] = useState(false);
   const catalogRef = useRef(null);
   const catalogFetchedAtRef = useRef(0);
   const lastContextRef = useRef(null);
@@ -74,6 +91,7 @@ export default function AnalyticsAssistant({ apiBase }) {
     setInput("");
     setMessages([]);
     setCopiedId(null);
+    setShowMoreExamples(false);
     lastContextRef.current = null;
   }
 
@@ -221,6 +239,20 @@ export default function AnalyticsAssistant({ apiBase }) {
               <div className="analytics-assistant__welcome">
                 <p className="eyebrow">Ask the collection desk</p>
                 <h2>Fast answers from captured show data.</h2>
+                <p className="analytics-assistant__examples-note">Example questions — replace the movie, theatre, date or prices.</p>
+                <ol className="analytics-assistant__examples">
+                  {PRIMARY_EXAMPLES.map((example) => <li key={example}>{example}</li>)}
+                  {showMoreExamples && MORE_EXAMPLES.map((example) => <li key={example}>{example}</li>)}
+                </ol>
+                <button
+                  className="analytics-assistant__examples-toggle"
+                  type="button"
+                  aria-expanded={showMoreExamples}
+                  onClick={() => setShowMoreExamples((visible) => !visible)}
+                >
+                  {showMoreExamples ? "Show fewer examples" : "More examples"}
+                  <span aria-hidden="true">{showMoreExamples ? "−" : "+"}</span>
+                </button>
               </div>
             )}
 
