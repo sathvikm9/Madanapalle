@@ -388,7 +388,8 @@ test("formats an all-movies daily report without asking for a movie", () => {
       }
     ]
   });
-  assert.match(answer, /^All theatres — Selected date/);
+  assert.match(answer, /^All theatres — 28 August 2026\n\n/);
+  assert.doesNotMatch(answer, /Selected date/);
   assert.match(answer, /Total gross: ₹3,00,000/);
   assert.match(answer, /Tickets: 3,200/);
   assert.match(answer, /Sai Chitra\nIrumudi\nGross: ₹1,50,000/);
@@ -417,7 +418,8 @@ test("includes movie names in a theatre-specific selected-date report", () => {
       ]
     }]
   });
-  assert.match(answer, /^ASR — Selected date/);
+  assert.match(answer, /^ASR — 30 August 2026\n\n/);
+  assert.doesNotMatch(answer, /Selected date/);
   assert.match(answer, /Irumudi — 2 Shows — ₹70,000/);
   assert.match(answer, /Toxic — 2 Shows — ₹36,497/);
 });

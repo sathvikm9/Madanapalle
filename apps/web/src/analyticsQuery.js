@@ -674,11 +674,13 @@ function emptyClientTotals() {
 }
 
 export function formatAnalyticsAnswer(request, summary) {
+  const formattedRange = displayRange(summary.startDate, summary.endDate);
   const titleParts = request.movieTitle === "ALL"
-    ? [request.venueCode === "ALL" ? "All theatres" : request.theatreName, request.label]
-    : [summary.movieTitle, request.label];
+    ? [request.venueCode === "ALL" ? "All theatres" : request.theatreName, request.key === "date" ? formattedRange : request.label]
+    : [summary.movieTitle, request.key === "date" ? formattedRange : request.label];
   if (request.movieTitle !== "ALL" && !request.theatreWise && request.venueCode !== "ALL") titleParts.push(request.theatreName);
-  const lines = [titleParts.join(" — "), displayRange(summary.startDate, summary.endDate)];
+  const lines = [titleParts.join(" — ")];
+  if (request.key !== "date") lines.push(formattedRange);
   const excludedDay = incompleteDayLine(summary);
   if (excludedDay) lines.push(excludedDay);
   lines.push("");
