@@ -604,11 +604,6 @@ function displayShortDate(date) {
     .format(new Date(`${date}T00:00:00Z`));
 }
 
-function incompleteDayLine(summary) {
-  const latest = summary.excludedIncompleteDates?.at(-1);
-  return latest ? `${displayRange(latest, latest)} is still in progress and is not included.` : null;
-}
-
 export function formatComparisonAnswer(request, summaries) {
   if (!summaries.length) return "No captured comparison data was found.";
   const title = request.comparisonType === "movies"
@@ -618,11 +613,9 @@ export function formatComparisonAnswer(request, summaries) {
 
   summaries.forEach((summary, index) => {
     const entry = request.entries[index];
-    const excludedDay = incompleteDayLine(summary);
     lines.push(
       request.comparisonType === "movies" ? summary.movieTitle : entry.label,
       displayRange(summary.startDate, summary.endDate),
-      ...(excludedDay ? [excludedDay] : []),
       ...reportLines(summary.total),
       ""
     );
@@ -645,11 +638,9 @@ export function formatMultiMovieAnswer(request, summaries) {
   if (!summaries.length) return "No captured movie data was found.";
   const lines = ["Movie report", ""];
   summaries.forEach((summary) => {
-    const excludedDay = incompleteDayLine(summary);
     lines.push(
       summary.movieTitle,
       displayRange(summary.startDate, summary.endDate),
-      ...(excludedDay ? [excludedDay] : []),
       ...reportLines(summary.total),
       ""
     );
@@ -681,8 +672,6 @@ export function formatAnalyticsAnswer(request, summary) {
   if (request.movieTitle !== "ALL" && !request.theatreWise && request.venueCode !== "ALL") titleParts.push(request.theatreName);
   const lines = [titleParts.join(" — ")];
   if (request.key !== "date") lines.push(formattedRange);
-  const excludedDay = incompleteDayLine(summary);
-  if (excludedDay) lines.push(excludedDay);
   lines.push("");
   const totals = summary.total;
 

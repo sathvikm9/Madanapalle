@@ -343,7 +343,7 @@ test("formats theatre-wise answers with coverage", () => {
   assert.match(answer, /Sai Chitra\nGross: ₹1,20,000/);
 });
 
-test("explains when an incomplete current day is excluded from till-now totals", () => {
+test("silently excludes an incomplete current day from till-now totals", () => {
   const request = parseAnalyticsQuestion("Irumudi report", catalog, new Date("2026-09-01T12:00:00.000Z")).request;
   const answer = formatAnalyticsAnswer(request, {
     movieTitle: "Irumudi",
@@ -354,7 +354,8 @@ test("explains when an incomplete current day is excluded from till-now totals",
     venues: []
   });
   assert.match(answer, /21 August 2026 – 31 August 2026/);
-  assert.match(answer, /1 September 2026 is still in progress and is not included/);
+  assert.doesNotMatch(answer, /1 September 2026/);
+  assert.doesNotMatch(answer, /still in progress|not included/);
 });
 
 test("formats an all-movies daily report without asking for a movie", () => {
