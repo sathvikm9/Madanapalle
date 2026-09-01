@@ -83,8 +83,10 @@ export function summarizeAnalyticsRows(rows, {
   venueCode = "ALL",
   startDate,
   endDate,
+  completeDaysOnly = false,
   now = new Date()
 }) {
+  const shows = canonicalShows(rows);
   const wantedTitle = normalizedTitle(movieTitle);
   const allMovies = movieTitle === "ALL";
   const nowMs = now.getTime();
@@ -93,16 +95,41 @@ export function summarizeAnalyticsRows(rows, {
   const total = emptyTotals();
   let resolvedTitle = allMovies ? "All movies" : movieTitle;
 
-  for (const show of canonicalShows(rows)) {
+  // A "till now" report must never mix its partly captured latest day into
+  // historical totals. Completeness for that latest date is intentionally
+  // measured across every theatre and movie, not only the requested movie.
+  // Older dates remain visible even when they contain a recorded miss.
+  const dateCompletion = new Map();
+  for (const show of shows) {
+    if (show.show_date < startDate || show.show_date > endDate) continue;
+    const state = dateCompletion.get(show.show_date) || { total: 0, captured: 0 };
+    state.total += 1;
+    if (show.status === "completed" && show.snapshot_id) state.captured += 1;
+    dateCompletion.set(show.show_date, state);
+  }
+  const latestDateState = dateCompletion.get(endDate);
+  const latestDateIsComplete = Boolean(
+    latestDateState?.total > 0 && latestDateState.captured === latestDateState.total
+  );
+  const excludedIncompleteDates = completeDaysOnly && !latestDateIsComplete ? [endDate] : [];
+
+  for (const show of shows) {
     if (!allMovies && normalizedTitle(show.movieTitle) !== wantedTitle) continue;
     if (show.show_date < startDate || show.show_date > endDate) continue;
     if (venueCode !== "ALL" && show.venue_code !== venueCode) continue;
+    if (completeDaysOnly && show.show_date === endDate && !latestDateIsComplete) continue;
     if (new Date(show.start_at).getTime() > nowMs) continue;
 
     if (!allMovies) resolvedTitle = show.movieTitle;
     const venue = venues.get(show.venue_code) || {
       code: show.venue_code,
       name: venueForCode(show.venue_code)?.shortName || show.venue_code,
+      movies: new Map(),
+      ...emptyTotals()
+    };
+    const movieKey = normalizedTitle(show.movieTitle);
+    const venueMovie = venue.movies.get(movieKey) || {
+      title: show.movieTitle,
       ...emptyTotals()
     };
     const day = days.get(show.show_date) || {
@@ -111,21 +138,30 @@ export function summarizeAnalyticsRows(rows, {
     };
     addShow(total, show);
     addShow(venue, show);
+    addShow(venueMovie, show);
     addShow(day, show);
+    venue.movies.set(movieKey, venueMovie);
     venues.set(show.venue_code, venue);
     days.set(show.show_date, day);
   }
 
   const venueOrder = new Map(["SCM", "ASRM", "RTDM", "SKMD"].map((code, index) => [code, index]));
-  const byVenue = Array.from(venues.values()).sort((left, right) =>
-    (venueOrder.get(left.code) ?? 99) - (venueOrder.get(right.code) ?? 99)
-  );
+  const byVenue = Array.from(venues.values())
+    .sort((left, right) => (venueOrder.get(left.code) ?? 99) - (venueOrder.get(right.code) ?? 99))
+    .map(({ movies, ...venue }) => ({
+      ...venue,
+      movies: Array.from(movies.values()).sort((left, right) => left.title.localeCompare(right.title))
+    }));
+  const includedDates = Array.from(days.keys()).sort();
 
   return {
     movieTitle: resolvedTitle,
     venueCode,
     startDate,
-    endDate,
+    endDate: completeDaysOnly && includedDates.length ? includedDates.at(-1) : endDate,
+    requestedEndDate: endDate,
+    completeDaysOnly,
+    excludedIncompleteDates,
     total,
     venues: byVenue,
     days: Array.from(days.values()).sort((left, right) => left.date.localeCompare(right.date))

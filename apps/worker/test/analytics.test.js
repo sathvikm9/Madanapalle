@@ -95,6 +95,111 @@ test("summarizes every movie when the daily report requests ALL", () => {
   assert.equal(summary.total.screenedShows, 2);
   assert.equal(summary.total.collectionPaise, 7_015_300);
   assert.deepEqual(summary.venues.map((venue) => venue.code), ["SCM", "ASRM"]);
+  assert.deepEqual(summary.venues.map((venue) => venue.movies.map((movie) => movie.title)), [
+    ["Irumudi"],
+    ["Toxic: A Fairy Tale for Grown-ups"]
+  ]);
+});
+
+test("groups multiple movies inside each theatre for a daily report", () => {
+  const summary = summarizeAnalyticsRows([
+    row({ venue_code: "ASRM", sold: 300, capacity: 520, collection_paise: 3_000_000 }),
+    row({ venue_code: "ASRM", event_code: "TOXIC", movie_title: "Toxic", sold: 200, capacity: 520, collection_paise: 2_000_000 })
+  ], {
+    movieTitle: "ALL",
+    venueCode: "ALL",
+    startDate: "2026-08-21",
+    endDate: "2026-08-21",
+    now: new Date("2026-08-22T00:00:00.000Z")
+  });
+
+  assert.deepEqual(summary.venues[0].movies.map((movie) => [movie.title, movie.screenedShows, movie.collectionPaise]), [
+    ["Irumudi", 1, 3_000_000],
+    ["Toxic", 1, 2_000_000]
+  ]);
+});
+
+test("till-now mode excludes an entire date until every scheduled show is captured", () => {
+  const summary = summarizeAnalyticsRows([
+    row({ show_date: "2026-08-31", start_at: "2026-08-31T02:00:00.000Z" }),
+    row({ show_date: "2026-09-01", start_at: "2026-09-01T02:00:00.000Z" }),
+    row({
+      show_date: "2026-09-01",
+      start_at: "2026-09-01T10:00:00.000Z",
+      venue_code: "ASRM",
+      status: "scheduled",
+      snapshot_id: null,
+      sold: null,
+      capacity: null,
+      collection_paise: null
+    })
+  ], {
+    movieTitle: "Irumudi",
+    venueCode: "ALL",
+    startDate: "2026-08-31",
+    endDate: "2026-09-01",
+    completeDaysOnly: true,
+    now: new Date("2026-09-01T12:00:00.000Z")
+  });
+
+  assert.equal(summary.endDate, "2026-08-31");
+  assert.equal(summary.total.screenedShows, 1);
+  assert.deepEqual(summary.excludedIncompleteDates, ["2026-09-01"]);
+});
+
+test("till-now mode retains earlier partial historical dates while withholding today", () => {
+  const summary = summarizeAnalyticsRows([
+    row({ show_date: "2026-08-28", start_at: "2026-08-28T02:00:00.000Z" }),
+    row({
+      show_date: "2026-08-28",
+      start_at: "2026-08-28T10:00:00.000Z",
+      venue_code: "ASRM",
+      status: "missed",
+      snapshot_id: null,
+      sold: null,
+      capacity: null,
+      collection_paise: null
+    }),
+    row({
+      show_date: "2026-09-01",
+      start_at: "2026-09-01T02:00:00.000Z",
+      status: "scheduled",
+      snapshot_id: null,
+      sold: null,
+      capacity: null,
+      collection_paise: null
+    })
+  ], {
+    movieTitle: "Irumudi",
+    venueCode: "ALL",
+    startDate: "2026-08-28",
+    endDate: "2026-09-01",
+    completeDaysOnly: true,
+    now: new Date("2026-09-01T12:00:00.000Z")
+  });
+
+  assert.equal(summary.endDate, "2026-08-28");
+  assert.equal(summary.total.screenedShows, 2);
+  assert.equal(summary.total.capturedShows, 1);
+  assert.deepEqual(summary.excludedIncompleteDates, ["2026-09-01"]);
+});
+
+test("till-now mode includes the date after its final scheduled show is captured", () => {
+  const summary = summarizeAnalyticsRows([
+    row({ show_date: "2026-09-01", start_at: "2026-09-01T02:00:00.000Z" }),
+    row({ show_date: "2026-09-01", start_at: "2026-09-01T10:00:00.000Z", venue_code: "ASRM" })
+  ], {
+    movieTitle: "Irumudi",
+    venueCode: "ALL",
+    startDate: "2026-09-01",
+    endDate: "2026-09-01",
+    completeDaysOnly: true,
+    now: new Date("2026-09-02T00:00:00.000Z")
+  });
+
+  assert.equal(summary.endDate, "2026-09-01");
+  assert.equal(summary.total.screenedShows, 2);
+  assert.deepEqual(summary.excludedIncompleteDates, []);
 });
 
 test("resolves a TicketNew internal event code before grouping", () => {

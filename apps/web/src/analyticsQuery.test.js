@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatAnalyticsAnswer, formatComparisonAnswer, parseAnalyticsQuestion, READ_ONLY_REPLY, SHORTCUTS_REPLY } from "./analyticsQuery.js";
+import { formatAnalyticsAnswer, formatComparisonAnswer, formatMultiMovieAnswer, parseAnalyticsQuestion, READ_ONLY_REPLY, SHORTCUTS_REPLY } from "./analyticsQuery.js";
 
 const catalog = {
   firstLiveDate: "2026-08-21",
@@ -25,6 +25,36 @@ test("parses theatre-wise first-week questions", () => {
     startDate: "2026-08-21",
     endDate: "2026-08-27"
   });
+});
+
+test("understands theatre-breakdown synonyms", () => {
+  for (const question of [
+    "Irumudi 1st week theatre data",
+    "Irumudi first week by theatre",
+    "Irumudi first week venue-wise",
+    "Irumudi first week cinema breakdown",
+    "Irumudi first week each hall",
+    "Irumudi opening week individual theatres",
+    "Irumudi week one theatre totals"
+  ]) {
+    const request = parseAnalyticsQuestion(question, catalog, now).request;
+    assert.equal(request.theatreWise, true, question);
+    assert.equal(request.venueCode, "ALL", question);
+    assert.equal(request.metric, "report", question);
+  }
+  const collections = parseAnalyticsQuestion("Irumudi week one theatre collections", catalog, now).request;
+  assert.equal(collections.theatreWise, true);
+  assert.equal(collections.metric, "gross");
+});
+
+test("understands common collection, ticket, show and housefull synonyms", () => {
+  assert.equal(parseAnalyticsQuestion("Irumudi revenue", catalog, now).request.metric, "gross");
+  assert.equal(parseAnalyticsQuestion("Irumudi box office", catalog, now).request.metric, "gross");
+  assert.equal(parseAnalyticsQuestion("Irumudi takings", catalog, now).request.metric, "gross");
+  assert.equal(parseAnalyticsQuestion("Irumudi admissions", catalog, now).request.metric, "tickets");
+  assert.equal(parseAnalyticsQuestion("Irumudi attendance", catalog, now).request.metric, "tickets");
+  assert.equal(parseAnalyticsQuestion("Irumudi screenings", catalog, now).request.metric, "screened");
+  assert.equal(parseAnalyticsQuestion("Irumudi sold out", catalog, now).request.metric, "housefull");
 });
 
 test("parses a theatre-specific gross and a movie alias", () => {
@@ -80,6 +110,28 @@ test("understands date-only and conversational shortcuts", () => {
 test("returns an embedded shortcut guide", () => {
   assert.equal(parseAnalyticsQuestion("help", catalog, now).reply, SHORTCUTS_REPLY);
   assert.match(SHORTCUTS_REPLY, /rv 170 100/);
+});
+
+test("lists tracked movies without inheriting the previous movie context", () => {
+  const context = parseAnalyticsQuestion("Toxic gross", catalog, now).request;
+  const result = parseAnalyticsQuestion("how many movies data do you have?", catalog, now, context);
+  assert.equal(result.resetContext, true);
+  assert.match(result.reply, /Movie data available: 3 movies/);
+  assert.match(result.reply, /1\. Irumudi/);
+  assert.match(result.reply, /Toxic: A Fairy Tale for Grown-ups/);
+  assert.equal(parseAnalyticsQuestion("list tracked movies", catalog, now).reply, result.reply);
+  assert.equal(parseAnalyticsQuestion("movie names", catalog, now).reply, result.reply);
+  assert.equal(parseAnalyticsQuestion("what movies are there?", catalog, now).reply, result.reply);
+});
+
+test("parses a named multi-movie report without dropping the second movie", () => {
+  const result = parseAnalyticsQuestion("give report for irumudi and toxic", catalog, now).request;
+  assert.equal(result.mode, "multi_report");
+  assert.deepEqual(result.entries.map((entry) => entry.movieTitle), [
+    "Irumudi",
+    "Toxic: A Fairy Tale for Grown-ups"
+  ]);
+  assert.equal(result.entries.every((entry) => entry.completeDaysOnly), true);
 });
 
 test("tolerates small movie, theatre and title-joiner mistakes", () => {
@@ -210,6 +262,7 @@ test("understands calendar ranges, today and yesterday", () => {
   assert.equal(todayResult.request.startDate, "2026-08-30");
   const yesterdayResult = parseAnalyticsQuestion("Irumudi gross yesterday", catalog, now);
   assert.equal(yesterdayResult.request.startDate, "2026-08-29");
+  assert.equal(parseAnalyticsQuestion("Irumudi previous day revenue", catalog, now).request.startDate, "2026-08-29");
 });
 
 test("understands first weekend and individual movie days", () => {
@@ -290,6 +343,20 @@ test("formats theatre-wise answers with coverage", () => {
   assert.match(answer, /Sai Chitra\nGross: ₹1,20,000/);
 });
 
+test("explains when an incomplete current day is excluded from till-now totals", () => {
+  const request = parseAnalyticsQuestion("Irumudi report", catalog, new Date("2026-09-01T12:00:00.000Z")).request;
+  const answer = formatAnalyticsAnswer(request, {
+    movieTitle: "Irumudi",
+    startDate: "2026-08-21",
+    endDate: "2026-08-31",
+    excludedIncompleteDates: ["2026-09-01"],
+    total: { screenedShows: 94, capturedShows: 94, housefullShows: 77, ticketsSold: 45_229, collectionPaise: 429_255_100 },
+    venues: []
+  });
+  assert.match(answer, /21 August 2026 – 31 August 2026/);
+  assert.match(answer, /1 September 2026 is still in progress and is not included/);
+});
+
 test("formats an all-movies daily report without asking for a movie", () => {
   const request = parseAnalyticsQuestion("Aug 28th report?", catalog, now).request;
   const answer = formatAnalyticsAnswer(request, {
@@ -298,13 +365,107 @@ test("formats an all-movies daily report without asking for a movie", () => {
     endDate: "2026-08-28",
     total: { screenedShows: 8, capturedShows: 8, housefullShows: 5, ticketsSold: 3200, collectionPaise: 30_000_000 },
     venues: [
-      { name: "Sai Chitra", screenedShows: 4, capturedShows: 4, housefullShows: 4, ticketsSold: 1600, collectionPaise: 15_000_000 }
+      {
+        name: "Sai Chitra",
+        screenedShows: 4,
+        capturedShows: 4,
+        housefullShows: 4,
+        ticketsSold: 1600,
+        collectionPaise: 15_000_000,
+        movies: [{ title: "Irumudi", screenedShows: 4, capturedShows: 4, housefullShows: 4, ticketsSold: 1600, collectionPaise: 15_000_000 }]
+      },
+      {
+        name: "ASR",
+        screenedShows: 4,
+        capturedShows: 4,
+        housefullShows: 2,
+        ticketsSold: 1099,
+        collectionPaise: 10_649_700,
+        movies: [
+          { title: "Irumudi", screenedShows: 2, capturedShows: 2, housefullShows: 2, ticketsSold: 700, collectionPaise: 7_000_000 },
+          { title: "Toxic", screenedShows: 2, capturedShows: 2, housefullShows: 0, ticketsSold: 399, collectionPaise: 3_649_700 }
+        ]
+      }
     ]
   });
   assert.match(answer, /^All theatres — Selected date/);
   assert.match(answer, /Total gross: ₹3,00,000/);
   assert.match(answer, /Tickets: 3,200/);
-  assert.match(answer, /Sai Chitra\nGross: ₹1,50,000/);
+  assert.match(answer, /Sai Chitra\nIrumudi\nGross: ₹1,50,000/);
+  assert.match(answer, /ASR\nIrumudi — 2 Shows — ₹70,000/);
+  assert.match(answer, /Toxic — 2 Shows — ₹36,497/);
+  assert.match(answer, /Total Gross: ₹1,06,497/);
+});
+
+test("includes movie names in a theatre-specific selected-date report", () => {
+  const request = parseAnalyticsQuestion("ASR Aug 30th report", catalog, now).request;
+  const answer = formatAnalyticsAnswer(request, {
+    movieTitle: "All movies",
+    startDate: "2026-08-30",
+    endDate: "2026-08-30",
+    total: { screenedShows: 4, capturedShows: 4, housefullShows: 2, ticketsSold: 1099, collectionPaise: 10_649_700 },
+    venues: [{
+      name: "ASR",
+      screenedShows: 4,
+      capturedShows: 4,
+      housefullShows: 2,
+      ticketsSold: 1099,
+      collectionPaise: 10_649_700,
+      movies: [
+        { title: "Irumudi", screenedShows: 2, collectionPaise: 7_000_000 },
+        { title: "Toxic", screenedShows: 2, collectionPaise: 3_649_700 }
+      ]
+    }]
+  });
+  assert.match(answer, /^ASR — Selected date/);
+  assert.match(answer, /Irumudi — 2 Shows — ₹70,000/);
+  assert.match(answer, /Toxic — 2 Shows — ₹36,497/);
+});
+
+test("formats a theatre yesterday report with each movie before theatre totals", () => {
+  const request = parseAnalyticsQuestion("Sri Krishna yesterday", catalog, new Date("2026-09-01T12:00:00.000Z")).request;
+  const answer = formatAnalyticsAnswer(request, {
+    movieTitle: "All movies",
+    startDate: "2026-08-31",
+    endDate: "2026-08-31",
+    total: { screenedShows: 4, capturedShows: 4, housefullShows: 0, ticketsSold: 679, collectionPaise: 6_724_900 },
+    venues: [{
+      name: "Sri Krishna",
+      screenedShows: 4,
+      capturedShows: 4,
+      housefullShows: 0,
+      ticketsSold: 679,
+      collectionPaise: 6_724_900,
+      movies: [
+        { title: "Irumudi", screenedShows: 1, collectionPaise: 2_000_000 },
+        { title: "Vishwanath and Sons", screenedShows: 3, collectionPaise: 4_724_900 }
+      ]
+    }]
+  });
+  assert.match(answer, /^Sri Krishna — Yesterday\n31 August 2026/);
+  assert.doesNotMatch(answer, /Yesterday — Sri Krishna/);
+  assert.match(answer, /Irumudi — 1 Show — ₹20,000/);
+  assert.match(answer, /Vishwanath and Sons — 3 Shows — ₹47,249/);
+  assert.match(answer, /Total gross: ₹67,249/);
+  assert.match(answer, /Shows: 0\/4 full/);
+  assert.match(answer, /Tickets: 679/);
+});
+
+test("formats multi-movie reports with each movie and a combined total", () => {
+  const request = parseAnalyticsQuestion("give report for irumudi and toxic", catalog, now).request;
+  const answer = formatMultiMovieAnswer(request, [
+    {
+      movieTitle: "Irumudi", startDate: "2026-08-21", endDate: "2026-08-30",
+      total: { screenedShows: 10, capturedShows: 10, housefullShows: 8, ticketsSold: 5000, collectionPaise: 50_000_000 }
+    },
+    {
+      movieTitle: "Toxic: A Fairy Tale for Grown-ups", startDate: "2026-08-26", endDate: "2026-08-30",
+      total: { screenedShows: 8, capturedShows: 8, housefullShows: 4, ticketsSold: 3000, collectionPaise: 30_000_000 }
+    }
+  ]);
+  assert.match(answer, /Irumudi\n21 August 2026 – 30 August 2026/);
+  assert.match(answer, /Toxic: A Fairy Tale for Grown-ups/);
+  assert.match(answer, /Combined\nGross: ₹8,00,000/);
 });
 
 test("formats comparisons and advanced ranking answers", () => {

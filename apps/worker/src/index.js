@@ -107,12 +107,13 @@ async function route(request, env, origin) {
     const venueCode = String(url.searchParams.get("venueCode") || "ALL");
     const startDate = String(url.searchParams.get("startDate") || "");
     const endDate = String(url.searchParams.get("endDate") || "");
+    const completeDaysOnly = url.searchParams.get("completeDaysOnly") === "1";
     if (!dashboardVenueForCode(venueCode)) throw new RequestError(`Venue ${venueCode} is not configured`);
     if (!validDate(startDate) || !validDate(endDate)) {
       throw new RequestError("startDate and endDate must be real YYYY-MM-DD dates");
     }
     if (startDate > endDate) throw new RequestError("startDate must be on or before endDate");
-    return json(await analyticsSummary(env.DB, { movieTitle, venueCode, startDate, endDate }), 200, origin);
+    return json(await analyticsSummary(env.DB, { movieTitle, venueCode, startDate, endDate, completeDaysOnly }), 200, origin);
   }
 
   if (request.method === "POST" && url.pathname === "/api/analytics/interpret") {

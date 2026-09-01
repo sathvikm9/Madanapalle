@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { formatAnalyticsAnswer, formatComparisonAnswer, parseAnalyticsQuestion } from "./analyticsQuery.js";
+import { formatAnalyticsAnswer, formatComparisonAnswer, formatMultiMovieAnswer, parseAnalyticsQuestion } from "./analyticsQuery.js";
 import { formatFullGrossAnswer, parseFullGrossQuestion } from "./fullGrossCalculator.js";
 
 const CATALOG_MAX_AGE_MS = 10 * 60 * 1000;
@@ -148,22 +148,27 @@ export default function AnalyticsAssistant({ apiBase }) {
         }
       }
       if (parsed.reply) {
+        if (parsed.resetContext) lastContextRef.current = null;
         setMessages((current) => [...current, message("assistant", parsed.reply)]);
         return;
       }
 
-      if (parsed.request.mode === "comparison") {
+      if (parsed.request.mode === "comparison" || parsed.request.mode === "multi_report") {
         const summaries = await Promise.all(parsed.request.entries.map(async (entry) => {
           const query = new URLSearchParams({
             movie: entry.movieTitle,
             venueCode: entry.venueCode,
             startDate: entry.startDate,
-            endDate: entry.endDate
+            endDate: entry.endDate,
+            ...(entry.completeDaysOnly ? { completeDaysOnly: "1" } : {})
           });
           return responseJson(await fetch(`${apiBase}/api/analytics/summary?${query}`, { cache: "no-store" }));
         }));
         rememberContext("analytics", parsed.request.contextRequest);
-        setMessages((current) => [...current, message("assistant", formatComparisonAnswer(parsed.request, summaries))]);
+        const answer = parsed.request.mode === "comparison"
+          ? formatComparisonAnswer(parsed.request, summaries)
+          : formatMultiMovieAnswer(parsed.request, summaries);
+        setMessages((current) => [...current, message("assistant", answer)]);
         return;
       }
 
@@ -171,7 +176,8 @@ export default function AnalyticsAssistant({ apiBase }) {
         movie: parsed.request.movieTitle,
         venueCode: parsed.request.venueCode,
         startDate: parsed.request.startDate,
-        endDate: parsed.request.endDate
+        endDate: parsed.request.endDate,
+        ...(parsed.request.completeDaysOnly ? { completeDaysOnly: "1" } : {})
       });
       const summary = await responseJson(await fetch(`${apiBase}/api/analytics/summary?${query}`, { cache: "no-store" }));
       rememberContext("analytics", parsed.request);

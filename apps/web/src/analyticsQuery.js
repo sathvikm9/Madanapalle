@@ -276,17 +276,17 @@ function findTheatre(question) {
 function periodForQuestion(question, movie, today) {
   const normalized = normalize(question);
   const dayOne = DAY_ONE_OVERRIDES.get(normalize(movie.title)) || movie.firstTrackedDate;
-  if (/\btoday\b/.test(normalized)) {
+  if (/\b(today|current day|this day)\b/.test(normalized)) {
     return { key: "today", label: "Today", startDate: today, endDate: today };
   }
-  if (/\byesterday\b/.test(normalized)) {
+  if (/\b(yesterday|previous day|prior day)\b/.test(normalized)) {
     const yesterday = addDays(today, -1);
     return { key: "yesterday", label: "Yesterday", startDate: yesterday, endDate: yesterday };
   }
   const selectedCalendarPeriod = calendarPeriod(question, today);
   if (selectedCalendarPeriod) return selectedCalendarPeriod;
-  if (/\b(first|1st) weekend\b/.test(normalized)) return firstWeekend(dayOne);
-  if (/\b(first|1st) week\b/.test(normalized)) {
+  if (/\b(first|1st|opening) weekend\b/.test(normalized) || /\bweekend (?:one|1)\b/.test(normalized)) return firstWeekend(dayOne);
+  if (/\b(first|1st|opening) week\b/.test(normalized) || /\bweek (?:one|1)\b/.test(normalized)) {
     return { key: "first_week", label: "First week", startDate: dayOne, endDate: addDays(dayOne, 6) };
   }
   const movieDayMatch = normalized.match(/\bday\s*(\d{1,3})\b/) || normalized.match(/\b(\d{1,3})(?:st|nd|rd|th) day\b/);
@@ -305,10 +305,10 @@ function periodForQuestion(question, movie, today) {
 
 function standaloneCalendarPeriod(question, today, allowBareDay = false) {
   const normalized = normalize(question);
-  if (/\btoday\b/.test(normalized)) {
+  if (/\b(today|current day|this day)\b/.test(normalized)) {
     return { key: "today", label: "Today", startDate: today, endDate: today };
   }
-  if (/\byesterday\b/.test(normalized)) {
+  if (/\b(yesterday|previous day|prior day)\b/.test(normalized)) {
     const yesterday = addDays(today, -1);
     return { key: "yesterday", label: "Yesterday", startDate: yesterday, endDate: yesterday };
   }
@@ -329,13 +329,20 @@ function standaloneCalendarPeriod(question, today, allowBareDay = false) {
 
 function metricForQuestion(question, theatreWise) {
   const normalized = normalize(question);
-  if (/\b(report|summary|breakdown)\b/.test(normalized)) return "report";
-  if (theatreWise) return "report";
-  if (/house ?full|sold ?out|\bfulls?\b/.test(normalized)) return "housefull";
-  if (/\b(screened|screening)\b/.test(normalized) || /how many .*shows/.test(normalized)) return "screened";
-  if (/\b(tickets?|footfalls?)\b/.test(normalized)) return "tickets";
-  if (/\b(gross|collection|amount)\b/.test(normalized)) return "gross";
-  return null;
+  if (/\b(report|summary|breakdown|details?|data|stats?|statistics|figures?|information|info|numbers?)\b/.test(normalized)) return "report";
+  if (/house ?full|sold ?out|sell ?outs?|\b(fulls?|packed)\b/.test(normalized)) return "housefull";
+  if (/\b(screened|screening|screenings|played|ran|performances?)\b/.test(normalized) || /how many .*shows/.test(normalized)) return "screened";
+  if (/\b(tickets?|footfalls?|admissions?|attendance|audience|viewers?|patrons?|seats? sold)\b/.test(normalized)) return "tickets";
+  if (/\b(gross|collection|collections|amount|revenue|earnings|business|box office|boxoffice|money|takings|receipts|income|sales|turnover)\b/.test(normalized)) return "gross";
+  return theatreWise ? "report" : null;
+}
+
+function asksForTheatreBreakdown(question) {
+  const normalized = normalize(question);
+  const theatreWord = "(?:theatre|theater|venue|cinema|hall)";
+  return new RegExp(`\\b${theatreWord}\\s*(?:wise|data|report|details|stats|statistics|figures|breakdown|split|numbers|collections?|gross|revenue|earnings|business|totals?)\\b`).test(normalized)
+    || new RegExp(`\\b(?:by|each|every|per|individual|separate)\\s+${theatreWord}s?\\b`).test(normalized)
+    || new RegExp(`\\b${theatreWord}s?\\s+(?:by|each|every|per)\\b`).test(normalized);
 }
 
 function defaultPeriod(movie, today) {
@@ -383,9 +390,28 @@ function analyticsRequest(movie, period, theatre, metric = "report", extra = {})
     theatreName: theatre?.name || "All theatres",
     theatreWise: false,
     metric,
+    ...(period.key === "till_now" ? { completeDaysOnly: true } : {}),
     ...period,
     ...extra
   };
+}
+
+function movieCatalogReply(movies) {
+  if (!movies.length) return "No tracked movie data is available yet.";
+  return [
+    `Movie data available: ${movies.length} ${movies.length === 1 ? "movie" : "movies"}`,
+    "",
+    ...movies.map((movie, index) => `${index + 1}. ${movie.title}`)
+  ].join("\n");
+}
+
+function isMovieCatalogQuestion(question) {
+  const value = normalize(question);
+  if (/^(?:movies?|films?|titles?|movie list|film list|title list)$/.test(value)) return true;
+  if (/\b(?:movies?|films?|titles?)\s*(?:list|names?|available|tracked)\b/.test(value)) return true;
+  if (/\blist\s+(?:available\s+|tracked\s+)?(?:movies?|films?|titles?)\b/.test(value)) return true;
+  return /\b(?:list|show|give|which|what|how many)\b.*\b(?:movies?|films?|titles?)\b/.test(value)
+    && /\b(?:data|have|available|tracked|records?|list|names?|there)\b/.test(value);
 }
 
 export function parseAnalyticsQuestion(question, catalog, now = new Date(), context = null) {
@@ -394,6 +420,11 @@ export function parseAnalyticsQuestion(question, catalog, now = new Date(), cont
   if (!text) return { reply: "Type a question about a movie’s gross, screened shows, or housefull shows." };
   if (rawText === "?" || /^(help|shortcuts?|examples?)$/i.test(rawText)) return { reply: SHORTCUTS_REPLY };
   if (mutationPattern.test(text) && trackedDataPattern.test(text)) return { reply: READ_ONLY_REPLY };
+
+  const normalizedQuestion = normalize(text);
+  if (isMovieCatalogQuestion(normalizedQuestion)) {
+    return { reply: movieCatalogReply(catalog.movies || []), resetContext: true };
+  }
 
   const today = indiaDate(now);
   const selectedStandalonePeriod = standaloneCalendarPeriod(text, today, Boolean(context));
@@ -407,7 +438,6 @@ export function parseAnalyticsQuestion(question, catalog, now = new Date(), cont
       ? { title: "ALL", firstTrackedDate: catalog.firstLiveDate }
       : (catalog.movies || []).find((movie) => normalize(movie.title) === normalize(context.movieTitle)))
     : null;
-  const normalizedQuestion = normalize(text);
   const theatre = findTheatre(text);
 
   const compareIntent = /\b(compare|versus|vs)\b/.test(normalizedQuestion);
@@ -452,6 +482,27 @@ export function parseAnalyticsQuestion(question, catalog, now = new Date(), cont
     };
   }
 
+  const namedMovies = movieMatch.movies || [];
+  const multiMovieIntent = namedMovies.length >= 2
+    && /\b(?:and|report|summary|data|gross|collection|tickets?|shows?|housefull|full)\b/.test(normalizedQuestion);
+  if (multiMovieIntent) {
+    const metric = metricForQuestion(text, false) || "report";
+    const entries = namedMovies.slice(0, 6).map((namedMovie) => analyticsRequest(
+      namedMovie,
+      boundedPeriod(periodForQuestion(text, namedMovie, today) || defaultPeriod(namedMovie, today), catalog, today),
+      theatre,
+      metric
+    ));
+    return {
+      request: {
+        mode: "multi_report",
+        metric,
+        entries,
+        contextRequest: entries[0]
+      }
+    };
+  }
+
   const movie = detectedMovie || inheritedMovie || (selectedStandalonePeriod
     ? { title: "ALL", firstTrackedDate: catalog.firstLiveDate }
     : null);
@@ -463,7 +514,7 @@ export function parseAnalyticsQuestion(question, catalog, now = new Date(), cont
   }
 
   const allTheatres = /\ball(?: theatres?)?\b/.test(normalizedQuestion);
-  const explicitTheatreWise = /\b(theatre|theater)\s*(wise|breakdown)\b/.test(normalize(text));
+  const explicitTheatreWise = asksForTheatreBreakdown(text);
   const metric = metricForQuestion(text, explicitTheatreWise)
     || (explicitTheatreWise ? "report" : context?.metric)
     || "report";
@@ -503,6 +554,7 @@ export function parseAnalyticsQuestion(question, catalog, now = new Date(), cont
       theatreName,
       theatreWise,
       metric,
+      ...(period.key === "till_now" ? { completeDaysOnly: true } : {}),
       ...(highestTheatre
         ? { analysisType: "highest_theatre" }
         : dayWise
@@ -552,6 +604,11 @@ function displayShortDate(date) {
     .format(new Date(`${date}T00:00:00Z`));
 }
 
+function incompleteDayLine(summary) {
+  const latest = summary.excludedIncompleteDates?.at(-1);
+  return latest ? `${displayRange(latest, latest)} is still in progress and is not included.` : null;
+}
+
 export function formatComparisonAnswer(request, summaries) {
   if (!summaries.length) return "No captured comparison data was found.";
   const title = request.comparisonType === "movies"
@@ -561,9 +618,11 @@ export function formatComparisonAnswer(request, summaries) {
 
   summaries.forEach((summary, index) => {
     const entry = request.entries[index];
+    const excludedDay = incompleteDayLine(summary);
     lines.push(
       request.comparisonType === "movies" ? summary.movieTitle : entry.label,
       displayRange(summary.startDate, summary.endDate),
+      ...(excludedDay ? [excludedDay] : []),
       ...reportLines(summary.total),
       ""
     );
@@ -582,16 +641,67 @@ export function formatComparisonAnswer(request, summaries) {
   return lines.join("\n").trim();
 }
 
+export function formatMultiMovieAnswer(request, summaries) {
+  if (!summaries.length) return "No captured movie data was found.";
+  const lines = ["Movie report", ""];
+  summaries.forEach((summary) => {
+    const excludedDay = incompleteDayLine(summary);
+    lines.push(
+      summary.movieTitle,
+      displayRange(summary.startDate, summary.endDate),
+      ...(excludedDay ? [excludedDay] : []),
+      ...reportLines(summary.total),
+      ""
+    );
+  });
+  const totals = summaries.reduce((combined, summary) => {
+    for (const key of Object.keys(combined)) combined[key] += Number(summary.total[key] || 0);
+    return combined;
+  }, emptyClientTotals());
+  lines.push("Combined", ...reportLines(totals));
+  return lines.join("\n").trim();
+}
+
+function emptyClientTotals() {
+  return {
+    screenedShows: 0,
+    capturedShows: 0,
+    housefullShows: 0,
+    ticketsSold: 0,
+    capacity: 0,
+    collectionPaise: 0
+  };
+}
+
 export function formatAnalyticsAnswer(request, summary) {
   const titleParts = request.movieTitle === "ALL"
     ? [request.venueCode === "ALL" ? "All theatres" : request.theatreName, request.label]
     : [summary.movieTitle, request.label];
-  if (!request.theatreWise && request.venueCode !== "ALL") titleParts.push(request.theatreName);
-  const lines = [titleParts.join(" — "), displayRange(summary.startDate, summary.endDate), ""];
+  if (request.movieTitle !== "ALL" && !request.theatreWise && request.venueCode !== "ALL") titleParts.push(request.theatreName);
+  const lines = [titleParts.join(" — "), displayRange(summary.startDate, summary.endDate)];
+  const excludedDay = incompleteDayLine(summary);
+  if (excludedDay) lines.push(excludedDay);
+  lines.push("");
   const totals = summary.total;
 
   if (!totals.screenedShows) {
-    lines.push("No screened shows were found for this selection.");
+    lines.push(request.completeDaysOnly
+      ? "No fully captured days were found for this selection yet."
+      : "No screened shows were found for this selection.");
+    return lines.join("\n");
+  }
+
+  if (request.movieTitle === "ALL" && request.venueCode !== "ALL" && request.metric === "report") {
+    const venue = summary.venues[0];
+    for (const movie of venue?.movies || []) {
+      lines.push(`${movie.title} — ${count.format(movie.screenedShows)} ${movie.screenedShows === 1 ? "Show" : "Shows"} — ${currency.format(movie.collectionPaise / 100)}`);
+    }
+    if (venue?.movies?.length) lines.push("");
+    lines.push(`Total gross: ${currency.format(totals.collectionPaise / 100)}`);
+    lines.push(`Shows: ${count.format(totals.housefullShows)}/${count.format(totals.screenedShows)} full`);
+    lines.push(`Tickets: ${count.format(totals.ticketsSold)}`);
+    const coverage = coverageLine(totals);
+    if (coverage) lines.push(coverage);
     return lines.join("\n");
   }
 
@@ -662,7 +772,21 @@ export function formatAnalyticsAnswer(request, summary) {
 
   if (request.theatreWise) {
     for (const venue of summary.venues) {
-      lines.push("", venue.name, ...reportLines(venue));
+      lines.push("", venue.name);
+      if (request.movieTitle === "ALL" && venue.movies?.length === 1) {
+        lines.push(venue.movies[0].title, ...reportLines(venue));
+      } else if (request.movieTitle === "ALL" && venue.movies?.length > 1) {
+        for (const movie of venue.movies) {
+          lines.push(`${movie.title} — ${count.format(movie.screenedShows)} ${movie.screenedShows === 1 ? "Show" : "Shows"} — ${currency.format(movie.collectionPaise / 100)}`);
+        }
+        lines.push(`Total Gross: ${currency.format(venue.collectionPaise / 100)}`);
+        lines.push(`Shows: ${count.format(venue.housefullShows)}/${count.format(venue.screenedShows)} full`);
+        lines.push(`Tickets: ${count.format(venue.ticketsSold)}`);
+        const coverage = coverageLine(venue);
+        if (coverage) lines.push(coverage);
+      } else {
+        lines.push(...reportLines(venue));
+      }
     }
   }
 

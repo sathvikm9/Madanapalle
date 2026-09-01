@@ -39,6 +39,10 @@ test("builds a constrained interpreter prompt with conversation context", () => 
   assert.match(messages[0].content, /Day 9/);
   assert.match(messages[0].content, /Never calculate money/);
   assert.match(messages[0].content, /Never .*create SQL/);
+  assert.match(messages[0].content, /list tracked movies/);
+  assert.match(messages[0].content, /preserve every named movie/);
+  assert.match(messages[0].content, /revenue, earnings, business/);
+  assert.match(messages[0].content, /Theatre data, by theatre/);
 });
 
 test("uses Workers AI only to return a canonical question", async () => {
