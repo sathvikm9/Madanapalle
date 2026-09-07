@@ -21,13 +21,13 @@ The extension creates one pinned BookMyShow or TicketNew tab per theatre. Keep C
 - the India-date rollover discards the extension-owned collector tabs and opens fresh current-date tabs
 - a tab that remains loading or cannot run discovery is replaced once immediately; continued failures retry only that theatre after 2, 5, then 15 minutes
 - Sri Krishna backup capture starts shortly after showtime +10 minutes
-- Sai Chitra backup capture starts shortly after showtime +10 minutes
+- Sai Chitra opens the exact TicketNew seat layout at showtime +10:40 and again at cutoff −0:20, then counts every live seat in both classes
 - Ravi backup capture starts shortly after showtime +15 minutes
 - ASR backup capture starts shortly after showtime +15 minutes
 - a second preflight refreshes the schedule before the final attempt
 - a successful backup waits until the final minute; a failed backup retries once per minute
 - a failed Sri Krishna, Ravi, or ASR page read refreshes that exact session, then switches the show to a separate active recovery tab and a state-aware BookMyShow reader for every remaining attempt
-- Sai Chitra remains on its independent TicketNew flow and never enters BookMyShow recovery mode
+- Sai Chitra remains on its independent TicketNew flow and never enters BookMyShow recovery mode; the cinema-page summary is used only when every class is explicitly sold out and no seat-layout link exists
 - the newest successful snapshot is finalized after cutoff, so a failed final attempt keeps the backup
 - simultaneous theatre captures use independent tabs and pending jobs
 - capture starts/failures/successes are stored in the server audit log

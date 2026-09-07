@@ -1,4 +1,5 @@
-const ATTEMPT_SECOND_OFFSET_MS = 5_000;
+const DEFAULT_ATTEMPT_SECOND_OFFSET_MS = 5_000;
+const TICKETNEW_ATTEMPT_SECOND_OFFSET_MS = 40_000;
 
 function timestamp(value) {
   const result = new Date(value).getTime();
@@ -15,14 +16,21 @@ export function finalCaptureAt(show) {
   return explicit ?? (cutoff == null ? null : cutoff - 60_000);
 }
 
+export function attemptSecondOffset(show) {
+  return show?.venueCode === "SCM" || show?.platform === "ticketnew"
+    ? TICKETNEW_ATTEMPT_SECOND_OFFSET_MS
+    : DEFAULT_ATTEMPT_SECOND_OFFSET_MS;
+}
+
 export function nextCaptureWhen(show, state = {}, now = Date.now()) {
   const windowStart = timestamp(show.captureAt);
   const finalStart = finalCaptureAt(show);
   const cutoff = timestamp(show.cutoffAt);
   if (windowStart == null || finalStart == null || cutoff == null || now >= cutoff) return null;
 
-  const firstAttempt = windowStart + ATTEMPT_SECOND_OFFSET_MS;
-  const finalAttempt = finalStart + ATTEMPT_SECOND_OFFSET_MS;
+  const attemptOffset = attemptSecondOffset(show);
+  const firstAttempt = windowStart + attemptOffset;
+  const finalAttempt = finalStart + attemptOffset;
   const lastAttempt = timestamp(state.lastAttemptAt);
   const lastSuccess = timestamp(state.lastSuccessAt);
 
@@ -36,7 +44,7 @@ export function nextCaptureWhen(show, state = {}, now = Date.now()) {
     return Math.min(now + 1_000, cutoff - 1_000);
   }
 
-  const nextMinuteAttempt = minuteStart(now) + 60_000 + ATTEMPT_SECOND_OFFSET_MS;
+  const nextMinuteAttempt = minuteStart(now) + 60_000 + attemptOffset;
   return nextMinuteAttempt < cutoff ? nextMinuteAttempt : null;
 }
 

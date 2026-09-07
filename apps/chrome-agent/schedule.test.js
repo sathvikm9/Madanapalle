@@ -1,11 +1,40 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canPauseVenueDiscovery, nextCaptureWhen, preflightTimes } from "./schedule.js";
+import { attemptSecondOffset, canPauseVenueDiscovery, nextCaptureWhen, preflightTimes } from "./schedule.js";
 
 const sriKrishna = {
+  venueCode: "SKMD",
+  platform: "bookmyshow",
   captureAt: "2026-08-20T05:40:00.000Z",
   cutoffAt: "2026-08-20T05:45:00.000Z"
 };
+
+const saiChitra = {
+  venueCode: "SCM",
+  platform: "ticketnew",
+  captureAt: "2026-09-07T05:40:00.000Z",
+  finalCaptureAt: "2026-09-07T05:44:00.000Z",
+  cutoffAt: "2026-09-07T05:45:00.000Z"
+};
+
+test("uses the 40-second offset only for Sai Chitra TicketNew captures", () => {
+  assert.equal(attemptSecondOffset(saiChitra), 40_000);
+  assert.equal(attemptSecondOffset(sriKrishna), 5_000);
+});
+
+test("schedules Sai Chitra backup at 11:10:40 and final at 11:14:40", () => {
+  assert.equal(
+    nextCaptureWhen(saiChitra, {}, new Date("2026-09-07T05:35:00.000Z").getTime()),
+    new Date("2026-09-07T05:40:40.000Z").getTime()
+  );
+  assert.equal(
+    nextCaptureWhen(saiChitra, {
+      lastAttemptAt: "2026-09-07T05:40:40.000Z",
+      lastSuccessAt: "2026-09-07T05:40:45.000Z"
+    }, new Date("2026-09-07T05:41:00.000Z").getTime()),
+    new Date("2026-09-07T05:44:40.000Z").getTime()
+  );
+});
 
 test("starts Sri Krishna five seconds into the 11:10 backup minute", () => {
   assert.equal(

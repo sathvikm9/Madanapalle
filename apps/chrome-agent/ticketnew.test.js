@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 await import("./ticketnew.js");
-const { discover, capture } = globalThis.SKCTTicketNew;
+const { capture, captureLive, discover, findLiveSeatLayoutUrl, isLiveSeatLayout } = globalThis.SKCTTicketNew;
 
 const state = {
   props: { pageProps: { data: { serverState: { cinemaSessions: {
@@ -68,6 +68,50 @@ test("captures sold seats from TicketNew per-class availability", () => {
     { name: "FIRST CL", price: 84, capacity: 107, available: 47, sold: 60, unknown: 0 }
   ]);
   assert.equal(result.attemptId, "attempt");
+});
+
+test("finds only the exact TicketNew session seat-layout link", () => {
+  const links = [
+    "https://ticketnew.com/movies/seat-layout/another-session?fromdate=2026-08-21",
+    "https://ticketnew.com/movies/seat-layout/screen__session?encsessionid=4903-screen__session&fromdate=2026-08-21"
+  ].map((href) => ({ href, getAttribute: () => href }));
+  const document = {
+    location: { href: "https://ticketnew.com/movies/madanapalle/sai-chitra/4903?fromdate=2026-08-21" },
+    querySelectorAll: () => links
+  };
+  const show = { sessionId: "screen__session", dateCode: "20260821" };
+
+  const url = findLiveSeatLayoutUrl(document, show);
+  assert.match(url, /\/movies\/seat-layout\/screen__session/);
+  assert.equal(isLiveSeatLayout({ href: url }, show), true);
+  assert.equal(isLiveSeatLayout({ href: links[0].href }, show), false);
+});
+
+test("captures TicketNew sold seats from the live seat layout", () => {
+  const labels = [
+    "available  seat, class FIRST CL, row A, column 1, price 84",
+    "unavailable seat, class FIRST CL, row A, column 2",
+    "unavailable seat, class RESERVED CL, row B, column 1",
+    "unavailable seat, class RESERVED CL, row B, column 2"
+  ];
+  const document = {
+    querySelectorAll: () => labels.map((label) => ({ getAttribute: () => label }))
+  };
+  const result = captureLive(document, {
+    naturalKey: "SCM:20260821:1100:screen__session:MOV1",
+    attemptId: "live-attempt",
+    categories: [
+      { name: "FIRST CL", listPricePaise: 8_400 },
+      { name: "RESERVED CL", listPricePaise: 10_500 }
+    ]
+  }, new Date("2026-08-21T05:44:40.000Z"));
+
+  assert.deepEqual(result.categories, [
+    { name: "FIRST CL", price: 84, capacity: 2, available: 1, sold: 1, unknown: 0 },
+    { name: "RESERVED CL", price: 105, capacity: 2, available: 0, sold: 2, unknown: 0 }
+  ]);
+  assert.equal(result.attemptId, "live-attempt");
+  assert.equal(result.capturedAt, "2026-08-21T05:44:40.000Z");
 });
 
 test("uses the TicketNew movie catalogue when a sold-out session is omitted from grouped metadata", () => {

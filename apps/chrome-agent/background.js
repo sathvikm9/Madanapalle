@@ -468,7 +468,9 @@ async function beginCapture(show) {
     await handleMessage({ type: "CAPTURE_RESULT", result: discoveryHousefull });
     return;
   }
-  await chrome.alarms.create(`watchdog:${encodeURIComponent(show.naturalKey)}`, { when: Date.now() + 50_000 });
+  const cutoffRemainingMs = new Date(show.cutoffAt).getTime() - Date.now();
+  const watchdogDelayMs = Math.max(1_000, Math.min(50_000, cutoffRemainingMs - 1_000));
+  await chrome.alarms.create(`watchdog:${encodeURIComponent(show.naturalKey)}`, { when: Date.now() + watchdogDelayMs });
   try {
     if (captureMode === "recovery") await openRecoverySeatLayout(pending);
     else await openSeatLayout(pending);

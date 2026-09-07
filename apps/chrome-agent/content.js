@@ -87,9 +87,17 @@ async function resumePendingCapture() {
   let pending;
   if (location.hostname === "ticketnew.com" || location.hostname.endsWith(".ticketnew.com")) {
     const fromDate = new URLSearchParams(location.search).get("fromdate")?.replaceAll("-", "");
-    pending = Object.values(pendingCaptures).find((show) => (
+    const pathSession = decodeURIComponent(location.pathname.split("/").filter(Boolean).at(-1) || "");
+    const encodedSession = new URLSearchParams(location.search).get("encsessionid") || "";
+    const ticketNewPending = Object.values(pendingCaptures).filter((show) => (
       show.platform === "ticketnew" && (!fromDate || show.dateCode === fromDate)
     ));
+    pending = location.pathname.includes("/movies/seat-layout/")
+      ? ticketNewPending.find((show) => (
+        String(show.sessionId).toLowerCase() === pathSession.toLowerCase() ||
+        encodedSession.toLowerCase().includes(String(show.sessionId).toLowerCase())
+      ))
+      : ticketNewPending[0];
   } else {
     if (!location.pathname.includes("/seat-layout/")) return;
     const match = location.pathname.match(/\/seat-layout\/[^/]+\/([^/]+)\/([^/]+)\/(\d{8})/);
@@ -102,6 +110,7 @@ async function resumePendingCapture() {
   if (!pending) return;
   try {
     const result = await captureSeats(pending);
+    if (!result) return;
     await chrome.runtime.sendMessage({ type: "CAPTURE_RESULT", result });
   } catch (error) {
     await chrome.runtime.sendMessage({
@@ -117,8 +126,7 @@ async function resumePendingCapture() {
 
 async function captureSeats(show) {
   if (show.platform === "ticketnew") {
-    const state = globalThis.SKCTTicketNew.readState(document);
-    return globalThis.SKCTTicketNew.capture(state, show);
+    return captureTicketNewSeats(show);
   }
   const recoveryMode = show.captureMode === "recovery";
   const recoveryDeadline = recoveryMode ? Date.now() + 28_000 : null;
@@ -195,6 +203,61 @@ async function captureSeats(show) {
       }
     } : {})
   };
+}
+
+async function captureTicketNewSeats(show) {
+  if (globalThis.SKCTTicketNew.isLiveSeatLayout(location, show)) {
+    return waitForStableTicketNewSeatLayout(show);
+  }
+
+  const state = globalThis.SKCTTicketNew.readState(document);
+  const listingCapture = globalThis.SKCTTicketNew.capture(state, show);
+  const liveUrl = await waitForTicketNewSeatLayoutUrl(show, 8_000);
+  if (liveUrl) {
+    location.replace(liveUrl);
+    return null;
+  }
+
+  if (listingCapture.categories.every((category) => category.available === 0)) {
+    return listingCapture;
+  }
+  const error = new Error(`TicketNew did not expose the live seat-layout link for session ${show.sessionId}`);
+  error.captureStage = "wait_ticketnew_seat_layout_link";
+  error.captureDiagnostics = capturePageDiagnostics("ticketnew_seat_layout_link", { sessionId: show.sessionId });
+  throw error;
+}
+
+async function waitForTicketNewSeatLayoutUrl(show, timeout) {
+  const started = Date.now();
+  while (Date.now() - started < timeout) {
+    const url = globalThis.SKCTTicketNew.findLiveSeatLayoutUrl(document, show, location.href);
+    if (url) return url;
+    await delay(100);
+  }
+  return null;
+}
+
+async function waitForStableTicketNewSeatLayout(show) {
+  const started = Date.now();
+  let previousSignature = null;
+  while (Date.now() - started < 8_000) {
+    try {
+      const result = globalThis.SKCTTicketNew.captureLive(document, show);
+      const signature = result.categories
+        .map((category) => `${category.name}:${category.capacity}`)
+        .sort()
+        .join("|");
+      if (signature === previousSignature) return result;
+      previousSignature = signature;
+    } catch {
+      previousSignature = null;
+    }
+    await delay(250);
+  }
+  const error = new Error("TicketNew live seat layout did not become stable within eight seconds");
+  error.captureStage = "wait_ticketnew_live_seat_map";
+  error.captureDiagnostics = capturePageDiagnostics("ticketnew_live_seat_map", { sessionId: show.sessionId });
+  throw error;
 }
 
 async function primaryQuantityControl() {

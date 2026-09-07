@@ -92,6 +92,103 @@
     };
   }
 
+  function findLiveSeatLayoutUrl(document, show, pageUrl = document?.location?.href) {
+    const sessionId = String(show?.sessionId || "").toLowerCase();
+    if (!sessionId) return null;
+    for (const anchor of document?.querySelectorAll?.('a[href*="/movies/seat-layout/"]') || []) {
+      const rawUrl = anchor.href || anchor.getAttribute?.("href");
+      if (!rawUrl) continue;
+      let url;
+      try {
+        url = new URL(rawUrl, pageUrl);
+      } catch {
+        continue;
+      }
+      const pathSession = decodeURIComponent(url.pathname.split("/").filter(Boolean).at(-1) || "").toLowerCase();
+      const encodedSession = String(url.searchParams.get("encsessionid") || "").toLowerCase();
+      const dateCode = String(url.searchParams.get("fromdate") || "").replaceAll("-", "");
+      const matchesSession = pathSession === sessionId || encodedSession.includes(sessionId);
+      const matchesDate = !dateCode || dateCode === String(show.dateCode || "");
+      if (url.protocol === "https:" && url.hostname.endsWith("ticketnew.com") &&
+          url.pathname.includes("/movies/seat-layout/") && matchesSession && matchesDate) {
+        return url.toString();
+      }
+    }
+    return null;
+  }
+
+  function isLiveSeatLayout(location, show) {
+    try {
+      const url = new URL(location?.href || String(location));
+      const sessionId = String(show?.sessionId || "").toLowerCase();
+      const pathSession = decodeURIComponent(url.pathname.split("/").filter(Boolean).at(-1) || "").toLowerCase();
+      const encodedSession = String(url.searchParams.get("encsessionid") || "").toLowerCase();
+      return url.hostname.endsWith("ticketnew.com") &&
+        url.pathname.includes("/movies/seat-layout/") &&
+        Boolean(sessionId) && (pathSession === sessionId || encodedSession.includes(sessionId));
+    } catch {
+      return false;
+    }
+  }
+
+  function captureLive(document, show, capturedAt = new Date()) {
+    const advertised = new Map((show.categories || []).map((category) => [
+      normalizeCategoryName(category.name),
+      Number(category.listPricePaise || 0) / 100
+    ]));
+    const observed = new Map();
+    const seats = document?.querySelectorAll?.('[aria-label^="available"], [aria-label^="unavailable"]') || [];
+
+    for (const seat of seats) {
+      const label = String(seat.getAttribute?.("aria-label") || "").trim();
+      const status = /^available\s+seat/i.test(label)
+        ? "available"
+        : (/^unavailable\s+seat/i.test(label) ? "sold" : null);
+      const classMatch = label.match(/class\s+([^,]+)/i);
+      if (!status || !classMatch) continue;
+      const name = classMatch[1].trim();
+      const key = normalizeCategoryName(name);
+      const priceMatch = label.match(/price\s+(\d+(?:\.\d+)?)/i);
+      const category = observed.get(key) || {
+        name,
+        price: advertised.get(key) || 0,
+        capacity: 0,
+        available: 0,
+        sold: 0,
+        unknown: 0
+      };
+      category.capacity += 1;
+      category[status] += 1;
+      if (priceMatch) category.price = Number(priceMatch[1]);
+      observed.set(key, category);
+    }
+
+    const categories = [...observed.values()];
+    if (!categories.length) throw new Error("TicketNew live seat layout has not loaded any seats");
+    if (categories.some((category) => !category.price)) {
+      throw new Error("TicketNew live seat layout did not expose every class price");
+    }
+    const advertisedNames = [...advertised.keys()];
+    if (advertisedNames.length && (
+      categories.length !== advertisedNames.length || advertisedNames.some((name) => !observed.has(name))
+    )) {
+      throw new Error("TicketNew live seat layout did not expose every advertised class");
+    }
+
+    const captured = new Date(capturedAt);
+    return {
+      naturalKey: show.naturalKey,
+      attemptId: show.attemptId,
+      capturedAt: captured.toISOString(),
+      captureMinute: indiaCaptureMinute(captured),
+      categories
+    };
+  }
+
+  function normalizeCategoryName(value) {
+    return String(value || "").trim().replace(/\s+/g, " ").toUpperCase();
+  }
+
   function cinemaPayload(state, cinemaId, dateCode) {
     const date = `${dateCode.slice(0, 4)}-${dateCode.slice(4, 6)}-${dateCode.slice(6, 8)}`;
     const sessions = state?.props?.pageProps?.data?.serverState?.cinemaSessions || {};
@@ -241,5 +338,12 @@
     return number;
   }
 
-  root.SKCTTicketNew = Object.freeze({ readState, discover, capture });
+  root.SKCTTicketNew = Object.freeze({
+    readState,
+    discover,
+    capture,
+    captureLive,
+    findLiveSeatLayoutUrl,
+    isLiveSeatLayout
+  });
 })(globalThis);
