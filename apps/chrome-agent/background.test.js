@@ -13,12 +13,21 @@ test("venue discovery passes the configured venue code to the content script", (
   assert.doesNotMatch(readVenuePage, /\n\s*venueCode,\n/);
 });
 
-test("records the successful attempt before clearing its pending capture", () => {
+test("stores a capture durably before clearing its pending browser attempt", () => {
   const source = fs.readFileSync(backgroundUrl, "utf8");
   const captureResult = source.match(/if \(message\.type === "CAPTURE_RESULT"\)[\s\S]*?if \(message\.type === "CAPTURE_ERROR"\)/)?.[0];
 
   assert.ok(captureResult, "CAPTURE_RESULT handler should exist");
-  assert.match(captureResult, /lastSuccessAttemptId:\s*pending\.attemptId[\s\S]*?await removePending\(pending\.naturalKey\)/);
+  assert.match(captureResult, /await protectCaptureLocally\(outboxEntry,[\s\S]*?lastLocalCaptureAt:\s*result\.capturedAt[\s\S]*?await removePending\(pending\.naturalKey\)/);
+  assert.match(captureResult, /await scheduleShow\(pending\)[\s\S]*?await flushCaptureOutbox\(\)/);
+});
+
+test("retries durable uploads every minute even when automatic capture is disabled", () => {
+  const source = fs.readFileSync(backgroundUrl, "utf8");
+  const alarms = source.match(/async function handleAlarm\(alarm\)[\s\S]*?if \(!settings\.enabled\) return/)?.[0];
+
+  assert.match(source, /CAPTURE_OUTBOX_ALARM[\s\S]*periodInMinutes:\s*1/);
+  assert.match(alarms, /alarm\.name === CAPTURE_OUTBOX_ALARM[\s\S]*await flushCaptureOutbox\(\)[\s\S]*const settings/);
 });
 
 test("capture alarm checks an attempt-specific success before reporting a page failure", () => {

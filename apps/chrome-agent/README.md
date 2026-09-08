@@ -33,8 +33,12 @@ The extension creates one pinned BookMyShow or TicketNew tab per theatre. Keep C
 - the TicketNew cinema-page summary is used only when every class is explicitly sold out and no live seat layout is available
 - the newest successful snapshot is finalized after cutoff, so a failed final attempt keeps the backup
 - simultaneous theatre captures use independent tabs and pending jobs
-- capture starts/failures/successes are stored in the server audit log
-- a late Chrome page-loading error is ignored only when that exact capture attempt already uploaded successfully
+- every successful seat count is written to a durable Chrome-storage outbox before its browser attempt is closed
+- uploads are retried every minute, including after cutoff, after Chrome restarts, and while automatic booking capture is disabled
+- the server accepts queued captures for up to seven days and uses the stable client capture ID to make every retry idempotent
+- a locally protected backup still waits for the final attempt; a locally protected final capture stops further booking-site reloads
+- the extension removes an outbox item only after D1 confirms it, and the settings status shows any safely stored pending upload
+- a late Chrome page-loading error is ignored when that exact capture attempt was already protected in the local outbox
 - the last 60 tab-repair and discovery-retry diagnostics stay in local extension storage for troubleshooting
 - a Chrome notification requests attention when a booking platform requires human verification
 - no seat is selected and no booking/payment action is performed

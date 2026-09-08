@@ -174,57 +174,99 @@ export async function currentShow(db, naturalKey) {
   return db.prepare(`SELECT * FROM shows WHERE natural_key=? AND is_current=1`).bind(naturalKey).first();
 }
 
+export async function showForCapture(db, naturalKey) {
+  return db.prepare(`SELECT * FROM shows WHERE natural_key=?`).bind(naturalKey).first();
+}
+
+function captureSaveResult(row, duplicate = false) {
+  return {
+    snapshotId: String(row.id),
+    sold: Number(row.sold),
+    collectionPaise: Number(row.collection_paise),
+    duplicate
+  };
+}
+
+async function existingClientCapture(db, show, capture) {
+  if (!capture.clientCaptureId) return null;
+  const existing = await db.prepare(
+    `SELECT id, show_id, sold, collection_paise, raw_hash
+     FROM snapshots WHERE client_capture_id=?`
+  ).bind(capture.clientCaptureId).first();
+  if (!existing) return null;
+  if (Number(existing.show_id) !== Number(show.id) || existing.raw_hash !== capture.rawHash) {
+    throw new RequestError("The capture upload ID was already used for different seat data", 409, "idempotency_conflict");
+  }
+  return captureSaveResult(existing, true);
+}
+
 export async function saveCapture(db, show, capture) {
+  const duplicate = await existingClientCapture(db, show, capture);
+  if (duplicate) return duplicate;
   const createdAt = new Date().toISOString();
-  const results = await db.batch([
-    db.prepare(
-      `INSERT INTO snapshots (
-        show_id, captured_at, received_at, capture_minute, source, capacity, available,
-        sold, unknown, collection_paise, occupancy_percent, categories_json,
-        is_final, raw_hash, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
-    ).bind(
-      show.id,
-      capture.capturedAt,
-      capture.receivedAt,
-      capture.captureMinute,
-      capture.source,
-      capture.capacity,
-      capture.available,
-      capture.sold,
-      capture.unknown,
-      capture.collectionPaise,
-      capture.occupancyPercent,
-      JSON.stringify(capture.categories),
-      capture.rawHash,
-      createdAt
-    ),
-    db.prepare(
-      `UPDATE shows SET status='capturing',
-        last_capture_at=?, last_error=NULL, updated_at=? WHERE id=?`
-    ).bind(capture.capturedAt, createdAt, show.id),
-    db.prepare(
-      `INSERT INTO collector_runs (
-        run_type, venue_code, target_date, show_id, status, started_at, finished_at, details_json
-      ) VALUES ('capture', ?, ?, ?, 'success', ?, ?, ?)`
-    ).bind(
-      show.venue_code,
-      show.show_date,
-      show.id,
-      createdAt,
-      createdAt,
-      JSON.stringify({
-        sold: capture.sold,
-        collectionPaise: capture.collectionPaise,
-        capturedAt: capture.capturedAt,
-        attemptId: capture.attemptId
-      })
-    )
-  ]);
+  let results;
+  try {
+    results = await db.batch([
+      db.prepare(
+        `INSERT INTO snapshots (
+          show_id, captured_at, received_at, capture_minute, source, capacity, available,
+          sold, unknown, collection_paise, occupancy_percent, categories_json,
+          is_final, raw_hash, client_capture_id, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
+      ).bind(
+        show.id,
+        capture.capturedAt,
+        capture.receivedAt,
+        capture.captureMinute,
+        capture.source,
+        capture.capacity,
+        capture.available,
+        capture.sold,
+        capture.unknown,
+        capture.collectionPaise,
+        capture.occupancyPercent,
+        JSON.stringify(capture.categories),
+        capture.rawHash,
+        capture.clientCaptureId,
+        createdAt
+      ),
+      db.prepare(
+        `UPDATE shows SET status='capturing',
+          last_capture_at=?, last_error=NULL, updated_at=? WHERE id=?`
+      ).bind(capture.capturedAt, createdAt, show.id),
+      db.prepare(
+        `INSERT INTO collector_runs (
+          run_type, venue_code, target_date, show_id, status, started_at, finished_at, details_json
+        ) VALUES ('capture', ?, ?, ?, 'success', ?, ?, ?)`
+      ).bind(
+        show.venue_code,
+        show.show_date,
+        show.id,
+        createdAt,
+        createdAt,
+        JSON.stringify({
+          sold: capture.sold,
+          collectionPaise: capture.collectionPaise,
+          capturedAt: capture.capturedAt,
+          queuedAt: capture.queuedAt,
+          deferredUpload: capture.deferredUpload,
+          attemptId: capture.attemptId,
+          clientCaptureId: capture.clientCaptureId
+        })
+      )
+    ]);
+  } catch (error) {
+    if (capture.clientCaptureId && /UNIQUE constraint failed/i.test(String(error?.message || error))) {
+      const racedDuplicate = await existingClientCapture(db, show, capture);
+      if (racedDuplicate) return racedDuplicate;
+    }
+    throw error;
+  }
   return {
     snapshotId: String(results[0]?.meta?.last_row_id ?? ""),
     sold: capture.sold,
-    collectionPaise: capture.collectionPaise
+    collectionPaise: capture.collectionPaise,
+    duplicate: false
   };
 }
 

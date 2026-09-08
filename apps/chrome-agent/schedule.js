@@ -1,3 +1,5 @@
+import { protectedCaptureAt } from "./capture-outbox.js";
+
 const DEFAULT_ATTEMPT_SECOND_OFFSET_MS = 5_000;
 const TICKETNEW_ATTEMPT_SECOND_OFFSET_MS = 40_000;
 
@@ -32,7 +34,7 @@ export function nextCaptureWhen(show, state = {}, now = Date.now()) {
   const firstAttempt = windowStart + attemptOffset;
   const finalAttempt = finalStart + attemptOffset;
   const lastAttempt = timestamp(state.lastAttemptAt);
-  const lastSuccess = timestamp(state.lastSuccessAt);
+  const lastSuccess = protectedCaptureAt(state);
 
   if (lastSuccess != null) {
     if (lastSuccess >= finalStart || (lastAttempt != null && lastAttempt >= finalStart)) return null;
@@ -65,7 +67,7 @@ export function canPauseVenueDiscovery(shows = [], captureStates = {}, now = Dat
   if (!lastShow || now < lastShow.cutoff) return false;
 
   const state = captureStates[lastShow.show.naturalKey] || {};
-  const lastSuccess = timestamp(state.lastSuccessAt);
+  const lastSuccess = protectedCaptureAt(state);
   const captureStart = timestamp(lastShow.show.captureAt);
   return lastSuccess != null && captureStart != null &&
     lastSuccess >= captureStart && lastSuccess < lastShow.cutoff;

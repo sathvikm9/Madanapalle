@@ -5,7 +5,8 @@ import {
   finalizeExpiredShows,
   recordCaptureEvent,
   reconcileDiscovery,
-  saveCapture
+  saveCapture,
+  showForCapture
 } from "./database.js";
 import { analyticsCatalog, analyticsSummary } from "./analytics.js";
 import { interpretChatQuestion } from "./ai-chat.js";
@@ -145,7 +146,7 @@ async function route(request, env, origin) {
     requireAgent(request, env);
     const body = await bodyJson(request);
     const naturalKey = requiredString(body?.naturalKey, "naturalKey", 300);
-    const show = await currentShow(env.DB, naturalKey);
+    const show = await showForCapture(env.DB, naturalKey);
     const capture = normalizeCapture(body, show, new Date());
     if (!capture.rawHash) {
       capture.rawHash = await sha256(JSON.stringify({

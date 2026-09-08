@@ -16,7 +16,8 @@ The new tracker removes third-party data sources from the counting path. BookMyS
 ```mermaid
 flowchart LR
   BMS["BookMyShow venue and seat pages"] --> C["Local Chrome capture agent"]
-  C --> API["Cloudflare Worker API"]
+  C --> OUTBOX["Durable Chrome capture outbox"]
+  OUTBOX --> API["Cloudflare Worker API"]
   API --> DB["Cloudflare D1 audit store"]
   DB --> API
   API --> WEB["GitHub Pages dashboard"]
@@ -49,6 +50,8 @@ When the slot remains 6:00 PM but the event/session changes, the old revision is
 
 Ravi and ASR use showtime +15 minutes for their backups because their observed cutoffs are +20 minutes. The agent preflights before both the backup and final attempts. After a successful backup it waits for the final minute; after a failed backup it retries once per minute. Once cutoff passes, the newest successful snapshot becomes final. Every attempt and error is also written to the durable collector log.
 
+Before the extension considers a seat read successful, it writes the complete result and a stable client capture ID to `chrome.storage.local`. That outbox is separate from booking-site recovery: a protected backup waits for the final read, and a protected final read stops all further booking-page attempts even when the API is offline. Pending uploads retry every minute, after cutoff and after Chrome restarts, and are deleted only after D1 confirms them. The Worker accepts captures delayed by up to seven days and uses the client capture ID as a unique idempotency key, so an uncertain response or repeated upload cannot create duplicate snapshots.
+
 Sai Chitra uses its TicketNew live seat layout instead of the cinema-page availability summary. For an 11:00 AM show it opens the exact session at 11:10:40 AM and reloads it at 11:14:40 AM, waits for the two-class seat grid to stabilize, and counts each live available or occupied seat. If TicketNew removes the seat-layout link because every advertised class is explicitly sold out, the all-zero cinema summary remains a safe fallback.
 
 For Sri Krishna, Ravi and ASR, the first failed BookMyShow page read switches only that show into recovery mode. The agent immediately refreshes that theatre's exact current-date session, preserves the normal retry schedule, prepares a separate active tab, and uses a state-aware reader that can resume from the category/row, ticket quantity, accessibility, or Select Seats stage rather than repeating one rigid interaction. A successful recovery becomes the protected backup; the final-minute attempt remains in recovery mode and can replace it. Recovery is cleared just after cutoff. Sai Chitra stays on its independent TicketNew flow and never enters this BookMyShow recovery mode.
@@ -73,6 +76,9 @@ Automated datacenter/headless browsers are frequently challenged or blocked by C
 - unknown seat states are rejected rather than silently counted
 - failed backups retry once per minute until the final attempt
 - a successful backup is preserved if the final attempt fails
+- a successfully counted result is preserved locally if the Worker, D1, DNS, or internet upload fails
+- pending local results retry independently without causing extra booking-site reloads
+- repeated uploads use one idempotency key and cannot create duplicate snapshots
 - no successful capture becomes `missed`, not zero
 - Chrome startup rebuilds the known preflight and capture alarms
 - stuck extension-owned discovery tabs are replaced without closing unrelated user tabs

@@ -18,6 +18,7 @@ The `workers.dev` API is HTTPS by default.
 
 - `/health` is reachable.
 - the Chrome extension status shows a recent successful discovery.
+- the Chrome extension status does not show any safely stored pending uploads.
 - the dashboard lists today's shows.
 - finalized shows have a successful backup or final-attempt capture timestamp.
 - `missedShows` remains zero.
@@ -45,7 +46,11 @@ Symptoms: `No seat categories`, `zero-seat layout`, or unknown seat-state errors
 
 ### Chrome or the local computer restarted
 
-Restart Chrome and confirm the extension is enabled. It reconstructs alarms immediately from its last known schedule and then performs a fresh discovery. If it returns after cutoff with no snapshot, the show is correctly marked `missed`.
+Restart Chrome and confirm the extension is enabled. It reconstructs alarms immediately from its last known schedule, retries every item in its durable local capture outbox, and then performs a fresh discovery. A seat count already in the outbox can still be uploaded after cutoff; a show is `missed` only when neither D1 nor the local outbox has a successful capture.
+
+### Capture is safely stored but upload is pending
+
+The settings status reports the pending upload count and most recent API error. Do not clear Chrome site/extension data or remove the unpacked extension. Keep Chrome running and restore the internet/API configuration; the outbox retries once per minute even when automatic booking capture is disabled. Successful retries are idempotent and cannot duplicate a snapshot. Delayed captures are accepted for seven days.
 
 ### A theatre tab remains loading
 

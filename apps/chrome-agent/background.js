@@ -1,4 +1,4 @@
-import { canPauseVenueDiscovery, finalCaptureAt, nextCaptureWhen, preflightTimes } from "./schedule.js";
+import { canPauseVenueDiscovery, nextCaptureWhen, preflightTimes } from "./schedule.js";
 import {
   captureModeFor,
   recoveryChanges,
@@ -11,6 +11,12 @@ import {
   isDiscoveryTabFailure,
   tabBelongsToVenue
 } from "./tab-health.js";
+import {
+  CAPTURE_OUTBOX_ALARM,
+  captureKind,
+  createCaptureOutboxEntry,
+  orderedCaptureOutbox
+} from "./capture-outbox.js";
 import "./bookmyshow.js";
 
 const VENUES = [
@@ -52,6 +58,8 @@ const DISCOVERY_RETRY_PREFIX = "discovery-retry:";
 let pendingMutation = Promise.resolve();
 let captureStateMutation = Promise.resolve();
 let agentDiagnosticMutation = Promise.resolve();
+let captureOutboxMutation = Promise.resolve();
+let captureOutboxFlushPromise = null;
 const venueDiscoveryOperations = new Map();
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -64,6 +72,7 @@ chrome.runtime.onStartup.addListener(() => initializeAgent().catch((error) => re
 async function initializeAgent() {
   await migrateSingleTheatreStorage();
   await ensureBaseAlarms();
+  await flushCaptureOutbox().catch(() => {});
   const settings = await chrome.storage.sync.get({ enabled: false });
   if (!settings.enabled) return;
   const { knownShows = {} } = await chrome.storage.local.get({ knownShows: {} });
@@ -85,7 +94,8 @@ async function migrateSingleTheatreStorage() {
     knownShows: {},
     captureStates: {},
     recoveryTabIds: {},
-    ticketNewLiveUrls: {}
+    ticketNewLiveUrls: {},
+    captureOutbox: {}
   });
   const agentTabIds = { ...local.agentTabIds };
   const pendingCaptures = { ...local.pendingCaptures };
@@ -106,7 +116,8 @@ async function migrateSingleTheatreStorage() {
     knownShows,
     captureStates: local.captureStates,
     recoveryTabIds: local.recoveryTabIds,
-    ticketNewLiveUrls: local.ticketNewLiveUrls
+    ticketNewLiveUrls: local.ticketNewLiveUrls,
+    captureOutbox: local.captureOutbox
   });
   await chrome.storage.local.remove(["agentTabId", "pendingCapture"]);
 }
@@ -114,6 +125,7 @@ async function migrateSingleTheatreStorage() {
 async function ensureBaseAlarms() {
   await chrome.alarms.clear(LEGACY_DISCOVERY_TOMORROW);
   await chrome.alarms.create(DISCOVERY_TODAY, { delayInMinutes: 0.1, periodInMinutes: 15 });
+  await chrome.alarms.create(CAPTURE_OUTBOX_ALARM, { delayInMinutes: 0.1, periodInMinutes: 1 });
   await scheduleIndiaDayRollover();
 }
 
@@ -127,6 +139,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 async function handleAlarm(alarm) {
+  if (alarm.name === CAPTURE_OUTBOX_ALARM) {
+    await flushCaptureOutbox();
+    return;
+  }
   const settings = await chrome.storage.sync.get({ enabled: false });
   if (alarm.name === INDIA_DAY_ROLLOVER) {
     try {
@@ -265,37 +281,35 @@ async function handleMessage(message) {
         firstObservedAt: state.housefullCandidateAt
       };
     }
-    let saved;
+    const outboxEntry = createCaptureOutboxEntry(pending, result);
     try {
-      saved = await apiPost("/api/agent/capture", result);
+      await protectCaptureLocally(outboxEntry, {
+        lastLocalCaptureAt: result.capturedAt,
+        lastLocalCaptureId: outboxEntry.clientCaptureId,
+        lastSuccessAttemptId: pending.attemptId,
+        ...(pending.captureMode === "recovery" ? { lastRecoverySuccessAt: result.capturedAt } : {}),
+        lastError: null,
+        lastUploadError: null,
+        outboxPending: true,
+        housefullCandidateAt: null,
+        housefullCandidateSignature: null,
+        housefullCandidateObservationId: null
+      });
     } catch (error) {
-      await failCapture(pending, error, "upload_capture");
+      await failCapture(pending, error, "store_capture_outbox");
       return { ok: false, error: error.message };
     }
-    const isFinalWindow = new Date(result.capturedAt).getTime() >= finalCaptureAt(pending);
-    await updateCaptureState(pending.naturalKey, {
-      lastSuccessAt: result.capturedAt,
-      lastSuccessAttemptId: pending.attemptId,
-      ...(pending.captureMode === "recovery" ? { lastRecoverySuccessAt: result.capturedAt } : {}),
-      lastError: null,
-      housefullCandidateAt: null,
-      housefullCandidateSignature: null,
-      housefullCandidateObservationId: null
-    });
     await removePending(pending.naturalKey);
     await chrome.alarms.clear(`watchdog:${encodeURIComponent(pending.naturalKey)}`);
     await scheduleShow(pending);
     const venue = venueFor(pending.venueCode);
-    const captureKind = result.housefullEvidence ? "Verified housefull" : (isFinalWindow ? "Final" : "Backup");
     await recordSuccess(
-      `${captureKind} capture ${venue.shortName} ${pending.showTimeLabel}: ${saved.sold} tickets`,
-      { lastCapture: saved }
+      `${captureKind(pending, result)} capture safely stored locally for ${venue.shortName} ${pending.showTimeLabel}; uploading now`,
+      { captureOutboxCount: await captureOutboxCount() }
     );
-    await notify(
-      `${captureKind} capture uploaded`,
-      `${venue.shortName} · ${pending.showTimeLabel} · ${saved.sold} tickets · ₹${Math.round(saved.collectionPaise / 100).toLocaleString("en-IN")}`
-    );
-    return { ok: true };
+    await flushCaptureOutbox();
+    const queued = await captureOutboxHas(outboxEntry.clientCaptureId);
+    return { ok: true, storedLocally: true, uploaded: !queued };
   }
   if (message.type === "CAPTURE_ERROR") {
     const pending = message.naturalKey ? await getPending(message.naturalKey) : null;
@@ -978,6 +992,157 @@ async function sendToTab(tabId, message) {
   }
 }
 
+async function protectCaptureLocally(entry, stateChanges) {
+  const operation = Promise.all([captureOutboxMutation, captureStateMutation]).then(async () => {
+    const local = await chrome.storage.local.get({ captureOutbox: {}, captureStates: {} });
+    const captureOutbox = { ...local.captureOutbox, [entry.clientCaptureId]: entry };
+    const captureStates = {
+      ...local.captureStates,
+      [entry.show.naturalKey]: {
+        ...(local.captureStates[entry.show.naturalKey] || {}),
+        ...stateChanges
+      }
+    };
+    await chrome.storage.local.set({ captureOutbox, captureStates });
+    return { entry, state: captureStates[entry.show.naturalKey] };
+  });
+  captureOutboxMutation = operation.catch(() => {});
+  captureStateMutation = operation.catch(() => {});
+  return operation;
+}
+
+async function removeCaptureOutbox(clientCaptureId) {
+  return mutateCaptureOutbox((outbox) => {
+    const next = { ...outbox };
+    delete next[clientCaptureId];
+    return next;
+  });
+}
+
+async function recordCaptureOutboxFailure(entry, error) {
+  const attemptedAt = new Date().toISOString();
+  return mutateCaptureOutbox((outbox) => {
+    if (!outbox[entry.clientCaptureId]) return outbox;
+    return {
+      ...outbox,
+      [entry.clientCaptureId]: {
+        ...outbox[entry.clientCaptureId],
+        attempts: Number(outbox[entry.clientCaptureId].attempts || 0) + 1,
+        lastAttemptAt: attemptedAt,
+        lastError: String(error?.message || error).slice(0, 500),
+        lastHttpStatus: error?.apiStatus || null,
+        lastApiCode: error?.apiCode || null
+      }
+    };
+  });
+}
+
+async function mutateCaptureOutbox(update) {
+  const operation = captureOutboxMutation.then(async () => {
+    const { captureOutbox = {} } = await chrome.storage.local.get({ captureOutbox: {} });
+    const next = update(captureOutbox);
+    await chrome.storage.local.set({ captureOutbox: next });
+    return next;
+  });
+  captureOutboxMutation = operation.catch(() => {});
+  return operation;
+}
+
+async function captureOutboxCount(naturalKey = null) {
+  await captureOutboxMutation;
+  const { captureOutbox = {} } = await chrome.storage.local.get({ captureOutbox: {} });
+  return naturalKey
+    ? Object.values(captureOutbox).filter((entry) => entry.show?.naturalKey === naturalKey).length
+    : Object.keys(captureOutbox).length;
+}
+
+async function captureOutboxHas(clientCaptureId) {
+  await captureOutboxMutation;
+  const { captureOutbox = {} } = await chrome.storage.local.get({ captureOutbox: {} });
+  return Boolean(captureOutbox[clientCaptureId]);
+}
+
+async function flushCaptureOutbox() {
+  if (captureOutboxFlushPromise) return captureOutboxFlushPromise;
+  const operation = flushCaptureOutboxUnlocked();
+  captureOutboxFlushPromise = operation;
+  try {
+    return await operation;
+  } finally {
+    if (captureOutboxFlushPromise === operation) captureOutboxFlushPromise = null;
+  }
+}
+
+async function flushCaptureOutboxUnlocked() {
+  await captureOutboxMutation;
+  const { captureOutbox = {} } = await chrome.storage.local.get({ captureOutbox: {} });
+  const entries = orderedCaptureOutbox(captureOutbox);
+  for (const entry of entries) {
+    let saved;
+    try {
+      saved = await apiPost("/api/agent/capture", entry.payload);
+    } catch (error) {
+      await recordCaptureOutboxFailure(entry, error);
+      const pendingCount = await captureOutboxCount();
+      await updateCaptureState(entry.show.naturalKey, {
+        outboxPending: true,
+        lastUploadError: String(error?.message || error).slice(0, 500),
+        lastUploadAttemptAt: new Date().toISOString()
+      });
+      await chrome.storage.local.set({
+        status: {
+          ok: false,
+          message: `Capture safe locally · ${pendingCount} upload${pendingCount === 1 ? "" : "s"} pending · ${error.message}`,
+          at: new Date().toISOString()
+        },
+        captureOutboxCount: pendingCount
+      });
+      await appendAgentDiagnostic({
+        type: "capture_upload_deferred",
+        naturalKey: entry.show.naturalKey,
+        clientCaptureId: entry.clientCaptureId,
+        status: error?.apiStatus || null,
+        code: error?.apiCode || null,
+        error: String(error?.message || error).slice(0, 500)
+      });
+      if (!error?.apiStatus || error.apiStatus === 401 || error.apiStatus === 403 ||
+        error.apiStatus === 429 || error.apiStatus >= 500) break;
+      continue;
+    }
+
+    await removeCaptureOutbox(entry.clientCaptureId);
+    const remainingForShow = await captureOutboxCount(entry.show.naturalKey);
+    const remainingTotal = await captureOutboxCount();
+    await updateCaptureState(entry.show.naturalKey, {
+      lastSuccessAt: entry.payload.capturedAt,
+      lastSuccessAttemptId: entry.payload.attemptId || entry.clientCaptureId,
+      lastUploadAt: new Date().toISOString(),
+      lastUploadError: null,
+      outboxPending: remainingForShow > 0
+    });
+    await scheduleShow(entry.show);
+    const venue = venueFor(entry.show.venueCode);
+    const kind = captureKind(entry.show, entry.payload);
+    await recordSuccess(
+      `${kind} capture uploaded for ${venue.shortName} ${entry.show.showTimeLabel}: ${saved.sold} tickets${saved.duplicate ? " (already saved)" : ""}`,
+      { lastCapture: saved, captureOutboxCount: remainingTotal }
+    );
+    await appendAgentDiagnostic({
+      type: "capture_upload_completed",
+      naturalKey: entry.show.naturalKey,
+      clientCaptureId: entry.clientCaptureId,
+      duplicate: Boolean(saved.duplicate),
+      queuedAt: entry.queuedAt,
+      capturedAt: entry.payload.capturedAt
+    });
+    await notify(
+      `${kind} capture uploaded`,
+      `${venue.shortName} · ${entry.show.showTimeLabel} · ${saved.sold} tickets · ₹${Math.round(saved.collectionPaise / 100).toLocaleString("en-IN")}`
+    );
+  }
+  return { pending: await captureOutboxCount() };
+}
+
 async function addPending(show) {
   return mutatePending((pending) => ({ ...pending, [show.naturalKey]: show }));
 }
@@ -1054,7 +1219,12 @@ async function apiPost(path, body) {
     body: JSON.stringify(body)
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.message || data.error || `API returned ${response.status}`);
+  if (!response.ok) {
+    const error = new Error(data.message || data.error || `API returned ${response.status}`);
+    error.apiStatus = response.status;
+    error.apiCode = data.error || null;
+    throw error;
+  }
   return data;
 }
 

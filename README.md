@@ -23,9 +23,11 @@ If a show starts at 7:00 AM and BookMyShow gives a 7:15 AM cutoff:
 1. the Chrome agent saves a backup shortly after 7:10 AM;
 2. if that backup fails, it retries once per minute;
 3. it makes a final attempt shortly after 7:14 AM;
-4. at 7:15 AM, the newest successful capture is locked as final, including the backup when the final attempt fails;
-5. discovery work pauses around the capture window so it cannot delay the seat count;
-6. every attempt and failure is retained in the server audit log.
+4. every completed seat count is first protected in Chrome's durable local outbox, then uploaded to D1;
+5. if the upload is unavailable, it retries every minute after cutoff or browser restart without reopening BookMyShow;
+6. at 7:15 AM, the newest successful capture is locked as final, including the backup when the final attempt fails;
+7. discovery work pauses around the capture window so it cannot delay the seat count;
+8. every attempt and failure is retained in the server audit log.
 
 This requires an always-on collector. GitHub Actions schedules are not used for the final-minute job because their start times are not exact.
 

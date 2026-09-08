@@ -126,6 +126,77 @@ test("server recalculates the capture with five rupees removed per category", ()
   assert.deepEqual(result.categories.map((category) => category.netPricePaise), [10000, 7900]);
 });
 
+test("accepts a durable capture uploaded after the booking page has closed", () => {
+  const show = {
+    natural_key: "key",
+    is_current: 1,
+    capture_at: "2026-09-08T05:40:00.000Z",
+    cutoff_at: "2026-09-08T05:45:00.000Z"
+  };
+  const result = normalizeCapture({
+    naturalKey: "key",
+    clientCaptureId: "capture-attempt-123",
+    queuedAt: "2026-09-08T05:44:11.000Z",
+    capturedAt: "2026-09-08T05:44:10.000Z",
+    categories: [{ name: "Reserved", price: 105, capacity: 100, available: 60, sold: 40, unknown: 0 }]
+  }, show, new Date("2026-09-08T07:44:10.000Z"));
+
+  assert.equal(result.clientCaptureId, "capture-attempt-123");
+  assert.equal(result.deferredUpload, true);
+  assert.equal(result.source, "local-chrome-extension-deferred");
+  assert.equal(result.sold, 40);
+});
+
+test("delayed captures require an upload ID and expire after seven days", () => {
+  const show = {
+    natural_key: "key",
+    is_current: 1,
+    capture_at: "2026-09-08T05:40:00.000Z",
+    cutoff_at: "2026-09-08T05:45:00.000Z"
+  };
+  const body = {
+    naturalKey: "key",
+    capturedAt: "2026-09-08T05:44:10.000Z",
+    categories: [{ name: "Reserved", price: 105, capacity: 100, available: 60, sold: 40, unknown: 0 }]
+  };
+
+  assert.throws(
+    () => normalizeCapture(body, show, new Date("2026-09-08T07:44:10.000Z")),
+    /durable client capture ID/
+  );
+  assert.throws(
+    () => normalizeCapture({ ...body, clientCaptureId: "capture-attempt-123" }, show, new Date("2026-09-15T05:44:11.000Z")),
+    /seven-day upload limit/
+  );
+});
+
+test("accepts a queued capture for a session replaced after the original seat read", () => {
+  const show = {
+    natural_key: "old-key",
+    is_current: 0,
+    capture_at: "2026-09-08T05:40:00.000Z",
+    cutoff_at: "2026-09-08T05:45:00.000Z",
+    replaced_at: "2026-09-08T05:44:30.000Z"
+  };
+  const body = {
+    naturalKey: "old-key",
+    clientCaptureId: "capture-old-session",
+    capturedAt: "2026-09-08T05:44:10.000Z",
+    categories: [{ name: "Reserved", price: 105, capacity: 100, available: 60, sold: 40, unknown: 0 }]
+  };
+
+  assert.equal(normalizeCapture(body, show, new Date("2026-09-08T07:44:10.000Z")).sold, 40);
+  assert.throws(
+    () => normalizeCapture({ ...body, capturedAt: "2026-09-08T05:44:40.000Z" }, show, new Date("2026-09-08T07:44:10.000Z")),
+    /after this session was replaced/
+  );
+  assert.equal(
+    normalizeCapture(body, show, new Date("2026-09-08T05:44:20.000Z")).deferredUpload,
+    false,
+    "the durable ID should protect an immediate upload racing with a schedule replacement"
+  );
+});
+
 test("rejects captures with mismatched seat totals", () => {
   const show = {
     natural_key: "key",

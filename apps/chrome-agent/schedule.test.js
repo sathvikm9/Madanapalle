@@ -53,6 +53,26 @@ test("after an early success waits for the 11:14 final minute", () => {
   );
 });
 
+test("a backup saved only in the local outbox still waits for the final minute", () => {
+  assert.equal(
+    nextCaptureWhen(sriKrishna, {
+      lastAttemptAt: "2026-08-20T05:40:07.000Z",
+      lastLocalCaptureAt: "2026-08-20T05:40:28.000Z"
+    }, new Date("2026-08-20T05:40:30.000Z").getTime()),
+    new Date("2026-08-20T05:44:05.000Z").getTime()
+  );
+});
+
+test("a final capture saved only in the local outbox stops booking-site retries", () => {
+  assert.equal(
+    nextCaptureWhen(sriKrishna, {
+      lastAttemptAt: "2026-08-20T05:44:07.000Z",
+      lastLocalCaptureAt: "2026-08-20T05:44:28.000Z"
+    }, new Date("2026-08-20T05:44:30.000Z").getTime()),
+    null
+  );
+});
+
 test("after a failed backup retries in the next minute", () => {
   assert.equal(
     nextCaptureWhen(sriKrishna, {
@@ -120,5 +140,8 @@ test("pauses routine venue discovery only after its last show was captured", () 
 
   assert.equal(canPauseVenueDiscovery(shows, captureStates, new Date("2026-08-20T15:44:59.000Z").getTime()), false);
   assert.equal(canPauseVenueDiscovery(shows, captureStates, new Date("2026-08-20T15:45:01.000Z").getTime()), true);
+  assert.equal(canPauseVenueDiscovery(shows, {
+    "SKMD:20260820:2100:last": { lastLocalCaptureAt: "2026-08-20T15:44:20.000Z" }
+  }, new Date("2026-08-20T15:45:01.000Z").getTime()), true);
   assert.equal(canPauseVenueDiscovery(shows, {}, new Date("2026-08-20T15:45:01.000Z").getTime()), false);
 });

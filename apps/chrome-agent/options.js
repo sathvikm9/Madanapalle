@@ -35,9 +35,10 @@ async function restore() {
   apiBase.value = settings.apiBase;
   agentToken.value = secrets.agentToken;
   enabled.checked = settings.enabled;
-  const local = await chrome.storage.local.get("status");
+  const local = await chrome.storage.local.get({ status: null, captureOutbox: {} });
   if (local.status) {
-    status.textContent = `${local.status.message} · ${new Date(local.status.at).toLocaleString()}`;
+    const pendingUploads = Object.keys(local.captureOutbox).length;
+    status.textContent = `${local.status.message} · ${new Date(local.status.at).toLocaleString()}${pendingUploads ? ` · ${pendingUploads} safely stored upload${pendingUploads === 1 ? "" : "s"} pending` : ""}`;
     status.dataset.ok = String(local.status.ok);
   }
 }

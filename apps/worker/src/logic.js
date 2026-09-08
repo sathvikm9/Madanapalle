@@ -171,19 +171,37 @@ export function normalizeDiscovery(body) {
 export function normalizeCapture(body, show, receivedAt = new Date()) {
   if (!body || typeof body !== "object") throw new RequestError("JSON body is required");
   const naturalKey = requiredString(body.naturalKey, "naturalKey", 300);
-  if (!show || naturalKey !== show.natural_key || !show.is_current) {
+  if (!show || naturalKey !== show.natural_key) {
     throw new RequestError("The show is no longer the current session for this slot", 409, "stale_show");
   }
 
   const capturedAt = new Date(requiredString(body.capturedAt, "capturedAt", 50));
   if (!Number.isFinite(capturedAt.getTime())) throw new RequestError("capturedAt is invalid");
+  const clientCaptureId = body.clientCaptureId
+    ? requiredString(body.clientCaptureId, "clientCaptureId", 100)
+    : null;
   const captureStart = new Date(show.capture_at);
   const cutoff = new Date(show.cutoff_at);
   if (capturedAt < captureStart || capturedAt >= cutoff) {
     throw new RequestError("Capture was outside the configured booking window", 409, "outside_capture_window");
   }
-  if (Math.abs(receivedAt.getTime() - capturedAt.getTime()) > 5 * 60_000) {
+  const uploadDelayMs = receivedAt.getTime() - capturedAt.getTime();
+  if (uploadDelayMs < -5 * 60_000) {
     throw new RequestError("Laptop clock differs from server time by more than five minutes", 409, "clock_skew");
+  }
+  const deferredUpload = uploadDelayMs > 5 * 60_000;
+  if (deferredUpload && !clientCaptureId) {
+    throw new RequestError("Delayed captures require a durable client capture ID", 409, "missing_idempotency_key");
+  }
+  if (uploadDelayMs > 7 * 24 * 60 * 60_000) {
+    throw new RequestError("Delayed capture is older than the seven-day upload limit", 409, "delayed_capture_expired");
+  }
+  if (!show.is_current && !clientCaptureId) {
+    throw new RequestError("The show is no longer the current session for this slot", 409, "stale_show");
+  }
+  const supersededAt = new Date(show.replaced_at || show.removed_at || "");
+  if (!show.is_current && Number.isFinite(supersededAt.getTime()) && capturedAt >= supersededAt) {
+    throw new RequestError("Capture occurred after this session was replaced or removed", 409, "stale_show");
   }
   if (!Array.isArray(body.categories) || !body.categories.length || body.categories.length > 20) {
     throw new RequestError("Capture must contain between 1 and 20 categories");
@@ -277,6 +295,7 @@ export function normalizeCapture(body, show, receivedAt = new Date()) {
     }
     source = "local-chrome-extension-housefull";
   }
+  if (deferredUpload) source = `${source}-deferred`;
 
   return {
     naturalKey,
@@ -285,6 +304,9 @@ export function normalizeCapture(body, show, receivedAt = new Date()) {
     receivedAt: receivedAt.toISOString(),
     captureMinute: String(body.captureMinute || capturedAt.toISOString().slice(0, 16)).slice(0, 50),
     attemptId: body.attemptId ? String(body.attemptId).slice(0, 100) : null,
+    clientCaptureId,
+    queuedAt: body.queuedAt ? String(body.queuedAt).slice(0, 50) : null,
+    deferredUpload,
     source,
     rawHash: body.rawHash ? String(body.rawHash).slice(0, 128) : null
   };
