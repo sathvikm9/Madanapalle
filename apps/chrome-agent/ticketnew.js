@@ -38,6 +38,7 @@
         cinemaId: venue.cinemaId,
         dateCode,
         eventCode,
+        contentId: metadata.contentId || "",
         sessionId,
         showDateTime: indiaDateTimeCode(start),
         cutoffDateTime: indiaDateTimeCode(cutoff),
@@ -107,8 +108,8 @@
       const pathSession = decodeURIComponent(url.pathname.split("/").filter(Boolean).at(-1) || "").toLowerCase();
       const encodedSession = String(url.searchParams.get("encsessionid") || "").toLowerCase();
       const dateCode = String(url.searchParams.get("fromdate") || "").replaceAll("-", "");
-      const matchesSession = pathSession === sessionId || encodedSession.includes(sessionId);
-      const matchesDate = !dateCode || dateCode === String(show.dateCode || "");
+      const matchesSession = sessionIdentityMatches(pathSession, encodedSession, sessionId);
+      const matchesDate = !show?.dateCode || dateCode === String(show.dateCode);
       if (url.protocol === "https:" && url.hostname.endsWith("ticketnew.com") &&
           url.pathname.includes("/movies/seat-layout/") && matchesSession && matchesDate) {
         return url.toString();
@@ -123,12 +124,101 @@
       const sessionId = String(show?.sessionId || "").toLowerCase();
       const pathSession = decodeURIComponent(url.pathname.split("/").filter(Boolean).at(-1) || "").toLowerCase();
       const encodedSession = String(url.searchParams.get("encsessionid") || "").toLowerCase();
+      const dateCode = String(url.searchParams.get("fromdate") || "").replaceAll("-", "");
       return url.hostname.endsWith("ticketnew.com") &&
         url.pathname.includes("/movies/seat-layout/") &&
-        Boolean(sessionId) && (pathSession === sessionId || encodedSession.includes(sessionId));
+        Boolean(sessionId) &&
+        sessionIdentityMatches(pathSession, encodedSession, sessionId) &&
+        (!show?.dateCode || dateCode === String(show.dateCode));
     } catch {
       return false;
     }
+  }
+
+  function findSessionControl(document, show) {
+    const expectedTime = normalizedTime(show?.showTimeLabel);
+    const expectedTitle = normalizedTitle(show?.movieTitle);
+    if (!expectedTime || !expectedTitle) return null;
+
+    const matches = [];
+    for (const control of document?.querySelectorAll?.('[role="button"]') || []) {
+      if (normalizedTime(controlText(control)) !== expectedTime) continue;
+      const card = movieCardForControl(control);
+      if (!card) continue;
+      if (!movieCardMatches(card, show, expectedTitle)) continue;
+      matches.push(control);
+    }
+    return matches.length === 1 ? matches[0] : null;
+  }
+
+  function movieCardMatches(card, show, expectedTitle) {
+    const contentId = String(show?.contentId || "").trim();
+    if (contentId) {
+      for (const link of card?.querySelectorAll?.('a[href*="-movie-detail-"]') || []) {
+        const href = String(link.href || link.getAttribute?.("href") || "");
+        if (new RegExp(`(?:-|/)${escapePattern(contentId)}(?:$|[/?#])`).test(href)) return true;
+      }
+      return false;
+    }
+    return movieTitlesFromCard(card)
+      .some((title) => normalizedTitle(title) === expectedTitle);
+  }
+
+  function movieCardForControl(control) {
+    let candidate = control?.parentElement || null;
+    let imageFallback = null;
+    for (let depth = 0; candidate && depth < 10; depth += 1, candidate = candidate.parentElement) {
+      if (candidate.querySelector?.('a[href*="-movie-detail-"]')) return candidate;
+      if (!imageFallback && candidate.querySelector?.('img[alt]')) imageFallback = candidate;
+    }
+    return imageFallback;
+  }
+
+  function movieTitlesFromCard(card) {
+    const values = [];
+    for (const image of card?.querySelectorAll?.("img[alt]") || []) {
+      const value = image.getAttribute?.("alt");
+      if (value) values.push(value);
+    }
+    for (const link of card?.querySelectorAll?.('a[href*="-movie-detail-"]') || []) {
+      const value = controlText(link);
+      if (value) values.push(value);
+    }
+    return values;
+  }
+
+  function normalizedTime(value) {
+    const match = String(value || "").toUpperCase().match(/\b(\d{1,2}):(\d{2})\s*(AM|PM)\b/);
+    if (!match) return "";
+    return `${String(Number(match[1])).padStart(2, "0")}:${match[2]} ${match[3]}`;
+  }
+
+  function normalizedTitle(value) {
+    return String(value || "")
+      .normalize("NFKD")
+      .replace(/\b(?:movie\s+poster|poster)\b/gi, " ")
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, "")
+      .trim();
+  }
+
+  function controlText(element) {
+    return String(
+      element?.getAttribute?.("aria-label") ||
+      element?.innerText ||
+      element?.textContent ||
+      ""
+    ).trim();
+  }
+
+  function escapePattern(value) {
+    return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  function sessionIdentityMatches(pathSession, encodedSession, sessionId) {
+    return pathSession === sessionId ||
+      encodedSession === sessionId ||
+      encodedSession.endsWith(`-${sessionId}`);
   }
 
   function captureLive(document, show, capturedAt = new Date()) {
@@ -344,6 +434,7 @@
     capture,
     captureLive,
     findLiveSeatLayoutUrl,
-    isLiveSeatLayout
+    isLiveSeatLayout,
+    findSessionControl
   });
 })(globalThis);

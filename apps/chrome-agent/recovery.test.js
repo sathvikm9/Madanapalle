@@ -10,11 +10,12 @@ import {
 
 const bookMyShow = (venueCode) => ({ venueCode, platform: "bookmyshow" });
 
-test("enables recovery only for the three configured BookMyShow theatres", () => {
+test("enables recovery for all four configured theatres", () => {
   assert.equal(supportsRecovery(bookMyShow("SKMD")), true);
   assert.equal(supportsRecovery(bookMyShow("RTDM")), true);
   assert.equal(supportsRecovery(bookMyShow("ASRM")), true);
-  assert.equal(supportsRecovery({ venueCode: "SCM", platform: "ticketnew" }), false);
+  assert.equal(supportsRecovery({ venueCode: "SCM", platform: "ticketnew" }), true);
+  assert.equal(supportsRecovery({ venueCode: "SCM", platform: "bookmyshow" }), false);
   assert.equal(supportsRecovery(bookMyShow("UNKNOWN")), false);
 });
 
@@ -39,16 +40,17 @@ test("switches a failed BookMyShow show into persistent recovery mode", () => {
   assert.equal(second.recoveryFailures, 2);
 });
 
-test("does not activate browser recovery for TicketNew or an upload failure", () => {
-  assert.equal(recoveryChanges({ venueCode: "SCM", platform: "ticketnew" }, {}, {
+test("activates TicketNew recovery but never recovery for an upload failure", () => {
+  const ticketNew = recoveryChanges({ venueCode: "SCM", platform: "ticketnew" }, {}, {
     stage: "read_seat_map",
     error: "TicketNew failed"
-  }), null);
+  });
+  assert.equal(ticketNew.recoveryMode, true);
+  assert.equal(captureModeFor({ venueCode: "SCM", platform: "ticketnew" }, ticketNew), "recovery");
   assert.equal(recoveryChanges(bookMyShow("RTDM"), {}, {
     stage: "upload_capture",
     error: "API unavailable"
   }), null);
-  assert.equal(captureModeFor({ venueCode: "SCM", platform: "ticketnew" }, { recoveryMode: true }), "primary");
 });
 
 test("recovery follows a refreshed session in the same theatre slot", () => {

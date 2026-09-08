@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 await import("./ticketnew.js");
-const { capture, captureLive, discover, findLiveSeatLayoutUrl, isLiveSeatLayout } = globalThis.SKCTTicketNew;
+const {
+  capture,
+  captureLive,
+  discover,
+  findLiveSeatLayoutUrl,
+  findSessionControl,
+  isLiveSeatLayout
+} = globalThis.SKCTTicketNew;
 
 const state = {
   props: { pageProps: { data: { serverState: { cinemaSessions: {
@@ -49,6 +56,7 @@ test("discovers Sai Chitra TicketNew sessions in India time", () => {
   assert.equal(result.shows.length, 1);
   assert.equal(result.shows[0].showTimeLabel, "11:00 AM");
   assert.equal(result.shows[0].showDateTime, "202608211100");
+  assert.equal(result.shows[0].contentId, 123);
   assert.equal(result.shows[0].cutoffDateTime, "202608211115");
   assert.equal(result.shows[0].captureAt, "2026-08-21T05:40:00.000Z");
   assert.equal(result.shows[0].finalCaptureAt, "2026-08-21T05:44:00.000Z");
@@ -85,6 +93,60 @@ test("finds only the exact TicketNew session seat-layout link", () => {
   assert.match(url, /\/movies\/seat-layout\/screen__session/);
   assert.equal(isLiveSeatLayout({ href: url }, show), true);
   assert.equal(isLiveSeatLayout({ href: links[0].href }, show), false);
+  assert.equal(isLiveSeatLayout({
+    href: "https://ticketnew.com/movies/seat-layout/not-the-session?encsessionid=4903-prefixscreen__session_suffix&fromdate=2026-08-21"
+  }, show), false);
+  assert.equal(isLiveSeatLayout({
+    href: "https://ticketnew.com/movies/seat-layout/screen__session?encsessionid=4903-screen__session&fromdate=2026-08-22"
+  }, show), false);
+});
+
+test("selects a TicketNew show control by both movie and time", () => {
+  const irumudi = ticketNewControl("11:00 AM", "Irumudi");
+  const paradise = ticketNewControl("02:15 PM", "The Paradise");
+  const otherParadise = ticketNewControl("11:00 AM", "The Paradise");
+  const document = {
+    querySelectorAll: (selector) => selector === '[role="button"]'
+      ? [irumudi.control, paradise.control, otherParadise.control]
+      : []
+  };
+
+  assert.equal(findSessionControl(document, {
+    movieTitle: "The Paradise",
+    showTimeLabel: "02:15 PM"
+  }), paradise.control);
+  assert.equal(findSessionControl(document, {
+    movieTitle: "Irumudi",
+    showTimeLabel: "11:00 AM"
+  }), irumudi.control);
+  assert.equal(findSessionControl(document, {
+    movieTitle: "Unknown Movie",
+    showTimeLabel: "11:00 AM"
+  }), null);
+});
+
+test("refuses an ambiguous TicketNew movie and time control", () => {
+  const first = ticketNewControl("09:15 PM", "Irumudi");
+  const duplicate = ticketNewControl("09:15 PM", "Irumudi");
+  const document = {
+    querySelectorAll: () => [first.control, duplicate.control]
+  };
+  assert.equal(findSessionControl(document, {
+    movieTitle: "Irumudi",
+    showTimeLabel: "09:15 PM"
+  }), null);
+});
+
+test("uses TicketNew content ID instead of guessing from a similar title", () => {
+  const oldVersion = ticketNewControl("02:15 PM", "The Paradise", "111");
+  const exactVersion = ticketNewControl("02:15 PM", "The Paradise", "222");
+  const document = { querySelectorAll: () => [oldVersion.control, exactVersion.control] };
+
+  assert.equal(findSessionControl(document, {
+    contentId: 222,
+    movieTitle: "The Paradise",
+    showTimeLabel: "02:15 PM"
+  }), exactVersion.control);
 });
 
 test("captures TicketNew sold seats from the live seat layout", () => {
@@ -141,3 +203,22 @@ test("uses the TicketNew movie catalogue when a sold-out session is omitted from
   assert.equal(soldOut.movieVariant, "Irumudi");
   assert.equal(soldOut.eventCode, "MOV1");
 });
+
+function ticketNewControl(time, movieTitle, contentId = "") {
+  const image = { getAttribute: (name) => name === "alt" ? `${movieTitle} Movie Poster` : null };
+  const href = `/movies/${movieTitle.toLowerCase().replaceAll(" ", "-")}-movie-detail-${contentId || "123"}`;
+  const link = { textContent: movieTitle, href, getAttribute: (name) => name === "href" ? href : null };
+  const card = {
+    parentElement: null,
+    querySelector: (selector) => selector.includes("movie-detail") ? link : (selector === "img[alt]" ? image : null),
+    querySelectorAll: (selector) => selector === "img[alt]" ? [image] : (selector.includes("movie-detail") ? [link] : [])
+  };
+  const wrapper = { parentElement: card, querySelector: () => null };
+  const control = {
+    textContent: time,
+    parentElement: wrapper,
+    getAttribute: () => null,
+    click() {}
+  };
+  return { card, control };
+}

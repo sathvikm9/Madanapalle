@@ -36,4 +36,10 @@ test("recognizes only the configured theatre page as extension-owned", () => {
   assert.equal(tabBelongsToVenue({
     url: "https://ticketnew.com/movies/madanapalle/sai-chitra/4903?fromdate=2026-09-01"
   }, { platform: "ticketnew", cinemaId: 4903 }), true);
+  assert.equal(tabBelongsToVenue({
+    url: "https://ticketnew.com/movies/seat-layout/b0meltruw2?encsessionid=4903-34956__1788968700__753__1936499-obav6l-b0meltruw2&fromdate=2026-09-09"
+  }, { platform: "ticketnew", cinemaId: 4903 }), true);
+  assert.equal(tabBelongsToVenue({
+    url: "https://ticketnew.com/movies/seat-layout/b0meltruw2?encsessionid=9999-session&fromdate=2026-09-09"
+  }, { platform: "ticketnew", cinemaId: 4903 }), false);
 });

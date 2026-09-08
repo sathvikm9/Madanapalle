@@ -84,7 +84,8 @@ async function migrateSingleTheatreStorage() {
     pendingCaptures: {},
     knownShows: {},
     captureStates: {},
-    recoveryTabIds: {}
+    recoveryTabIds: {},
+    ticketNewLiveUrls: {}
   });
   const agentTabIds = { ...local.agentTabIds };
   const pendingCaptures = { ...local.pendingCaptures };
@@ -104,7 +105,8 @@ async function migrateSingleTheatreStorage() {
     pendingCaptures,
     knownShows,
     captureStates: local.captureStates,
-    recoveryTabIds: local.recoveryTabIds
+    recoveryTabIds: local.recoveryTabIds,
+    ticketNewLiveUrls: local.ticketNewLiveUrls
   });
   await chrome.storage.local.remove(["agentTabId", "pendingCapture"]);
 }
@@ -457,9 +459,10 @@ async function beginCapture(show) {
   if (await getPending(show.naturalKey)) return;
   const state = await getCaptureState(show.naturalKey);
   const captureMode = captureModeFor(show, state);
+  const captureShow = captureMode === "primary" ? await withCachedTicketNewSeatLayout(show) : show;
   const attemptStartedAt = new Date().toISOString();
   const attemptId = `${Date.now()}-${crypto.randomUUID()}`;
-  const pending = { ...show, attemptId, attemptStartedAt, captureMode };
+  const pending = { ...captureShow, attemptId, attemptStartedAt, captureMode };
   await updateCaptureState(show.naturalKey, { lastAttemptAt: attemptStartedAt });
   await addPending(pending);
   await postCaptureEvent(pending, "capture_started", { stage: `${captureMode}_capture` });
@@ -719,7 +722,11 @@ async function replaceAgentTab(venue, dateCode) {
 }
 
 async function resetAgentTabsForNewDay(dateCode) {
-  const stored = await chrome.storage.local.get({ agentTabIds: {}, pendingCaptures: {} });
+  const stored = await chrome.storage.local.get({
+    agentTabIds: {},
+    pendingCaptures: {},
+    ticketNewLiveUrls: {}
+  });
   if (Object.keys(stored.pendingCaptures).length) {
     await appendAgentDiagnostic({ type: "daily_tab_reset_skipped", dateCode, reason: "capture in progress" });
     return false;
@@ -729,26 +736,29 @@ async function resetAgentTabsForNewDay(dateCode) {
     const tab = await chrome.tabs.get(tabId).catch(() => null);
     if (venue && tab && tabBelongsToVenue(tab, venue)) await chrome.tabs.remove(tabId).catch(() => {});
   }
-  await chrome.storage.local.set({ agentTabIds: {} });
+  const ticketNewLiveUrls = Object.fromEntries(Object.entries(stored.ticketNewLiveUrls)
+    .filter(([, entry]) => entry?.dateCode === dateCode));
+  await chrome.storage.local.set({ agentTabIds: {}, ticketNewLiveUrls });
   await appendAgentDiagnostic({ type: "daily_tab_reset", dateCode });
   return true;
 }
 
 async function openSeatLayout(show) {
   const venue = venueFor(show.venueCode);
+  const targetUrl = show.directSeatLayoutUrl || show.seatLayoutUrl;
   const stored = await chrome.storage.local.get({ agentTabIds: {} });
   const agentTabIds = stored.agentTabIds;
   let tab = agentTabIds[show.venueCode]
     ? await chrome.tabs.get(agentTabIds[show.venueCode]).catch(() => null)
     : null;
   if (!tab) {
-    tab = await chrome.tabs.create({ url: show.seatLayoutUrl, active: false, pinned: true });
+    tab = await chrome.tabs.create({ url: targetUrl, active: false, pinned: true });
     agentTabIds[show.venueCode] = tab.id;
     await chrome.storage.local.set({ agentTabIds });
-  } else if (tab.url === show.seatLayoutUrl) {
+  } else if (tab.url === targetUrl) {
     await chrome.tabs.reload(tab.id);
   } else {
-    tab = await chrome.tabs.update(tab.id, { url: show.seatLayoutUrl, active: false });
+    tab = await chrome.tabs.update(tab.id, { url: targetUrl, active: false });
   }
   await waitForComplete(tab.id);
 }
@@ -770,7 +780,7 @@ async function openRecoverySeatLayout(show) {
   let tab = recoveryTabIds[show.venueCode]
     ? await chrome.tabs.get(recoveryTabIds[show.venueCode]).catch(() => null)
     : null;
-  if (tab && !tabMatchesRecovery(tab.url, show.venueCode)) tab = null;
+  if (tab && !tabMatchesRecovery(tab, show.venueCode)) tab = null;
   if (!tab) {
     tab = await chrome.tabs.create({ url: show.seatLayoutUrl, active: true, pinned: true });
     recoveryTabIds[show.venueCode] = tab.id;
@@ -802,15 +812,39 @@ async function closeAllRecoveryTabs() {
 
 async function safeRemoveRecoveryTab(tabId, venueCode) {
   const tab = await chrome.tabs.get(tabId).catch(() => null);
-  if (tab && tabMatchesRecovery(tab.url, venueCode)) await chrome.tabs.remove(tabId).catch(() => {});
+  if (tab && tabMatchesRecovery(tab, venueCode)) await chrome.tabs.remove(tabId).catch(() => {});
 }
 
-function tabMatchesRecovery(tabUrl, venueCode) {
+function tabMatchesRecovery(tab, venueCode) {
+  return tabBelongsToVenue(
+    typeof tab === "string" ? { url: tab } : tab,
+    venueFor(venueCode)
+  );
+}
+
+async function withCachedTicketNewSeatLayout(show) {
+  if (show.platform !== "ticketnew") return show;
+  const { ticketNewLiveUrls = {} } = await chrome.storage.local.get({ ticketNewLiveUrls: {} });
+  const cached = ticketNewLiveUrls[show.naturalKey];
+  return cachedTicketNewUrlMatches(cached, show)
+    ? { ...show, directSeatLayoutUrl: cached.url }
+    : show;
+}
+
+function cachedTicketNewUrlMatches(cached, show) {
+  if (!cached?.url || cached.dateCode !== show.dateCode || String(cached.sessionId) !== String(show.sessionId)) {
+    return false;
+  }
   try {
-    const url = new URL(tabUrl);
-    return url.hostname === "in.bookmyshow.com" &&
-      url.pathname.includes("/seat-layout/") &&
-      url.pathname.includes(`/${venueCode}/`);
+    const url = new URL(cached.url);
+    const pathSession = decodeURIComponent(url.pathname.split("/").filter(Boolean).at(-1) || "").toLowerCase();
+    const encodedSession = String(url.searchParams.get("encsessionid") || "").toLowerCase();
+    const dateCode = String(url.searchParams.get("fromdate") || "").replaceAll("-", "");
+    const sessionId = String(show.sessionId).toLowerCase();
+    return url.hostname.endsWith("ticketnew.com") &&
+      url.pathname.includes("/movies/seat-layout/") &&
+      dateCode === show.dateCode &&
+      (pathSession === sessionId || encodedSession === sessionId || encodedSession.endsWith(`-${sessionId}`));
   } catch {
     return false;
   }

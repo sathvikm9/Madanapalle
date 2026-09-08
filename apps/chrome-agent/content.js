@@ -95,7 +95,8 @@ async function resumePendingCapture() {
     pending = location.pathname.includes("/movies/seat-layout/")
       ? ticketNewPending.find((show) => (
         String(show.sessionId).toLowerCase() === pathSession.toLowerCase() ||
-        encodedSession.toLowerCase().includes(String(show.sessionId).toLowerCase())
+        encodedSession.toLowerCase() === String(show.sessionId).toLowerCase() ||
+        encodedSession.toLowerCase().endsWith(`-${String(show.sessionId).toLowerCase()}`)
       ))
       : ticketNewPending[0];
   } else {
@@ -212,26 +213,52 @@ async function captureTicketNewSeats(show) {
 
   const state = globalThis.SKCTTicketNew.readState(document);
   const listingCapture = globalThis.SKCTTicketNew.capture(state, show);
-  const liveUrl = await waitForTicketNewSeatLayoutUrl(show, 8_000);
-  if (liveUrl) {
-    location.replace(liveUrl);
+  const route = await openTicketNewSeatLayout(show, 8_000);
+  if (route?.kind === "url") {
+    location.replace(route.url);
     return null;
+  }
+  if (route?.kind === "live") return waitForStableTicketNewSeatLayout(show);
+  if (route?.kind === "mismatch") {
+    const error = new Error(`TicketNew opened a different session instead of ${show.sessionId}`);
+    error.captureStage = "verify_ticketnew_session_identity";
+    error.captureDiagnostics = capturePageDiagnostics("ticketnew_session_identity", {
+      ...ticketNewIdentity(show),
+      rejectedUrl: route.url
+    });
+    throw error;
   }
 
   if (listingCapture.categories.every((category) => category.available === 0)) {
     return listingCapture;
   }
-  const error = new Error(`TicketNew did not expose the live seat-layout link for session ${show.sessionId}`);
-  error.captureStage = "wait_ticketnew_seat_layout_link";
-  error.captureDiagnostics = capturePageDiagnostics("ticketnew_seat_layout_link", { sessionId: show.sessionId });
+  const error = new Error(
+    `TicketNew did not expose the exact ${show.movieTitle} ${show.showTimeLabel} control for session ${show.sessionId}`
+  );
+  error.captureStage = "wait_ticketnew_session_control";
+  error.captureDiagnostics = capturePageDiagnostics("ticketnew_session_control", ticketNewIdentity(show));
   throw error;
 }
 
-async function waitForTicketNewSeatLayoutUrl(show, timeout) {
+async function openTicketNewSeatLayout(show, timeout) {
   const started = Date.now();
+  let clicked = false;
+  let clickedAt = 0;
   while (Date.now() - started < timeout) {
+    if (globalThis.SKCTTicketNew.isLiveSeatLayout(location, show)) return { kind: "live" };
+    if (clicked && Date.now() - clickedAt >= 500 && location.pathname.includes("/movies/seat-layout/")) {
+      return { kind: "mismatch", url: location.href };
+    }
     const url = globalThis.SKCTTicketNew.findLiveSeatLayoutUrl(document, show, location.href);
-    if (url) return url;
+    if (url) return { kind: "url", url };
+    if (!clicked) {
+      const control = globalThis.SKCTTicketNew.findSessionControl(document, show);
+      if (control) {
+        clicked = true;
+        clickedAt = Date.now();
+        control.click();
+      }
+    }
     await delay(100);
   }
   return null;
@@ -247,7 +274,10 @@ async function waitForStableTicketNewSeatLayout(show) {
         .map((category) => `${category.name}:${category.capacity}`)
         .sort()
         .join("|");
-      if (signature === previousSignature) return result;
+      if (signature === previousSignature) {
+        await rememberTicketNewSeatLayout(show);
+        return result;
+      }
       previousSignature = signature;
     } catch {
       previousSignature = null;
@@ -256,8 +286,40 @@ async function waitForStableTicketNewSeatLayout(show) {
   }
   const error = new Error("TicketNew live seat layout did not become stable within eight seconds");
   error.captureStage = "wait_ticketnew_live_seat_map";
-  error.captureDiagnostics = capturePageDiagnostics("ticketnew_live_seat_map", { sessionId: show.sessionId });
+  error.captureDiagnostics = capturePageDiagnostics("ticketnew_live_seat_map", ticketNewIdentity(show));
   throw error;
+}
+
+async function rememberTicketNewSeatLayout(show) {
+  if (!globalThis.SKCTTicketNew.isLiveSeatLayout(location, show)) return;
+  try {
+    const { ticketNewLiveUrls = {} } = await chrome.storage.local.get({ ticketNewLiveUrls: {} });
+    await chrome.storage.local.set({
+      ticketNewLiveUrls: {
+        ...ticketNewLiveUrls,
+        [show.naturalKey]: {
+          url: location.href,
+          dateCode: show.dateCode,
+          sessionId: show.sessionId,
+          observedAt: new Date().toISOString()
+        }
+      }
+    });
+  } catch {
+    // A successful seat count must not be discarded only because this optional cache failed.
+  }
+}
+
+function ticketNewIdentity(show) {
+  return {
+    venueCode: show.venueCode,
+    dateCode: show.dateCode,
+    sessionId: show.sessionId,
+    movieTitle: show.movieTitle,
+    showTimeLabel: show.showTimeLabel,
+    matchingSessionControl: Boolean(globalThis.SKCTTicketNew.findSessionControl(document, show)),
+    roleButtonCount: document.querySelectorAll?.('[role="button"]').length || 0
+  };
 }
 
 async function primaryQuantityControl() {
@@ -405,16 +467,23 @@ function capturePageDiagnostics(missingControl, context = {}) {
   const selectLabels = Array.from(document.querySelectorAll("select"))
     .map((select) => (select.getAttribute("aria-label") || "unlabelled").slice(0, 80))
     .slice(0, 12);
+  const roleButtonLabels = Array.from(document.querySelectorAll('[role="button"]'))
+    .map((control) => (control.getAttribute("aria-label") || control.textContent || "").trim())
+    .filter(Boolean)
+    .slice(0, 20)
+    .map((label) => label.slice(0, 120));
   const url = new URL(location.href);
 
   return {
     missingControl,
     pageKind: detectPageKind(pageText),
-    pageUrl: `${url.origin}${url.pathname}`.slice(0, 500),
+    pageUrl: url.href.slice(0, 500),
     pageTitle: document.title.slice(0, 160),
     readyState: document.readyState,
     initialStatePresent: Array.from(document.scripts).some((script) => script.textContent?.includes("window.__INITIAL_STATE__")),
+    ticketNewStatePresent: Boolean(document.querySelector('script#__NEXT_DATA__[type="application/json"]')),
     buttonLabels,
+    roleButtonLabels,
     selectLabels,
     bodyTextLength: pageText.length,
     context
@@ -429,6 +498,10 @@ function detectPageKind(pageText) {
   if (/booking(?:s)? (?:are )?closed|sales (?:are )?closed|show has (?:already )?started/i.test(pageText)) {
     return "booking_closed";
   }
+  if (location.hostname.endsWith("ticketnew.com") && location.pathname.includes("/movies/seat-layout/")) {
+    return "ticketnew_seat_layout";
+  }
+  if (location.hostname.endsWith("ticketnew.com")) return "ticketnew_venue";
   if (location.pathname.includes("/seat-layout/")) return "bookmyshow_seat_layout";
   if (location.hostname.includes("bookmyshow.com")) return "bookmyshow_other";
   return "unknown";

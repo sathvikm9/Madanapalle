@@ -1,9 +1,10 @@
-export const BOOKMYSHOW_RECOVERY_VENUES = Object.freeze(["SKMD", "RTDM", "ASRM"]);
+export const RECOVERY_VENUES = Object.freeze(["SKMD", "SCM", "RTDM", "ASRM"]);
 
-const RECOVERY_VENUE_SET = new Set(BOOKMYSHOW_RECOVERY_VENUES);
+const RECOVERY_VENUE_SET = new Set(RECOVERY_VENUES);
 
 export function supportsRecovery(show) {
-  return show?.platform === "bookmyshow" && RECOVERY_VENUE_SET.has(show?.venueCode);
+  const expectedPlatform = show?.venueCode === "SCM" ? "ticketnew" : "bookmyshow";
+  return show?.platform === expectedPlatform && RECOVERY_VENUE_SET.has(show?.venueCode);
 }
 
 export function captureModeFor(show, state = {}) {
@@ -22,7 +23,7 @@ export function refreshedRecoveryShow(show, candidates = []) {
 export function recoveryChanges(show, state = {}, failure = {}, now = new Date()) {
   if (!supportsRecovery(show) || failure.stage === "upload_capture") return null;
   const observedAt = now.toISOString();
-  const message = String(failure.error || "BookMyShow capture failed");
+  const message = String(failure.error || "Booking-site capture failed");
   return {
     recoveryMode: true,
     recoveryStartedAt: state.recoveryStartedAt || observedAt,
