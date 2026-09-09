@@ -623,6 +623,7 @@ main { max-width: 1120px; margin: 0 auto; padding: 30px 24px 88px; }
   .show-card__result { grid-template-columns: 1fr 1.25fr; padding: 15px 14px; border-top: 1px solid var(--line); border-left: 0; }
   .show-card__result strong { font-size: clamp(22px, 7vw, 29px); }
   .show-card__result--pending { grid-template-columns: 1fr; }
+  .show-card__result--pending .pending-copy strong { font-size: 13px; }
   .show-card__meta { align-items: flex-start; gap: 12px; padding: 10px 14px; font-size: 10px; }
   .show-card__meta span { min-width: 0; }
   .show-card__meta button { min-height: 28px; }
