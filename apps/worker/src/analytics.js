@@ -222,7 +222,14 @@ export async function analyticsSummary(db, filters, now = new Date()) {
        snapshots.collection_paise
      FROM shows
      LEFT JOIN snapshots ON snapshots.id=(
-       SELECT id FROM snapshots latest WHERE latest.show_id=shows.id ORDER BY captured_at DESC LIMIT 1
+       SELECT latest.id FROM snapshots latest
+       JOIN shows latest_show ON latest_show.id=latest.show_id
+       WHERE latest.show_id=shows.id
+       ORDER BY
+         (CASE WHEN julianday(latest.captured_at) >= julianday(latest_show.cutoff_at, '-1 minute') THEN 2 ELSE 0 END) +
+         (CASE WHEN latest.source LIKE '%summary-estimate%' THEN 0 ELSE 1 END) DESC,
+         latest.captured_at DESC
+       LIMIT 1
      )
      WHERE shows.is_current=1 AND shows.show_date BETWEEN ? AND ?
      ORDER BY shows.start_at ASC, shows.venue_code ASC`

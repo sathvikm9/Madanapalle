@@ -126,6 +126,51 @@ test("server recalculates the capture with five rupees removed per category", ()
   assert.deepEqual(result.categories.map((category) => category.netPricePaise), [10000, 7900]);
 });
 
+test("accepts a verified Sai Chitra TicketNew summary as an estimate", () => {
+  const show = {
+    id: 2,
+    natural_key: "SCM:20260910:2115:session-1:MOV1",
+    session_id: "session-1",
+    venue_code: "SCM",
+    is_current: 1,
+    capture_at: "2026-09-10T15:55:00.000Z",
+    cutoff_at: "2026-09-10T16:00:00.000Z",
+    advertised_categories_json: JSON.stringify([
+      { name: "FIRST CL", listPricePaise: 8_400 },
+      { name: "RESERVED CL", listPricePaise: 10_500 }
+    ])
+  };
+  const body = {
+    naturalKey: show.natural_key,
+    capturedAt: "2026-09-10T15:59:10.000Z",
+    captureMethod: "ticketnew-summary-estimate",
+    summaryPhase: "final",
+    summaryEvidence: {
+      provider: "ticketnew",
+      sessionId: "session-1",
+      pageUrl: "https://ticketnew.com/movies/madanapalle/sai-chitra-theatre-a-c-4k-dolby-surround-7-1-madanapalle-c/4903?fromdate=2026-09-10"
+    },
+    categories: [
+      { name: "FIRST CL", price: 84, capacity: 107, available: 70, sold: 37, unknown: 0 },
+      { name: "RESERVED CL", price: 105, capacity: 317, available: 0, sold: 317, unknown: 0 }
+    ]
+  };
+
+  const result = normalizeCapture(body, show, new Date("2026-09-10T15:59:11.000Z"));
+  assert.equal(result.source, "local-chrome-extension-ticketnew-summary-estimate-final");
+  assert.equal(result.sold, 354);
+  assert.equal(result.collectionPaise, 3_462_300);
+
+  assert.throws(() => normalizeCapture({
+    ...body,
+    summaryEvidence: { ...body.summaryEvidence, sessionId: "different-session" }
+  }, show, new Date("2026-09-10T15:59:11.000Z")), /exact show session/);
+  assert.throws(() => normalizeCapture({
+    ...body,
+    categories: [{ ...body.categories[0], capacity: 106, available: 69 }, body.categories[1]]
+  }, show, new Date("2026-09-10T15:59:11.000Z")), /verified Sai Chitra seating layout/);
+});
+
 test("accepts a durable capture uploaded after the booking page has closed", () => {
   const show = {
     natural_key: "key",

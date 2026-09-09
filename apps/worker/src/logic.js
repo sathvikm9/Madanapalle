@@ -242,7 +242,56 @@ export function normalizeCapture(body, show, receivedAt = new Date()) {
   }
 
   let source = "local-chrome-extension";
+  const summaryEstimate = body.captureMethod === "ticketnew-summary-estimate";
+  if (body.captureMethod != null && !summaryEstimate) {
+    throw new RequestError("Capture method is not supported");
+  }
+  if (summaryEstimate) {
+    if (venue?.venueCode !== "SCM" || venue.platform !== "ticketnew") {
+      throw new RequestError("TicketNew summary estimates are allowed only for Sai Chitra");
+    }
+    const phase = requiredString(body.summaryPhase, "summaryPhase", 20);
+    if (!new Set(["backup", "final"]).has(phase)) {
+      throw new RequestError("summaryPhase must be backup or final");
+    }
+    const finalStart = new Date(cutoff.getTime() - 60_000);
+    if ((phase === "backup" && capturedAt >= finalStart) || (phase === "final" && capturedAt < finalStart)) {
+      throw new RequestError(`TicketNew ${phase} summary was outside its expected capture phase`);
+    }
+    const evidence = body.summaryEvidence;
+    if (evidence?.provider !== "ticketnew" || String(evidence.sessionId) !== String(show.session_id)) {
+      throw new RequestError("TicketNew summary did not prove the exact show session");
+    }
+    let summaryUrl;
+    try {
+      summaryUrl = new URL(requiredString(evidence.pageUrl, "summaryEvidence.pageUrl", 1_000));
+    } catch {
+      throw new RequestError("TicketNew summary page URL is invalid");
+    }
+    if (summaryUrl.protocol !== "https:" || summaryUrl.hostname !== "ticketnew.com" ||
+        !summaryUrl.pathname.endsWith(`/${venue.cinemaId}`)) {
+      throw new RequestError("TicketNew summary did not come from the configured cinema page");
+    }
+    const expected = venue.layoutCategories || [];
+    const actual = new Map(calculated.categories.map((category) => [category.name.trim().toUpperCase(), category]));
+    if (actual.size !== expected.length || expected.some((category) =>
+      Number(actual.get(category.name)?.capacity) !== Number(category.capacity)
+    )) {
+      throw new RequestError("TicketNew summary did not match the verified Sai Chitra seating layout");
+    }
+    const advertised = new Map(parseJson(show.advertised_categories_json, []).map((category) => [
+      String(category.name || "").trim().toUpperCase(),
+      Number(category.listPricePaise || 0)
+    ]));
+    if (advertised.size && calculated.categories.some((category) =>
+      advertised.get(category.name.trim().toUpperCase()) !== category.listPricePaise
+    )) {
+      throw new RequestError("TicketNew summary prices did not match the discovered show prices");
+    }
+    source = `local-chrome-extension-ticketnew-summary-estimate-${phase}`;
+  }
   if (body.housefullEvidence != null) {
+    if (summaryEstimate) throw new RequestError("A summary estimate cannot claim live housefull evidence");
     const evidence = body.housefullEvidence;
     const seatMapEvidence = evidence?.noTicketOptions === true && evidence?.seatMapVerified === true;
     const discoveryEvidence = evidence?.discoveryStatusVerified === true;

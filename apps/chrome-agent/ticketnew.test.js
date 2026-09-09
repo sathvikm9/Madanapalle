@@ -118,7 +118,7 @@ test("accepts the exact session token when TicketNew appends movie and screen id
 test("discovers an exact TicketNew seat route from District metadata", () => {
   const sessionId = "34956__1788957000__753__1936498";
   const districtState = {
-    props: { pageProps: { data: { serverState: { "4903": {
+    props: { pageProps: { data: { serverState: { "49032026-09-09": {
       meta: { cinema: { id: 4903 }, movies: [
         { id: "OBAV6L", name: "Irumudi", contentId: 214275 },
         { id: "PARA1", name: "The Paradise", contentId: 300001 }

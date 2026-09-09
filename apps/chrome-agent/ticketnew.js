@@ -90,7 +90,12 @@
       attemptId: show.attemptId,
       capturedAt: captured.toISOString(),
       captureMinute: indiaCaptureMinute(captured),
-      categories
+      categories,
+      summaryEvidence: {
+        provider: "ticketnew",
+        sessionId: String(show.sessionId),
+        pageUrl: String(globalThis.location?.href || "")
+      }
     };
   }
 
@@ -286,7 +291,14 @@
     const sessions = serverState.cinemaSessions || {};
     const payload = sessions[`${cinemaId}${date}`] || Object.values(sessions).find((item) => (
       String(item?.meta?.cinema?.id) === String(cinemaId)
-    )) || serverState[String(cinemaId)];
+    )) || serverState[`${cinemaId}${date}`] || serverState[String(cinemaId)] ||
+      Object.values(serverState).find((item) => {
+        if (!item || typeof item !== "object" || String(item?.meta?.cinema?.id) !== String(cinemaId)) return false;
+        return sessionList(item).some((session) => {
+          const local = indiaParts(ticketNewDate(session.showTime));
+          return `${local.year}-${local.month}-${local.day}` === date;
+        });
+      });
     if (!payload || (!payload.pageData && !Array.isArray(payload.arrangedSessions))) {
       throw new Error(`No TicketNew schedule was found for cinema ${cinemaId} on ${date}`);
     }

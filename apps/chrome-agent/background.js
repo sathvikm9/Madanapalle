@@ -17,6 +17,13 @@ import {
   createCaptureOutboxEntry,
   orderedCaptureOutbox
 } from "./capture-outbox.js";
+import {
+  finalSummaryWhen,
+  hasFinalLiveCapture,
+  isTicketNewSummary,
+  needsBackupSummary,
+  TICKETNEW_SUMMARY_METHOD
+} from "./ticketnew-summary.js";
 import "./bookmyshow.js";
 import "./ticketnew.js";
 
@@ -57,6 +64,7 @@ const DISCOVERY_TODAY = "discovery:today";
 const LEGACY_DISCOVERY_TOMORROW = "discovery:tomorrow";
 const INDIA_DAY_ROLLOVER = "discovery:india-day-rollover";
 const DISCOVERY_RETRY_PREFIX = "discovery-retry:";
+const FINAL_SUMMARY_PREFIX = "ticketnew-final-summary:";
 let pendingMutation = Promise.resolve();
 let captureStateMutation = Promise.resolve();
 let agentDiagnosticMutation = Promise.resolve();
@@ -232,6 +240,11 @@ async function handleAlarm(alarm) {
     }
     return;
   }
+  if (alarm.name.startsWith(FINAL_SUMMARY_PREFIX)) {
+    const show = await showForAlarm(alarm.name);
+    if (show?.venueCode === "SCM") await captureSaiChitraSummaryEstimate(show, "final");
+    return;
+  }
   if (alarm.name.startsWith("recovery-cleanup:")) {
     const show = await showForAlarm(alarm.name);
     if (show) {
@@ -297,6 +310,7 @@ async function handleMessage(message) {
     try {
       await protectCaptureLocally(outboxEntry, {
         lastLocalCaptureAt: result.capturedAt,
+        lastLocalLiveCaptureAt: result.capturedAt,
         lastLocalCaptureId: outboxEntry.clientCaptureId,
         lastSuccessAttemptId: pending.attemptId,
         ...(pending.captureMode === "recovery" ? { lastRecoverySuccessAt: result.capturedAt } : {}),
@@ -662,6 +676,17 @@ async function failCapture(show, error, stage, { pendingAlreadyRemoved = false }
     }
   });
   await scheduleShow(show);
+  if (needsBackupSummary(show, state)) {
+    await captureSaiChitraSummaryEstimate(show, "backup").catch(async (summaryError) => {
+      await appendAgentDiagnostic({
+        type: "sai_chitra_summary_estimate_failed",
+        phase: "backup",
+        naturalKey: show.naturalKey,
+        showTimeLabel: show.showTimeLabel,
+        error: String(summaryError?.message || summaryError).slice(0, 500)
+      });
+    });
+  }
   if (recovery) {
     let recoveryShow = show;
     try {
@@ -674,6 +699,88 @@ async function failCapture(show, error, stage, { pendingAlreadyRemoved = false }
     }
   }
   await recordFailure(error);
+}
+
+async function captureSaiChitraSummaryEstimate(show, phase) {
+  if (show.venueCode !== "SCM" || show.platform !== "ticketnew") return { skipped: "not Sai Chitra" };
+  let state = await getCaptureState(show.naturalKey);
+  if (phase === "final" && hasFinalLiveCapture(show, state)) {
+    await appendAgentDiagnostic({
+      type: "sai_chitra_final_summary_skipped",
+      naturalKey: show.naturalKey,
+      showTimeLabel: show.showTimeLabel,
+      reason: "final live capture already protected"
+    });
+    return { skipped: "final live capture already protected" };
+  }
+
+  const attemptedAt = new Date().toISOString();
+  await updateCaptureState(show.naturalKey, phase === "final"
+    ? { summaryFinalAttemptedAt: attemptedAt }
+    : { summaryBackupAttemptedAt: attemptedAt });
+
+  const attemptId = `ticketnew-summary-${phase}-${Date.now()}-${crypto.randomUUID()}`;
+  const result = await readTicketNewSummaryCapture({ ...show, attemptId });
+  state = await getCaptureState(show.naturalKey);
+  if (phase === "final" && hasFinalLiveCapture(show, state)) {
+    await appendAgentDiagnostic({
+      type: "sai_chitra_final_summary_skipped",
+      naturalKey: show.naturalKey,
+      showTimeLabel: show.showTimeLabel,
+      reason: "final live capture completed while summary was loading"
+    });
+    return { skipped: "final live capture completed while summary was loading" };
+  }
+
+  const estimatedResult = {
+    ...result,
+    naturalKey: show.naturalKey,
+    attemptId,
+    captureMethod: TICKETNEW_SUMMARY_METHOD,
+    summaryPhase: phase
+  };
+  const estimateShow = { ...show, attemptId, captureMode: "summary" };
+  const outboxEntry = createCaptureOutboxEntry(estimateShow, estimatedResult);
+  await protectCaptureLocally(outboxEntry, {
+    lastEstimateAt: estimatedResult.capturedAt,
+    lastEstimateCaptureId: outboxEntry.clientCaptureId,
+    lastEstimatePhase: phase,
+    lastEstimateError: null,
+    lastUploadError: null,
+    outboxPending: true
+  });
+  await appendAgentDiagnostic({
+    type: "sai_chitra_summary_estimate_stored",
+    phase,
+    naturalKey: show.naturalKey,
+    showTimeLabel: show.showTimeLabel,
+    capturedAt: estimatedResult.capturedAt,
+    sold: estimatedResult.categories.reduce((total, category) => total + Number(category.sold || 0), 0)
+  });
+  await recordSuccess(`${phase === "final" ? "Final" : "Backup"} TicketNew summary estimate safely stored for Sai Chitra ${show.showTimeLabel}`);
+  await flushCaptureOutbox();
+  return { storedLocally: true };
+}
+
+async function readTicketNewSummaryCapture(show) {
+  const venue = venueFor(show.venueCode);
+  const url = new URL(discoveryUrl(venue, show.dateCode));
+  url.searchParams.set("skctsummary", "1");
+  let tab = null;
+  try {
+    tab = await chrome.tabs.create({ url: url.toString(), active: false, pinned: false });
+    await waitForComplete(tab.id);
+    const payload = await sendToTab(tab.id, {
+      type: "CAPTURE_TICKETNEW_SUMMARY",
+      show
+    });
+    if (!payload?.ok || !Array.isArray(payload?.result?.categories)) {
+      throw new Error(payload?.error || "TicketNew returned an invalid summary capture");
+    }
+    return payload.result;
+  } finally {
+    if (tab?.id) await chrome.tabs.remove(tab.id).catch(() => {});
+  }
 }
 
 async function recordIgnoredLatePageError(naturalKey, error) {
@@ -722,6 +829,7 @@ async function scheduleShows(shows) {
 async function scheduleShow(show) {
   if (new Date(show.cutoffAt).getTime() <= Date.now()) return;
   const encoded = encodeURIComponent(show.naturalKey);
+  const state = await getCaptureState(show.naturalKey);
   const [backupPreflight, finalPreflight] = preflightTimes(show);
   if (backupPreflight > Date.now() + 5_000) {
     await chrome.alarms.create(`preflight:${encoded}`, { when: backupPreflight });
@@ -729,7 +837,12 @@ async function scheduleShow(show) {
   if (finalPreflight > Date.now() + 5_000) {
     await chrome.alarms.create(`final-preflight:${encoded}`, { when: finalPreflight });
   }
-  const state = await getCaptureState(show.naturalKey);
+  const finalSummary = finalSummaryWhen(show);
+  if (show.venueCode === "SCM" && !state.summaryFinalAttemptedAt && finalSummary != null) {
+    await chrome.alarms.create(`${FINAL_SUMMARY_PREFIX}${encoded}`, {
+      when: Math.max(finalSummary, Date.now() + 1_000)
+    });
+  }
   if (state.recoveryMode) {
     await chrome.alarms.create(`recovery-cleanup:${encoded}`, {
       when: new Date(show.cutoffAt).getTime() + 1_000
@@ -742,7 +855,7 @@ async function scheduleShow(show) {
 async function clearShowAlarmsOutsideDate(dateCode) {
   const alarms = await chrome.alarms.getAll();
   for (const alarm of alarms) {
-    if (!/^(preflight|final-preflight|capture|watchdog|recovery-cleanup):/.test(alarm.name)) continue;
+    if (!/^(preflight|final-preflight|capture|watchdog|recovery-cleanup|ticketnew-final-summary):/.test(alarm.name)) continue;
     const naturalKey = decodeAlarmKey(alarm.name);
     if (naturalKey.split(":")[1] !== dateCode) await chrome.alarms.clear(alarm.name);
   }
@@ -1227,8 +1340,15 @@ async function flushCaptureOutboxUnlocked() {
     await removeCaptureOutbox(entry.clientCaptureId);
     const remainingForShow = await captureOutboxCount(entry.show.naturalKey);
     const remainingTotal = await captureOutboxCount();
-    await updateCaptureState(entry.show.naturalKey, {
+    const estimated = isTicketNewSummary(entry.payload);
+    await updateCaptureState(entry.show.naturalKey, estimated ? {
+      lastEstimateSuccessAt: entry.payload.capturedAt,
+      lastEstimateUploadAt: new Date().toISOString(),
+      lastUploadError: null,
+      outboxPending: remainingForShow > 0
+    } : {
       lastSuccessAt: entry.payload.capturedAt,
+      lastLiveSuccessAt: entry.payload.capturedAt,
       lastSuccessAttemptId: entry.payload.attemptId || entry.clientCaptureId,
       lastUploadAt: new Date().toISOString(),
       lastUploadError: null,

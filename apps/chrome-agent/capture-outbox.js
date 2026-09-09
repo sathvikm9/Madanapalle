@@ -44,6 +44,9 @@ export function protectedCaptureAt(state = {}) {
 }
 
 export function captureKind(show, result) {
+  if (result.captureMethod === "ticketnew-summary-estimate") {
+    return result.summaryPhase === "final" ? "Final estimate" : "Backup estimate";
+  }
   if (result.housefullEvidence) return "Verified housefull";
   const finalAt = new Date(show.finalCaptureAt || new Date(show.cutoffAt).getTime() - 60_000).getTime();
   return new Date(result.capturedAt).getTime() >= finalAt ? "Final" : "Backup";

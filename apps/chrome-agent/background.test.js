@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const backgroundUrl = new URL("./background.js", import.meta.url);
+const contentUrl = new URL("./content.js", import.meta.url);
 
 test("venue discovery passes the configured venue code to the content script", () => {
   const source = fs.readFileSync(backgroundUrl, "utf8");
@@ -68,4 +69,21 @@ test("India day rollover discards stale collector tabs before discovery", () => 
     rollover.indexOf("resetAgentTabsForNewDay") < rollover.indexOf("discoverAll"),
     "stale tabs should be reset before forced discovery"
   );
+});
+
+test("Sai Chitra summary fallback is isolated from the live seat-map tab", () => {
+  const source = fs.readFileSync(backgroundUrl, "utf8");
+  const contentSource = fs.readFileSync(contentUrl, "utf8");
+  const summaryStart = source.indexOf("async function captureSaiChitraSummaryEstimate");
+  const summaryEnd = source.indexOf("async function recordIgnoredLatePageError", summaryStart);
+  const summary = source.slice(summaryStart, summaryEnd);
+
+  assert.match(source, /ticketnew-final-summary:/);
+  assert.match(summary, /readTicketNewSummaryCapture/);
+  assert.match(summary, /captureMethod:\s*TICKETNEW_SUMMARY_METHOD/);
+  assert.match(summary, /hasFinalLiveCapture/);
+  assert.match(summary, /searchParams\.set\("skctsummary", "1"\)/);
+  assert.match(summary, /chrome\.tabs\.create\(\{ url: url\.toString\(\), active: false, pinned: false \}\)/);
+  assert.match(summary, /chrome\.tabs\.remove/);
+  assert.match(contentSource, /get\("skctsummary"\) === "1"\) return/);
 });

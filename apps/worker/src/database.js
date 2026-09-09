@@ -325,9 +325,14 @@ export async function finalizeExpiredShows(db, now = new Date()) {
     db.prepare(
       `UPDATE snapshots SET is_final=1
        WHERE id IN (
-         SELECT (SELECT snapshots.id FROM snapshots
-                 WHERE snapshots.show_id=shows.id
-                 ORDER BY captured_at DESC LIMIT 1)
+         SELECT (SELECT ranked.id FROM snapshots ranked
+                 JOIN shows ranked_show ON ranked_show.id=ranked.show_id
+                 WHERE ranked.show_id=shows.id
+                 ORDER BY
+                   (CASE WHEN julianday(ranked.captured_at) >= julianday(ranked_show.cutoff_at, '-1 minute') THEN 2 ELSE 0 END) +
+                   (CASE WHEN ranked.source LIKE '%summary-estimate%' THEN 0 ELSE 1 END) DESC,
+                   ranked.captured_at DESC
+                 LIMIT 1)
          FROM shows
          WHERE is_current=1 AND status IN ('scheduled','capturing') AND cutoff_at <= ?
        )`
@@ -365,7 +370,14 @@ export async function dashboardData(db, date, venueCode, now = new Date()) {
       snapshots.source
      FROM shows
      LEFT JOIN snapshots ON snapshots.id=(
-       SELECT id FROM snapshots latest WHERE latest.show_id=shows.id ORDER BY captured_at DESC LIMIT 1
+       SELECT latest.id FROM snapshots latest
+       JOIN shows latest_show ON latest_show.id=latest.show_id
+       WHERE latest.show_id=shows.id
+       ORDER BY
+         (CASE WHEN julianday(latest.captured_at) >= julianday(latest_show.cutoff_at, '-1 minute') THEN 2 ELSE 0 END) +
+         (CASE WHEN latest.source LIKE '%summary-estimate%' THEN 0 ELSE 1 END) DESC,
+         latest.captured_at DESC
+       LIMIT 1
      )
      WHERE ${showWhere}
      ORDER BY shows.start_at ASC, shows.venue_code ASC, shows.is_current DESC, shows.first_seen_at ASC`
@@ -420,6 +432,7 @@ export async function dashboardData(db, date, venueCode, now = new Date()) {
       occupancyPercent: Number(row.occupancy_percent),
       isFinal: Boolean(row.is_final),
       source: row.source,
+      isEstimated: String(row.source || "").includes("ticketnew-summary-estimate"),
       categories: parseJson(row.categories_json, [])
     } : null
   })));
@@ -477,6 +490,7 @@ export async function captureHistory(db, showId) {
       capturedAt: row.captured_at,
       receivedAt: row.received_at,
       source: row.source,
+      isEstimated: String(row.source || "").includes("ticketnew-summary-estimate"),
       capacity: row.capacity,
       available: row.available,
       sold: row.sold,

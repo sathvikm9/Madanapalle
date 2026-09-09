@@ -6,6 +6,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 resumePendingCapture().catch(() => {});
 
 async function handleMessage(message) {
+  if (message.type === "CAPTURE_TICKETNEW_SUMMARY") {
+    if (!(location.hostname === "ticketnew.com" || location.hostname.endsWith(".ticketnew.com"))) {
+      throw new Error("TicketNew summary capture opened on an unexpected host");
+    }
+    const state = globalThis.SKCTTicketNew.readState(document);
+    return {
+      ok: true,
+      result: globalThis.SKCTTicketNew.capture(state, message.show)
+    };
+  }
   if (message.type === "DISCOVER") {
     if (message.platform === "ticketnew") {
       const state = globalThis.SKCTTicketNew.readState(document);
@@ -83,6 +93,7 @@ function discoverShows(dateCode, venueCode, captureStartAfterShowMinutes = 10) {
 }
 
 async function resumePendingCapture() {
+  if (new URLSearchParams(location.search).get("skctsummary") === "1") return;
   const { pendingCaptures = {} } = await chrome.storage.local.get({ pendingCaptures: {} });
   let pending;
   if (location.hostname === "ticketnew.com" || location.hostname.endsWith(".ticketnew.com")) {
@@ -214,7 +225,7 @@ async function captureTicketNewSeats(show) {
   }
 
   const state = globalThis.SKCTTicketNew.readState(document);
-  const listingCapture = globalThis.SKCTTicketNew.capture(state, show);
+  globalThis.SKCTTicketNew.capture(state, show);
   const route = await openTicketNewSeatLayout(show, 8_000);
   if (route?.kind === "url") {
     location.replace(route.url);
@@ -231,9 +242,6 @@ async function captureTicketNewSeats(show) {
     throw error;
   }
 
-  if (listingCapture.categories.every((category) => category.available === 0)) {
-    return listingCapture;
-  }
   const error = new Error(
     `TicketNew did not expose the exact ${show.movieTitle} ${show.showTimeLabel} control for session ${show.sessionId}`
   );

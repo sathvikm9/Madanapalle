@@ -54,4 +54,14 @@ test("labels queued backup and final results from their original capture time", 
     capturedAt: "2026-09-08T05:40:10.000Z",
     housefullEvidence: { confirmationCount: 2 }
   }), "Verified housefull");
+  assert.equal(captureKind(show, {
+    capturedAt: "2026-09-08T05:40:10.000Z",
+    captureMethod: "ticketnew-summary-estimate",
+    summaryPhase: "backup"
+  }), "Backup estimate");
+  assert.equal(captureKind(show, {
+    capturedAt: "2026-09-08T05:44:10.000Z",
+    captureMethod: "ticketnew-summary-estimate",
+    summaryPhase: "final"
+  }), "Final estimate");
 });

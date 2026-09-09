@@ -354,6 +354,7 @@ main { max-width: 1120px; margin: 0 auto; padding: 30px 24px 88px; }
 .status--completed { color: #126345; background: #dff3e9; }
 .status--scheduled { color: #5d625f; background: #eceae5; }
 .status--capturing { color: #966214; background: #fff0cc; }
+.status--estimated { color: #835810; background: #ffe8ad; }
 .status--missed { color: #9e2822; background: #ffe0dd; }
 .status--replaced, .status--removed { color: #625980; background: #eae5f7; }
 

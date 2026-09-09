@@ -35,7 +35,7 @@ const displayDate = new Intl.DateTimeFormat("en-IN", {
 });
 
 function StatusPill({ status }) {
-  const labels = { completed: "Final", scheduled: "Scheduled", capturing: "Capturing", missed: "Missed", replaced: "Replaced", removed: "Removed" };
+  const labels = { completed: "Final", estimated: "Estimated", scheduled: "Scheduled", capturing: "Capturing", missed: "Missed", replaced: "Replaced", removed: "Removed" };
   return <span className={`status status--${status}`}>{labels[status] || status}</span>;
 }
 
@@ -151,6 +151,7 @@ function InstallCard({ installPrompt, onInstalled, previewPlatform, requested = 
 
 function ShowCard({ show }) {
   const [open, setOpen] = useState(false);
+  const estimated = Boolean(show.snapshot?.isEstimated || show.snapshot?.source?.includes("ticketnew-summary-estimate"));
   const prices = (show.snapshot?.categories || show.advertisedCategories || []).map((category) => ({
     name: category.name,
     list: category.listPricePaise,
@@ -168,7 +169,7 @@ function ShowCard({ show }) {
           <i aria-hidden="true">—</i>
           <time>{show.showTime}</time>
         </div>
-        <StatusPill status={show.status} />
+        <StatusPill status={estimated ? "estimated" : show.status} />
       </header>
 
       <div className="show-card__content">
@@ -195,7 +196,7 @@ function ShowCard({ show }) {
 
       <footer className="show-card__meta">
         {show.snapshot ? (
-          <span>Captured {dateTime.format(new Date(show.snapshot.capturedAt))} · {show.snapshot.occupancyPercent}% occupancy</span>
+          <span>{estimated ? "Estimated" : "Captured"} {dateTime.format(new Date(show.snapshot.capturedAt))} · {show.snapshot.occupancyPercent}% occupancy{estimated ? " · TicketNew summary" : ""}</span>
         ) : (
           <span>Booking cutoff {dateTime.format(new Date(show.cutoffAt))}</span>
         )}

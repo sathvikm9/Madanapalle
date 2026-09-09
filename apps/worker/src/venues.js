@@ -19,6 +19,10 @@ export const VENUES = Object.freeze([
     slug: "sai-chitra-theatre-a-c-4k-dolby-surround-7-1-madanapalle-c",
     platform: "ticketnew",
     cinemaId: 4903,
+    layoutCategories: Object.freeze([
+      Object.freeze({ name: "FIRST CL", capacity: 107 }),
+      Object.freeze({ name: "RESERVED CL", capacity: 317 })
+    ]),
     timezone: "Asia/Kolkata",
     captureStartAfterShowMinutes: 10
   }),
