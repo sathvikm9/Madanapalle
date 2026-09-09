@@ -720,7 +720,7 @@ async function captureSaiChitraSummaryEstimate(show, phase) {
     : { summaryBackupAttemptedAt: attemptedAt });
 
   const attemptId = `ticketnew-summary-${phase}-${Date.now()}-${crypto.randomUUID()}`;
-  const result = await readTicketNewSummaryCapture({ ...show, attemptId });
+  const result = await readTicketNewSummaryCapture({ ...show, attemptId }, phase);
   state = await getCaptureState(show.naturalKey);
   if (phase === "final" && hasFinalLiveCapture(show, state)) {
     await appendAgentDiagnostic({
@@ -762,14 +762,20 @@ async function captureSaiChitraSummaryEstimate(show, phase) {
   return { storedLocally: true };
 }
 
-async function readTicketNewSummaryCapture(show) {
+async function readTicketNewSummaryCapture(show, phase) {
   const venue = venueFor(show.venueCode);
   const url = new URL(discoveryUrl(venue, show.dateCode));
   url.searchParams.set("skctsummary", "1");
+  url.searchParams.set("skctsummaryrun", show.attemptId);
   let tab = null;
   try {
     tab = await chrome.tabs.create({ url: url.toString(), active: false, pinned: false });
     await waitForComplete(tab.id);
+    if (phase === "final") {
+      await chrome.tabs.reload(tab.id, { bypassCache: true });
+      await delay(150);
+      await waitForComplete(tab.id);
+    }
     const payload = await sendToTab(tab.id, {
       type: "CAPTURE_TICKETNEW_SUMMARY",
       show

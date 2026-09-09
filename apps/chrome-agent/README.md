@@ -23,7 +23,7 @@ The extension creates one pinned BookMyShow or TicketNew tab per theatre. Keep C
 - Sri Krishna backup capture starts shortly after showtime +10 minutes
 - Sai Chitra opens the exact TicketNew seat layout at showtime +10:05 and retries it every minute through cutoff −0:55, counting every live seat in both classes
 - if the +10:05 live map fails, a separate fresh TicketNew cinema page saves its exact-session availability summary as an **estimated backup** without interrupting live retries
-- at cutoff −0:50, a fresh final TicketNew summary is saved only when no final live result has been protected; a successful final live result always remains authoritative
+- at cutoff −0:50, a fresh final TicketNew summary tab is cache-bypass refreshed immediately before reading; it is saved only when no final live result has been protected, and a successful final live result always remains authoritative
 - Ravi backup capture starts shortly after showtime +15 minutes
 - ASR backup capture starts shortly after showtime +15 minutes
 - a second preflight refreshes the schedule before the final attempt

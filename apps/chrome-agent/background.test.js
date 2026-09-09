@@ -83,7 +83,10 @@ test("Sai Chitra summary fallback is isolated from the live seat-map tab", () =>
   assert.match(summary, /captureMethod:\s*TICKETNEW_SUMMARY_METHOD/);
   assert.match(summary, /hasFinalLiveCapture/);
   assert.match(summary, /searchParams\.set\("skctsummary", "1"\)/);
+  assert.match(summary, /searchParams\.set\("skctsummaryrun", show\.attemptId\)/);
   assert.match(summary, /chrome\.tabs\.create\(\{ url: url\.toString\(\), active: false, pinned: false \}\)/);
+  assert.match(summary, /phase === "final"/);
+  assert.match(summary, /chrome\.tabs\.reload\(tab\.id, \{ bypassCache: true \}\)/);
   assert.match(summary, /chrome\.tabs\.remove/);
   assert.match(contentSource, /get\("skctsummary"\) === "1"\) return/);
 });
