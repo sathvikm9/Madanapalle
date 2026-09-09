@@ -1,7 +1,6 @@
 import { protectedCaptureAt } from "./capture-outbox.js";
 
 const DEFAULT_ATTEMPT_SECOND_OFFSET_MS = 5_000;
-const TICKETNEW_ATTEMPT_SECOND_OFFSET_MS = 40_000;
 
 function timestamp(value) {
   const result = new Date(value).getTime();
@@ -19,9 +18,7 @@ export function finalCaptureAt(show) {
 }
 
 export function attemptSecondOffset(show) {
-  return show?.venueCode === "SCM" || show?.platform === "ticketnew"
-    ? TICKETNEW_ATTEMPT_SECOND_OFFSET_MS
-    : DEFAULT_ATTEMPT_SECOND_OFFSET_MS;
+  return DEFAULT_ATTEMPT_SECOND_OFFSET_MS;
 }
 
 export function nextCaptureWhen(show, state = {}, now = Date.now()) {

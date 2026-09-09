@@ -17,22 +17,22 @@ const saiChitra = {
   cutoffAt: "2026-09-07T05:45:00.000Z"
 };
 
-test("uses the 40-second offset only for Sai Chitra TicketNew captures", () => {
-  assert.equal(attemptSecondOffset(saiChitra), 40_000);
+test("uses the five-second offset for Sai Chitra and BookMyShow captures", () => {
+  assert.equal(attemptSecondOffset(saiChitra), 5_000);
   assert.equal(attemptSecondOffset(sriKrishna), 5_000);
 });
 
-test("schedules Sai Chitra backup at 11:10:40 and final at 11:14:40", () => {
+test("schedules Sai Chitra backup at 11:10:05 and final at 11:14:05", () => {
   assert.equal(
     nextCaptureWhen(saiChitra, {}, new Date("2026-09-07T05:35:00.000Z").getTime()),
-    new Date("2026-09-07T05:40:40.000Z").getTime()
+    new Date("2026-09-07T05:40:05.000Z").getTime()
   );
   assert.equal(
     nextCaptureWhen(saiChitra, {
-      lastAttemptAt: "2026-09-07T05:40:40.000Z",
-      lastSuccessAt: "2026-09-07T05:40:45.000Z"
+      lastAttemptAt: "2026-09-07T05:40:05.000Z",
+      lastSuccessAt: "2026-09-07T05:40:10.000Z"
     }, new Date("2026-09-07T05:41:00.000Z").getTime()),
-    new Date("2026-09-07T05:44:40.000Z").getTime()
+    new Date("2026-09-07T05:44:05.000Z").getTime()
   );
 });
 
