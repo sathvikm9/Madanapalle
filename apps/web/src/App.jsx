@@ -186,8 +186,8 @@ function ShowCard({ show }) {
           ) : (
             <div className="pending-copy">
               <span>Capture window</span>
-              <strong>{dateTime.format(new Date(show.captureDueAt))}</strong>
-              <small>Final attempt {dateTime.format(new Date(show.finalCaptureDueAt || show.captureDueAt))}</small>
+              <time>{dateTime.format(new Date(show.captureDueAt))}</time>
+              <strong>Final attempt {dateTime.format(new Date(show.finalCaptureDueAt || show.captureDueAt))}</strong>
             </div>
           )}
         </div>
