@@ -54,7 +54,8 @@
         cutoffAt: cutoff.toISOString(),
         captureAt: new Date(start.getTime() + Number(venue.captureStartAfterShowMinutes) * 60_000).toISOString(),
         finalCaptureAt: new Date(cutoff.getTime() - 60_000).toISOString(),
-        seatLayoutUrl: ticketNewVenueUrl(pageUrl, dateCode),
+        seatLayoutUrl: ticketNewVenueUrl(pageUrl, dateCode, venue),
+        directSeatLayoutUrl: ticketNewDirectSeatLayoutUrl(session, metadata, dateCode),
         categories: advertisedCategories(session.areas)
       });
     }
@@ -216,9 +217,9 @@
   }
 
   function sessionIdentityMatches(pathSession, encodedSession, sessionId) {
+    if (!sessionId) return false;
     return pathSession === sessionId ||
-      encodedSession === sessionId ||
-      encodedSession.endsWith(`-${sessionId}`);
+      new RegExp(`(?:^|-)${escapePattern(sessionId)}(?:$|-)`).test(encodedSession);
   }
 
   function captureLive(document, show, capturedAt = new Date()) {
@@ -281,10 +282,11 @@
 
   function cinemaPayload(state, cinemaId, dateCode) {
     const date = `${dateCode.slice(0, 4)}-${dateCode.slice(4, 6)}-${dateCode.slice(6, 8)}`;
-    const sessions = state?.props?.pageProps?.data?.serverState?.cinemaSessions || {};
+    const serverState = state?.props?.pageProps?.data?.serverState || {};
+    const sessions = serverState.cinemaSessions || {};
     const payload = sessions[`${cinemaId}${date}`] || Object.values(sessions).find((item) => (
       String(item?.meta?.cinema?.id) === String(cinemaId)
-    ));
+    )) || serverState[String(cinemaId)];
     if (!payload || (!payload.pageData && !Array.isArray(payload.arrangedSessions))) {
       throw new Error(`No TicketNew schedule was found for cinema ${cinemaId} on ${date}`);
     }
@@ -307,7 +309,7 @@
     for (const group of arranged) {
       const metadata = {
         eventCode: group.data?.id,
-        contentId: group.entityCode,
+        contentId: group.entityCode || group.data?.contentId,
         movieTitle: group.entityName || group.data?.label || group.data?.name,
         movieVariant: group.data?.name || group.entityName,
         language: group.data?.lang || group.data?.languages
@@ -415,10 +417,36 @@
     }).format(value);
   }
 
-  function ticketNewVenueUrl(pageUrl, dateCode) {
+  function ticketNewVenueUrl(pageUrl, dateCode, venue) {
     const url = new URL(pageUrl);
+    if (url.hostname === "www.district.in" || url.hostname.endsWith(".district.in")) {
+      url.protocol = "https:";
+      url.hostname = "ticketnew.com";
+      url.pathname = `/movies/madanapalle/${venue.slug}/${venue.cinemaId}`;
+    }
     url.search = "";
     url.searchParams.set("fromdate", `${dateCode.slice(0, 4)}-${dateCode.slice(4, 6)}-${dateCode.slice(6, 8)}`);
+    return url.toString();
+  }
+
+  function ticketNewDirectSeatLayoutUrl(session, metadata, dateCode) {
+    const sessionId = String(session?.sid || "");
+    const cinemaId = String(session?.cid || "");
+    const movieCode = String(session?.mid || metadata?.eventCode || "").toLowerCase();
+    const formatId = String(session?.fid || "").toLowerCase();
+    if (!sessionId || !cinemaId || !formatId) return null;
+    const encodedSession = String(session.encSessionId || [cinemaId, sessionId, movieCode, formatId]
+      .filter(Boolean)
+      .join("-"));
+    if (!sessionIdentityMatches("", encodedSession.toLowerCase(), sessionId.toLowerCase())) return null;
+
+    const url = new URL(`https://ticketnew.com/movies/seat-layout/${encodeURIComponent(formatId)}`);
+    url.searchParams.set("encsessionid", encodedSession);
+    url.searchParams.set("fromdate", `${dateCode.slice(0, 4)}-${dateCode.slice(4, 6)}-${dateCode.slice(6, 8)}`);
+    url.searchParams.set("freeseating", String(Boolean(session.freeSeating || session.freeseating)));
+    url.searchParams.set("fromsessions", "true");
+    url.searchParams.set("type", "CINEMAS");
+    if (metadata?.contentId) url.searchParams.set("contentid", String(metadata.contentId));
     return url.toString();
   }
 
@@ -435,6 +463,7 @@
     captureLive,
     findLiveSeatLayoutUrl,
     isLiveSeatLayout,
-    findSessionControl
+    findSessionControl,
+    sessionIdentityMatches
   });
 })(globalThis);

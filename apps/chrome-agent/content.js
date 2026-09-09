@@ -94,9 +94,11 @@ async function resumePendingCapture() {
     ));
     pending = location.pathname.includes("/movies/seat-layout/")
       ? ticketNewPending.find((show) => (
-        String(show.sessionId).toLowerCase() === pathSession.toLowerCase() ||
-        encodedSession.toLowerCase() === String(show.sessionId).toLowerCase() ||
-        encodedSession.toLowerCase().endsWith(`-${String(show.sessionId).toLowerCase()}`)
+        globalThis.SKCTTicketNew.sessionIdentityMatches(
+          pathSession.toLowerCase(),
+          encodedSession.toLowerCase(),
+          String(show.sessionId).toLowerCase()
+        )
       ))
       : ticketNewPending[0];
   } else {

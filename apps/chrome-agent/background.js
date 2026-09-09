@@ -18,6 +18,7 @@ import {
   orderedCaptureOutbox
 } from "./capture-outbox.js";
 import "./bookmyshow.js";
+import "./ticketnew.js";
 
 const VENUES = [
   {
@@ -33,6 +34,7 @@ const VENUES = [
     slug: "sai-chitra-theatre-a-c-4k-dolby-surround-7-1-madanapalle-c",
     platform: "ticketnew",
     cinemaId: 4903,
+    districtSlug: "sai-chitra-theatre-a-c-4k-laser-dolby-surround-7-madanapalle-in-madanapalle-CD4903",
     captureStartAfterShowMinutes: 10
   },
   {
@@ -195,6 +197,16 @@ async function handleAlarm(alarm) {
         await discoverVenue(show.venueCode, show.dateCode, { allowImminent: true });
       } catch (error) {
         discoveryError = error;
+      }
+      if (show.venueCode === "SCM" && !discoveryError) {
+        await primeSaiChitraDistrictRoute(show).catch((error) => appendAgentDiagnostic({
+          type: "sai_chitra_district_route_prime_failed",
+          venueCode: show.venueCode,
+          dateCode: show.dateCode,
+          naturalKey: show.naturalKey,
+          showTimeLabel: show.showTimeLabel,
+          error: String(error?.message || error).slice(0, 500)
+        }));
       }
       const state = await getCaptureState(show.naturalKey);
       if (captureModeFor(show, state) === "recovery") {
@@ -391,6 +403,35 @@ async function discoverVenueUnlocked(venueCode, dateCode, { allowImminent = fals
 
 async function readVenuePage(venue, dateCode) {
   try {
+    return await readPrimaryVenuePage(venue, dateCode);
+  } catch (primaryError) {
+    if (venue.venueCode !== "SCM") throw primaryError;
+    try {
+      const data = await readDistrictVenuePage(venue, dateCode);
+      await appendAgentDiagnostic({
+        type: "sai_chitra_district_fallback_succeeded",
+        venueCode: venue.venueCode,
+        dateCode,
+        primaryError: String(primaryError?.message || primaryError).slice(0, 500),
+        shows: data.shows.length
+      });
+      return data;
+    } catch (districtError) {
+      await appendAgentDiagnostic({
+        type: "sai_chitra_district_fallback_failed",
+        venueCode: venue.venueCode,
+        dateCode,
+        primaryError: String(primaryError?.message || primaryError).slice(0, 500),
+        districtError: String(districtError?.message || districtError).slice(0, 500)
+      });
+      primaryError.message = `${primaryError.message} · District fallback: ${districtError.message}`;
+      throw primaryError;
+    }
+  }
+}
+
+async function readPrimaryVenuePage(venue, dateCode) {
+  try {
     return await readVenuePageOnce(venue, dateCode, true);
   } catch (error) {
     if (!isDiscoveryTabFailure(error)) throw error;
@@ -450,6 +491,7 @@ async function readVenuePageOnce(venue, dateCode, reload) {
       venueCode: venue.venueCode,
       platform: venue.platform,
       cinemaId: venue.cinemaId,
+      slug: venue.slug,
       captureStartAfterShowMinutes: venue.captureStartAfterShowMinutes
     });
   } catch (error) {
@@ -463,6 +505,65 @@ async function readVenuePageOnce(venue, dateCode, reload) {
     );
   }
   return payload.data;
+}
+
+async function readDistrictVenuePage(venue, dateCode) {
+  const url = districtDiscoveryUrl(venue, dateCode);
+  let tab = null;
+  try {
+    tab = await chrome.tabs.create({ url, active: false, pinned: false });
+    await waitForComplete(tab.id);
+    const payload = await sendToTab(tab.id, {
+      type: "DISCOVER",
+      dateCode,
+      venueCode: venue.venueCode,
+      platform: venue.platform,
+      cinemaId: venue.cinemaId,
+      slug: venue.slug,
+      captureStartAfterShowMinutes: venue.captureStartAfterShowMinutes
+    });
+    if (!payload?.ok || !Array.isArray(payload?.data?.shows)) {
+      throw new Error(payload?.error || "District returned an invalid Sai Chitra schedule");
+    }
+    if (!payload.data.shows.length) throw new Error(`District found no Sai Chitra shows for ${dateCode}`);
+    return payload.data;
+  } finally {
+    if (tab?.id) await chrome.tabs.remove(tab.id).catch(() => {});
+  }
+}
+
+async function primeSaiChitraDistrictRoute(show) {
+  const venue = venueFor(show.venueCode);
+  const data = await readDistrictVenuePage(venue, show.dateCode);
+  const fallback = data.shows.find((candidate) => candidate.naturalKey === show.naturalKey);
+  if (!fallback?.directSeatLayoutUrl) {
+    const slotCandidate = data.shows.find((candidate) => candidate.slotKey === show.slotKey);
+    const mismatch = slotCandidate
+      ? `${slotCandidate.movieTitle} session ${slotCandidate.sessionId}`
+      : "no matching show";
+    throw new Error(`District did not confirm ${show.movieTitle} ${show.showTimeLabel}; found ${mismatch}`);
+  }
+
+  const stored = await chrome.storage.local.get({ knownShows: {} });
+  const key = `${show.venueCode}:${show.dateCode}`;
+  const shows = (stored.knownShows[key] || []).map((candidate) => (
+    candidate.naturalKey === show.naturalKey
+      ? {
+          ...candidate,
+          directSeatLayoutUrl: fallback.directSeatLayoutUrl,
+          districtRouteVerifiedAt: new Date().toISOString()
+        }
+      : candidate
+  ));
+  stored.knownShows[key] = shows;
+  await chrome.storage.local.set({ knownShows: stored.knownShows });
+  await appendAgentDiagnostic({
+    type: "sai_chitra_district_route_primed",
+    venueCode: show.venueCode,
+    dateCode: show.dateCode,
+    naturalKey: show.naturalKey,
+    showTimeLabel: show.showTimeLabel
+  });
 }
 
 async function beginCapture(show) {
@@ -782,13 +883,18 @@ async function prepareRecoverySeatLayout(show) {
   const recoveryTabIds = { ...stored.recoveryTabIds };
   const existingId = recoveryTabIds[show.venueCode];
   if (existingId) await safeRemoveRecoveryTab(existingId, show.venueCode);
-  const tab = await chrome.tabs.create({ url: show.seatLayoutUrl, active: true, pinned: true });
+  const tab = await chrome.tabs.create({
+    url: show.directSeatLayoutUrl || show.seatLayoutUrl,
+    active: true,
+    pinned: true
+  });
   recoveryTabIds[show.venueCode] = tab.id;
   await chrome.storage.local.set({ recoveryTabIds });
   return tab;
 }
 
 async function openRecoverySeatLayout(show) {
+  const targetUrl = show.directSeatLayoutUrl || show.seatLayoutUrl;
   const stored = await chrome.storage.local.get({ recoveryTabIds: {} });
   const recoveryTabIds = { ...stored.recoveryTabIds };
   let tab = recoveryTabIds[show.venueCode]
@@ -796,14 +902,14 @@ async function openRecoverySeatLayout(show) {
     : null;
   if (tab && !tabMatchesRecovery(tab, show.venueCode)) tab = null;
   if (!tab) {
-    tab = await chrome.tabs.create({ url: show.seatLayoutUrl, active: true, pinned: true });
+    tab = await chrome.tabs.create({ url: targetUrl, active: true, pinned: true });
     recoveryTabIds[show.venueCode] = tab.id;
     await chrome.storage.local.set({ recoveryTabIds });
-  } else if (tab.url === show.seatLayoutUrl) {
+  } else if (tab.url === targetUrl) {
     await chrome.tabs.update(tab.id, { active: true });
     await chrome.tabs.reload(tab.id);
   } else {
-    tab = await chrome.tabs.update(tab.id, { url: show.seatLayoutUrl, active: true });
+    tab = await chrome.tabs.update(tab.id, { url: targetUrl, active: true });
   }
   await waitForComplete(tab.id);
 }
@@ -858,7 +964,7 @@ function cachedTicketNewUrlMatches(cached, show) {
     return url.hostname.endsWith("ticketnew.com") &&
       url.pathname.includes("/movies/seat-layout/") &&
       dateCode === show.dateCode &&
-      (pathSession === sessionId || encodedSession === sessionId || encodedSession.endsWith(`-${sessionId}`));
+      globalThis.SKCTTicketNew.sessionIdentityMatches(pathSession, encodedSession, sessionId);
   } catch {
     return false;
   }
@@ -893,6 +999,14 @@ function discoveryUrl(venue, dateCode) {
     return `https://ticketnew.com/movies/madanapalle/${venue.slug}/${venue.cinemaId}?fromdate=${date}`;
   }
   return `https://in.bookmyshow.com/cinemas/mdnp/${venue.slug}/buytickets/${venue.venueCode}/${dateCode}`;
+}
+
+function districtDiscoveryUrl(venue, dateCode) {
+  if (venue.venueCode !== "SCM" || !venue.districtSlug) {
+    throw new Error(`${venue.shortName} does not have a District fallback`);
+  }
+  const date = `${dateCode.slice(0, 4)}-${dateCode.slice(4, 6)}-${dateCode.slice(6, 8)}`;
+  return `https://www.district.in/movies/${venue.districtSlug}?fromdate=${date}`;
 }
 
 function tabMatchesDiscovery(tabUrl, venue, dateCode) {

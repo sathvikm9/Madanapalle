@@ -28,6 +28,8 @@ The extension creates one pinned BookMyShow or TicketNew tab per theatre. Keep C
 - a successful backup waits until the final minute; a failed backup retries once per minute
 - a failed Sri Krishna, Ravi, or ASR page read refreshes that exact session, then switches the show to a separate active recovery tab and a state-aware BookMyShow reader for every remaining attempt
 - Sai Chitra matches the exact movie card and show time, lets TicketNew generate that session's live seat-layout URL, and verifies its date and session ID before counting seats
+- Sai Chitra now reads exact session routing metadata from both TicketNew and District during capture preflights; District is used only to recover the correct TicketNew session route, never as the final seat count
+- TicketNew session URLs remain valid when the service appends movie and screen identifiers after the exact session token; partial or different session IDs are still rejected
 - after a Sai Chitra failure, a fresh date-specific TicketNew tab is created and every remaining attempt repeats the exact movie-and-time lookup; a movie replacement in the same theatre slot is adopted during recovery discovery
 - a successfully counted TicketNew seat-layout URL is cached only for that exact natural key, date, and session; it is never reused for another movie or day
 - the TicketNew cinema-page summary is used only when every class is explicitly sold out and no live seat layout is available

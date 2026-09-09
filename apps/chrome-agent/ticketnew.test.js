@@ -8,7 +8,8 @@ const {
   discover,
   findLiveSeatLayoutUrl,
   findSessionControl,
-  isLiveSeatLayout
+  isLiveSeatLayout,
+  sessionIdentityMatches
 } = globalThis.SKCTTicketNew;
 
 const state = {
@@ -99,6 +100,88 @@ test("finds only the exact TicketNew session seat-layout link", () => {
   assert.equal(isLiveSeatLayout({
     href: "https://ticketnew.com/movies/seat-layout/screen__session?encsessionid=4903-screen__session&fromdate=2026-08-22"
   }, show), false);
+});
+
+test("accepts the exact session token when TicketNew appends movie and screen identifiers", () => {
+  const sessionId = "34956__1788943500__753__1936497";
+  const liveUrl = `https://ticketnew.com/movies/seat-layout/b0meltruw2?encsessionid=4903-${sessionId}-obav6l-b0meltruw2&fromdate=2026-09-09`;
+
+  assert.equal(isLiveSeatLayout({ href: liveUrl }, { sessionId, dateCode: "20260909" }), true);
+  assert.equal(sessionIdentityMatches("", `4903-${sessionId}-obav6l-b0meltruw2`, sessionId), true);
+  assert.equal(sessionIdentityMatches("", `4903-prefix${sessionId}suffix-obav6l`, sessionId), false);
+  assert.equal(isLiveSeatLayout({ href: liveUrl }, {
+    sessionId: "34956__1788943500__753__DIFFERENT",
+    dateCode: "20260909"
+  }), false);
+});
+
+test("discovers an exact TicketNew seat route from District metadata", () => {
+  const sessionId = "34956__1788957000__753__1936498";
+  const districtState = {
+    props: { pageProps: { data: { serverState: { "4903": {
+      meta: { cinema: { id: 4903 }, movies: [
+        { id: "OBAV6L", name: "Irumudi", contentId: 214275 },
+        { id: "PARA1", name: "The Paradise", contentId: 300001 }
+      ] },
+      pageData: {
+        sessions: [{
+          sid: sessionId,
+          cid: 4903,
+          mid: "OBAV6L",
+          fid: "B0mELTRUw2",
+          encSessionId: `4903-${sessionId}-obav6l-b0meltruw2`,
+          showTime: "2026-09-09T12:30",
+          closeTime: "2026-09-09T12:45",
+          lang: "Telugu",
+          scrnFmt: "2D",
+          areas: [
+            { code: "1420", label: "FIRST CL", sTotal: 107, sAvail: 103, price: 84 },
+            { code: "1419", label: "RESERVED CL", sTotal: 317, sAvail: 126, price: 105 }
+          ]
+        }, {
+          sid: "34956__1788968700__753__PARADISE",
+          cid: 4903,
+          mid: "PARA1",
+          fid: "PARADISE2D",
+          encSessionId: "4903-34956__1788968700__753__PARADISE-para1-paradise2d",
+          showTime: "2026-09-09T15:45",
+          closeTime: "2026-09-09T16:00",
+          lang: "Telugu",
+          scrnFmt: "2D",
+          areas: [
+            { code: "1420", label: "FIRST CL", sTotal: 107, sAvail: 50, price: 84 },
+            { code: "1419", label: "RESERVED CL", sTotal: 317, sAvail: 100, price: 105 }
+          ]
+        }]
+      },
+      arrangedSessions: [{
+        data: { label: "Irumudi", contentId: 214275 },
+        sessions: [{ sid: sessionId }]
+      }, {
+        data: { label: "The Paradise", contentId: 300001 },
+        sessions: [{ sid: "34956__1788968700__753__PARADISE" }]
+      }]
+    } } } } }
+  };
+
+  const result = discover(districtState, {
+    ...venue,
+    slug: "sai-chitra-theatre-a-c-4k-dolby-surround-7-1-madanapalle-c"
+  }, "20260909", "https://www.district.in/movies/sai-chitra-CD4903?fromdate=2026-09-09");
+
+  assert.equal(result.shows.length, 2);
+  const irumudi = result.shows.find((show) => show.showTimeLabel === "06:00 PM");
+  const paradise = result.shows.find((show) => show.showTimeLabel === "09:15 PM");
+  assert.equal(irumudi.movieTitle, "Irumudi");
+  assert.equal(irumudi.sessionId, sessionId);
+  assert.match(irumudi.seatLayoutUrl, /^https:\/\/ticketnew\.com\/movies\/madanapalle\/.+\/4903\?fromdate=2026-09-09$/);
+  assert.match(irumudi.directSeatLayoutUrl, new RegExp(`encsessionid=4903-${sessionId}-obav6l-b0meltruw2`));
+  assert.match(irumudi.directSeatLayoutUrl, /contentid=214275/);
+  assert.equal(isLiveSeatLayout({ href: irumudi.directSeatLayoutUrl }, irumudi), true);
+  assert.equal(paradise.movieTitle, "The Paradise");
+  assert.equal(paradise.contentId, 300001);
+  assert.match(paradise.directSeatLayoutUrl, /contentid=300001/);
+  assert.doesNotMatch(paradise.directSeatLayoutUrl, /OBAV6L/i);
 });
 
 test("selects a TicketNew show control by both movie and time", () => {
