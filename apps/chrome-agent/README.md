@@ -21,20 +21,19 @@ The extension creates one pinned BookMyShow or TicketNew tab per theatre. Keep C
 - the India-date rollover discards the extension-owned collector tabs and opens fresh current-date tabs
 - a tab that remains loading or cannot run discovery is replaced once immediately; continued failures retry only that theatre after 2, 5, then 15 minutes
 - Sri Krishna backup capture starts shortly after showtime +10 minutes
-- Sai Chitra opens the exact TicketNew seat layout at showtime +10:05 and retries it every minute through cutoff −0:55, counting every live seat in both classes
+- Sai Chitra opens the exact District seat layout at showtime +10:05 and retries it every minute through cutoff −0:55, counting every live seat in both classes
 - if the +10:05 live map fails, a separate fresh TicketNew cinema page saves its exact-session availability summary as an **estimated backup** without interrupting live retries
-- at cutoff −0:50, a fresh final TicketNew summary tab is cache-bypass refreshed immediately before reading; it is saved only when no final live result has been protected, and a successful final live result always remains authoritative
+- at cutoff −0:50, a fresh final TicketNew summary tab is cache-bypass refreshed immediately before reading; it is saved only when no District live result has been protected, and any successful District live result remains authoritative
 - Ravi backup capture starts shortly after showtime +15 minutes
 - ASR backup capture starts shortly after showtime +15 minutes
 - a second preflight refreshes the schedule before the final attempt
 - a successful backup waits until the final minute; a failed backup retries once per minute
 - a failed Sri Krishna, Ravi, or ASR page read refreshes that exact session, then switches the show to a separate active recovery tab and a state-aware BookMyShow reader for every remaining attempt
-- Sai Chitra matches the exact movie card and show time, lets TicketNew generate that session's live seat-layout URL, and verifies its date and session ID before counting seats
-- Sai Chitra reads exact session routing metadata from both TicketNew and District during capture preflights; District is used only to recover the correct TicketNew session route, while TicketNew is the sole summary-estimate source
-- TicketNew session URLs remain valid when the service appends movie and screen identifiers after the exact session token; partial or different session IDs are still rejected
-- after a Sai Chitra failure, a fresh date-specific TicketNew tab is created and every remaining attempt repeats the exact movie-and-time lookup; a movie replacement in the same theatre slot is adopted during recovery discovery
-- a successfully counted TicketNew seat-layout URL is cached only for that exact natural key, date, and session; it is never reused for another movie or day
-- the TicketNew cinema-page summary is used only when every class is explicitly sold out and no live seat layout is available
+- Sai Chitra reads the exact movie, showtime and session route from District during both capture preflights, then verifies the District session token before counting seats
+- District session URLs remain valid when movie and screen identifiers follow the exact session token; partial or different session IDs are rejected
+- after a Sai Chitra live failure, every remaining attempt rebuilds or reuses only the exact District session route; a movie replacement in the same theatre slot is adopted during recovery discovery
+- a successfully counted District seat-layout URL is cached only for that exact natural key, date, and session; it is never reused for another movie or day
+- TicketNew remains the isolated ESTIMATED summary fallback when District never yields a live seat map; even an earlier verified District live capture outranks a later TicketNew estimate
 - the newest successful snapshot is finalized after cutoff, so a failed final attempt keeps the backup
 - simultaneous theatre captures use independent tabs and pending jobs
 - every successful seat count is written to a durable Chrome-storage outbox before its browser attempt is closed

@@ -42,3 +42,10 @@ export function hasFinalLiveCapture(show, state = {}) {
   const liveAt = finalLiveCaptureAt(state);
   return finalStart != null && liveAt != null && liveAt >= finalStart;
 }
+
+export function hasAnyLiveCapture(show, state = {}) {
+  const captureStart = timestamp(show?.captureAt);
+  const cutoff = timestamp(show?.cutoffAt);
+  const liveAt = finalLiveCaptureAt(state);
+  return captureStart != null && cutoff != null && liveAt != null && liveAt >= captureStart && liveAt < cutoff;
+}

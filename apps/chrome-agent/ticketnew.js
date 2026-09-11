@@ -55,7 +55,8 @@
         captureAt: new Date(start.getTime() + Number(venue.captureStartAfterShowMinutes) * 60_000).toISOString(),
         finalCaptureAt: new Date(cutoff.getTime() - 60_000).toISOString(),
         seatLayoutUrl: ticketNewVenueUrl(pageUrl, dateCode, venue),
-        directSeatLayoutUrl: ticketNewDirectSeatLayoutUrl(session, metadata, dateCode),
+        directSeatLayoutUrl: directSeatLayoutUrl(session, metadata, dateCode, pageUrl),
+        liveSeatLayoutProvider: isDistrictHost(new URL(pageUrl).hostname) ? "district" : "ticketnew",
         categories: advertisedCategories(session.areas)
       });
     }
@@ -115,9 +116,11 @@
       const encodedSession = String(url.searchParams.get("encsessionid") || "").toLowerCase();
       const dateCode = String(url.searchParams.get("fromdate") || "").replaceAll("-", "");
       const matchesSession = sessionIdentityMatches(pathSession, encodedSession, sessionId);
-      const matchesDate = !show?.dateCode || dateCode === String(show.dateCode);
-      if (url.protocol === "https:" && url.hostname.endsWith("ticketnew.com") &&
-          url.pathname.includes("/movies/seat-layout/") && matchesSession && matchesDate) {
+      const district = isDistrictHost(url.hostname);
+      const matchesProvider = show?.liveSeatLayoutProvider !== "district" || district;
+      const matchesDate = !show?.dateCode || dateCode === String(show.dateCode) || (district && !dateCode);
+      if (url.protocol === "https:" && isSupportedHost(url.hostname) &&
+          url.pathname.includes("/movies/seat-layout/") && matchesSession && matchesProvider && matchesDate) {
         return url.toString();
       }
     }
@@ -131,11 +134,13 @@
       const pathSession = decodeURIComponent(url.pathname.split("/").filter(Boolean).at(-1) || "").toLowerCase();
       const encodedSession = String(url.searchParams.get("encsessionid") || "").toLowerCase();
       const dateCode = String(url.searchParams.get("fromdate") || "").replaceAll("-", "");
-      return url.hostname.endsWith("ticketnew.com") &&
+      const district = isDistrictHost(url.hostname);
+      return isSupportedHost(url.hostname) &&
+        (show?.liveSeatLayoutProvider !== "district" || district) &&
         url.pathname.includes("/movies/seat-layout/") &&
         Boolean(sessionId) &&
         sessionIdentityMatches(pathSession, encodedSession, sessionId) &&
-        (!show?.dateCode || dateCode === String(show.dateCode));
+        (!show?.dateCode || dateCode === String(show.dateCode) || (district && !dateCode));
     } catch {
       return false;
     }
@@ -272,12 +277,24 @@
     }
 
     const captured = new Date(capturedAt);
+    const pageUrl = String(document?.location?.href || globalThis.location?.href || "");
+    const district = (() => {
+      try { return isDistrictHost(new URL(pageUrl).hostname); } catch { return false; }
+    })();
     return {
       naturalKey: show.naturalKey,
       attemptId: show.attemptId,
       capturedAt: captured.toISOString(),
       captureMinute: indiaCaptureMinute(captured),
-      categories
+      categories,
+      ...(district ? {
+        captureMethod: "district-live",
+        liveEvidence: {
+          provider: "district",
+          sessionId: String(show.sessionId),
+          pageUrl
+        }
+      } : {})
     };
   }
 
@@ -441,7 +458,7 @@
     return url.toString();
   }
 
-  function ticketNewDirectSeatLayoutUrl(session, metadata, dateCode) {
+  function directSeatLayoutUrl(session, metadata, dateCode, pageUrl) {
     const sessionId = String(session?.sid || "");
     const cinemaId = String(session?.cid || "");
     const movieCode = String(session?.mid || metadata?.eventCode || "").toLowerCase();
@@ -452,14 +469,25 @@
       .join("-"));
     if (!sessionIdentityMatches("", encodedSession.toLowerCase(), sessionId.toLowerCase())) return null;
 
-    const url = new URL(`https://ticketnew.com/movies/seat-layout/${encodeURIComponent(formatId)}`);
+    const district = isDistrictHost(new URL(pageUrl).hostname);
+    const url = new URL(`https://${district ? "www.district.in" : "ticketnew.com"}/movies/seat-layout/${encodeURIComponent(formatId)}`);
     url.searchParams.set("encsessionid", encodedSession);
-    url.searchParams.set("fromdate", `${dateCode.slice(0, 4)}-${dateCode.slice(4, 6)}-${dateCode.slice(6, 8)}`);
+    if (!district) {
+      url.searchParams.set("fromdate", `${dateCode.slice(0, 4)}-${dateCode.slice(4, 6)}-${dateCode.slice(6, 8)}`);
+    }
     url.searchParams.set("freeseating", String(Boolean(session.freeSeating || session.freeseating)));
     url.searchParams.set("fromsessions", "true");
     url.searchParams.set("type", "CINEMAS");
     if (metadata?.contentId) url.searchParams.set("contentid", String(metadata.contentId));
     return url.toString();
+  }
+
+  function isDistrictHost(hostname) {
+    return hostname === "district.in" || hostname === "www.district.in" || hostname.endsWith(".district.in");
+  }
+
+  function isSupportedHost(hostname) {
+    return hostname === "ticketnew.com" || hostname.endsWith(".ticketnew.com") || isDistrictHost(hostname);
   }
 
   function integer(value, name) {

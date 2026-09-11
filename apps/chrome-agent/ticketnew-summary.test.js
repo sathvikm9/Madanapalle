@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   finalSummaryWhen,
+  hasAnyLiveCapture,
   hasFinalLiveCapture,
   isTicketNewSummary,
   needsBackupSummary,
@@ -38,4 +39,10 @@ test("skips the final summary only when a final-window live result is protected"
   assert.equal(hasFinalLiveCapture(show, { lastLocalLiveCaptureAt: "2026-09-10T15:59:08.000Z" }), true);
   assert.equal(hasFinalLiveCapture(show, { lastSuccessAt: "2026-09-10T15:59:08.000Z" }), true);
   assert.equal(hasFinalLiveCapture(show, { lastEstimateAt: "2026-09-10T15:59:10.000Z" }), false);
+});
+
+test("recognizes any protected in-window live capture as better than a summary estimate", () => {
+  assert.equal(hasAnyLiveCapture(show, { lastLocalLiveCaptureAt: "2026-09-10T15:55:10.000Z" }), true);
+  assert.equal(hasAnyLiveCapture(show, { lastEstimateAt: "2026-09-10T15:59:10.000Z" }), false);
+  assert.equal(hasAnyLiveCapture(show, { lastLocalLiveCaptureAt: "2026-09-10T15:54:59.000Z" }), false);
 });

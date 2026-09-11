@@ -329,8 +329,8 @@ export async function finalizeExpiredShows(db, now = new Date()) {
                  JOIN shows ranked_show ON ranked_show.id=ranked.show_id
                  WHERE ranked.show_id=shows.id
                  ORDER BY
-                   (CASE WHEN julianday(ranked.captured_at) >= julianday(ranked_show.cutoff_at, '-1 minute') THEN 2 ELSE 0 END) +
-                   (CASE WHEN ranked.source LIKE '%summary-estimate%' THEN 0 ELSE 1 END) DESC,
+                   (CASE WHEN ranked.source LIKE '%summary-estimate%' THEN 0 ELSE 4 END) +
+                   (CASE WHEN julianday(ranked.captured_at) >= julianday(ranked_show.cutoff_at, '-1 minute') THEN 2 ELSE 0 END) DESC,
                    ranked.captured_at DESC
                  LIMIT 1)
          FROM shows
@@ -374,8 +374,8 @@ export async function dashboardData(db, date, venueCode, now = new Date()) {
        JOIN shows latest_show ON latest_show.id=latest.show_id
        WHERE latest.show_id=shows.id
        ORDER BY
-         (CASE WHEN julianday(latest.captured_at) >= julianday(latest_show.cutoff_at, '-1 minute') THEN 2 ELSE 0 END) +
-         (CASE WHEN latest.source LIKE '%summary-estimate%' THEN 0 ELSE 1 END) DESC,
+         (CASE WHEN latest.source LIKE '%summary-estimate%' THEN 0 ELSE 4 END) +
+         (CASE WHEN julianday(latest.captured_at) >= julianday(latest_show.cutoff_at, '-1 minute') THEN 2 ELSE 0 END) DESC,
          latest.captured_at DESC
        LIMIT 1
      )

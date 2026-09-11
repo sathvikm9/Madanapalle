@@ -1,6 +1,6 @@
 # Madanapalle Theatre Collection Tracker
 
-A production-oriented tracker for **Sri Krishna (`SKMD`)**, **Sai Chitra (`SCM`)**, **Ravi (`RTDM`)**, and **ASR (`ASRM`)** in Madanapalle. It discovers BookMyShow and TicketNew sessions, notices movie replacements, saves an early backup and then a final capture, subtracts ₹5 MC from each category's ticket price, and stores an auditable final result.
+A production-oriented tracker for **Sri Krishna (`SKMD`)**, **Sai Chitra (`SCM`)**, **Ravi (`RTDM`)**, and **ASR (`ASRM`)** in Madanapalle. It discovers BookMyShow, TicketNew and District sessions, notices movie replacements, saves an early backup and then a final capture, subtracts ₹5 MC from each category's ticket price, and stores an auditable final result.
 
 ## What it records
 

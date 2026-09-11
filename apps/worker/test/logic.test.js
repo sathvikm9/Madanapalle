@@ -171,6 +171,51 @@ test("accepts a verified Sai Chitra TicketNew summary as an estimate", () => {
   }, show, new Date("2026-09-10T15:59:11.000Z")), /verified Sai Chitra seating layout/);
 });
 
+test("accepts only an exact verified District live seat capture for Sai Chitra", () => {
+  const sessionId = "34956__1788957000__753__1936498";
+  const show = {
+    id: 3,
+    natural_key: `SCM:20260909:1800:${sessionId}:OBAV6L`,
+    session_id: sessionId,
+    venue_code: "SCM",
+    is_current: 1,
+    capture_at: "2026-09-09T12:40:00.000Z",
+    cutoff_at: "2026-09-09T12:45:00.000Z",
+    advertised_categories_json: JSON.stringify([
+      { name: "FIRST CL", listPricePaise: 8_400 },
+      { name: "RESERVED CL", listPricePaise: 10_500 }
+    ])
+  };
+  const body = {
+    naturalKey: show.natural_key,
+    capturedAt: "2026-09-09T12:44:05.000Z",
+    captureMethod: "district-live",
+    liveEvidence: {
+      provider: "district",
+      sessionId,
+      pageUrl: `https://www.district.in/movies/seat-layout/b0meltruw2?encsessionid=4903-${sessionId}-obav6l-b0meltruw2`
+    },
+    categories: [
+      { name: "FIRST CL", price: 84, capacity: 107, available: 84, sold: 23, unknown: 0 },
+      { name: "RESERVED CL", price: 105, capacity: 317, available: 48, sold: 269, unknown: 0 }
+    ]
+  };
+
+  const result = normalizeCapture(body, show, new Date("2026-09-09T12:44:06.000Z"));
+  assert.equal(result.source, "local-chrome-extension-district-live");
+  assert.equal(result.sold, 292);
+  assert.equal(result.collectionPaise, 2_871_700);
+
+  assert.throws(() => normalizeCapture({
+    ...body,
+    liveEvidence: { ...body.liveEvidence, pageUrl: body.liveEvidence.pageUrl.replace(sessionId, "different-session") }
+  }, show, new Date("2026-09-09T12:44:06.000Z")), /exact Sai Chitra seat page/);
+  assert.throws(() => normalizeCapture({
+    ...body,
+    categories: [{ ...body.categories[0], capacity: 106, available: 83 }, body.categories[1]]
+  }, show, new Date("2026-09-09T12:44:06.000Z")), /verified Sai Chitra seating layout/);
+});
+
 test("accepts a durable capture uploaded after the booking page has closed", () => {
   const show = {
     natural_key: "key",

@@ -96,7 +96,7 @@ async function resumePendingCapture() {
   if (new URLSearchParams(location.search).get("skctsummary") === "1") return;
   const { pendingCaptures = {} } = await chrome.storage.local.get({ pendingCaptures: {} });
   let pending;
-  if (location.hostname === "ticketnew.com" || location.hostname.endsWith(".ticketnew.com")) {
+  if (isTicketingHost(location.hostname)) {
     const fromDate = new URLSearchParams(location.search).get("fromdate")?.replaceAll("-", "");
     const pathSession = decodeURIComponent(location.pathname.split("/").filter(Boolean).at(-1) || "");
     const encodedSession = new URLSearchParams(location.search).get("encsessionid") || "";
@@ -311,6 +311,7 @@ async function rememberTicketNewSeatLayout(show) {
           url: location.href,
           dateCode: show.dateCode,
           sessionId: show.sessionId,
+          provider: isDistrictHost(location.hostname) ? "district" : "ticketnew",
           observedAt: new Date().toISOString()
         }
       }
@@ -508,13 +509,22 @@ function detectPageKind(pageText) {
   if (/booking(?:s)? (?:are )?closed|sales (?:are )?closed|show has (?:already )?started/i.test(pageText)) {
     return "booking_closed";
   }
-  if (location.hostname.endsWith("ticketnew.com") && location.pathname.includes("/movies/seat-layout/")) {
-    return "ticketnew_seat_layout";
+  if (isTicketingHost(location.hostname) && location.pathname.includes("/movies/seat-layout/")) {
+    return isDistrictHost(location.hostname) ? "district_seat_layout" : "ticketnew_seat_layout";
   }
   if (location.hostname.endsWith("ticketnew.com")) return "ticketnew_venue";
+  if (isDistrictHost(location.hostname)) return "district_venue";
   if (location.pathname.includes("/seat-layout/")) return "bookmyshow_seat_layout";
   if (location.hostname.includes("bookmyshow.com")) return "bookmyshow_other";
   return "unknown";
+}
+
+function isDistrictHost(hostname) {
+  return hostname === "district.in" || hostname === "www.district.in" || hostname.endsWith(".district.in");
+}
+
+function isTicketingHost(hostname) {
+  return hostname === "ticketnew.com" || hostname.endsWith(".ticketnew.com") || isDistrictHost(hostname);
 }
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));

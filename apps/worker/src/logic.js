@@ -243,8 +243,50 @@ export function normalizeCapture(body, show, receivedAt = new Date()) {
 
   let source = "local-chrome-extension";
   const summaryEstimate = body.captureMethod === "ticketnew-summary-estimate";
-  if (body.captureMethod != null && !summaryEstimate) {
+  const districtLive = body.captureMethod === "district-live";
+  if (body.captureMethod != null && !summaryEstimate && !districtLive) {
     throw new RequestError("Capture method is not supported");
+  }
+  if (districtLive) {
+    if (venue?.venueCode !== "SCM" || venue.platform !== "ticketnew") {
+      throw new RequestError("District live captures are allowed only for Sai Chitra");
+    }
+    const evidence = body.liveEvidence;
+    if (evidence?.provider !== "district" || String(evidence.sessionId) !== String(show.session_id)) {
+      throw new RequestError("District live capture did not prove the exact show session");
+    }
+    let liveUrl;
+    try {
+      liveUrl = new URL(requiredString(evidence.pageUrl, "liveEvidence.pageUrl", 1_000));
+    } catch {
+      throw new RequestError("District live seat page URL is invalid");
+    }
+    const districtHost = liveUrl.hostname === "district.in" || liveUrl.hostname === "www.district.in" ||
+      liveUrl.hostname.endsWith(".district.in");
+    const encodedSession = String(liveUrl.searchParams.get("encsessionid") || "");
+    const escapedSession = String(show.session_id).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (liveUrl.protocol !== "https:" || !districtHost || !liveUrl.pathname.includes("/movies/seat-layout/") ||
+        !new RegExp(`(?:^|-)${escapedSession}(?:$|-)`, "i").test(encodedSession) ||
+        !encodedSession.toLowerCase().startsWith(`${String(venue.cinemaId).toLowerCase()}-`)) {
+      throw new RequestError("District live capture did not come from the exact Sai Chitra seat page");
+    }
+    const expected = venue.layoutCategories || [];
+    const actual = new Map(calculated.categories.map((category) => [category.name.trim().toUpperCase(), category]));
+    if (actual.size !== expected.length || expected.some((category) =>
+      Number(actual.get(category.name)?.capacity) !== Number(category.capacity)
+    )) {
+      throw new RequestError("District live capture did not match the verified Sai Chitra seating layout");
+    }
+    const advertised = new Map(parseJson(show.advertised_categories_json, []).map((category) => [
+      String(category.name || "").trim().toUpperCase(),
+      Number(category.listPricePaise || 0)
+    ]));
+    if (advertised.size && calculated.categories.some((category) =>
+      advertised.get(category.name.trim().toUpperCase()) !== category.listPricePaise
+    )) {
+      throw new RequestError("District live prices did not match the discovered show prices");
+    }
+    source = "local-chrome-extension-district-live";
   }
   if (summaryEstimate) {
     if (venue?.venueCode !== "SCM" || venue.platform !== "ticketnew") {

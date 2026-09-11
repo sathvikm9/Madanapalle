@@ -42,4 +42,10 @@ test("recognizes only the configured theatre page as extension-owned", () => {
   assert.equal(tabBelongsToVenue({
     url: "https://ticketnew.com/movies/seat-layout/b0meltruw2?encsessionid=9999-session&fromdate=2026-09-09"
   }, { platform: "ticketnew", cinemaId: 4903 }), false);
+  assert.equal(tabBelongsToVenue({
+    url: "https://www.district.in/movies/seat-layout/b0meltruw2?encsessionid=4903-34956__1788968700__753__1936499-obav6l-b0meltruw2"
+  }, { platform: "ticketnew", cinemaId: 4903 }), true);
+  assert.equal(tabBelongsToVenue({
+    url: "https://www.district.in/movies/seat-layout/b0meltruw2?encsessionid=9999-session"
+  }, { platform: "ticketnew", cinemaId: 4903 }), false);
 });

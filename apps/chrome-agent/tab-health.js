@@ -27,8 +27,11 @@ export function tabBelongsToVenue(tab, venue) {
     try {
       const url = new URL(value);
       if (venue?.platform === "ticketnew") {
-        if (!url.hostname.endsWith("ticketnew.com")) return false;
+        const ticketNew = url.hostname === "ticketnew.com" || url.hostname.endsWith(".ticketnew.com");
+        const district = url.hostname === "district.in" || url.hostname === "www.district.in" || url.hostname.endsWith(".district.in");
+        if (!ticketNew && !district) return false;
         if (url.pathname.endsWith(`/${venue.cinemaId}`)) return true;
+        if (district && url.pathname.toUpperCase().includes(`CD${venue.cinemaId}`)) return true;
         const encodedSession = String(url.searchParams.get("encsessionid") || "").toLowerCase();
         return url.pathname.includes("/movies/seat-layout/") &&
           encodedSession.startsWith(`${String(venue.cinemaId).toLowerCase()}-`);

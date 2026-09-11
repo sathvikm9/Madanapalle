@@ -115,7 +115,7 @@ test("accepts the exact session token when TicketNew appends movie and screen id
   }), false);
 });
 
-test("discovers an exact TicketNew seat route from District metadata", () => {
+test("discovers an exact District seat route from District metadata", () => {
   const sessionId = "34956__1788957000__753__1936498";
   const districtState = {
     props: { pageProps: { data: { serverState: { "49032026-09-09": {
@@ -175,6 +175,8 @@ test("discovers an exact TicketNew seat route from District metadata", () => {
   assert.equal(irumudi.movieTitle, "Irumudi");
   assert.equal(irumudi.sessionId, sessionId);
   assert.match(irumudi.seatLayoutUrl, /^https:\/\/ticketnew\.com\/movies\/madanapalle\/.+\/4903\?fromdate=2026-09-09$/);
+  assert.match(irumudi.directSeatLayoutUrl, /^https:\/\/www\.district\.in\/movies\/seat-layout\//);
+  assert.equal(irumudi.liveSeatLayoutProvider, "district");
   assert.match(irumudi.directSeatLayoutUrl, new RegExp(`encsessionid=4903-${sessionId}-obav6l-b0meltruw2`));
   assert.match(irumudi.directSeatLayoutUrl, /contentid=214275/);
   assert.equal(isLiveSeatLayout({ href: irumudi.directSeatLayoutUrl }, irumudi), true);
@@ -257,6 +259,38 @@ test("captures TicketNew sold seats from the live seat layout", () => {
   ]);
   assert.equal(result.attemptId, "live-attempt");
   assert.equal(result.capturedAt, "2026-08-21T05:44:40.000Z");
+});
+
+test("marks an exact District live seat capture with verifiable provider evidence", () => {
+  const sessionId = "34956__1788957000__753__1936498";
+  const pageUrl = `https://www.district.in/movies/seat-layout/b0meltruw2?encsessionid=4903-${sessionId}-obav6l-b0meltruw2`;
+  const labels = [
+    "available seat, class FIRST CL, row A, column 1, price 84",
+    "unavailable seat, class FIRST CL, row A, column 2, price 84",
+    "unavailable seat, class RESERVED CL, row B, column 1, price 105"
+  ];
+  const document = {
+    location: { href: pageUrl },
+    querySelectorAll: () => labels.map((label) => ({ getAttribute: () => label }))
+  };
+  const show = {
+    naturalKey: `SCM:20260909:1800:${sessionId}:OBAV6L`,
+    sessionId,
+    dateCode: "20260909",
+    attemptId: "district-attempt",
+    categories: [
+      { name: "FIRST CL", listPricePaise: 8_400 },
+      { name: "RESERVED CL", listPricePaise: 10_500 }
+    ]
+  };
+
+  assert.equal(isLiveSeatLayout({ href: pageUrl }, show), true);
+  assert.equal(isLiveSeatLayout({
+    href: pageUrl.replace("www.district.in", "ticketnew.com")
+  }, { ...show, liveSeatLayoutProvider: "district" }), false);
+  const result = captureLive(document, show, new Date("2026-09-09T12:44:05.000Z"));
+  assert.equal(result.captureMethod, "district-live");
+  assert.deepEqual(result.liveEvidence, { provider: "district", sessionId, pageUrl });
 });
 
 test("uses the TicketNew movie catalogue when a sold-out session is omitted from grouped metadata", () => {

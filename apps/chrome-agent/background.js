@@ -19,7 +19,7 @@ import {
 } from "./capture-outbox.js";
 import {
   finalSummaryWhen,
-  hasFinalLiveCapture,
+  hasAnyLiveCapture,
   isTicketNewSummary,
   needsBackupSummary,
   TICKETNEW_SUMMARY_METHOD
@@ -200,6 +200,7 @@ async function handleAlarm(alarm) {
   if (alarm.name.startsWith("preflight:") || alarm.name.startsWith("final-preflight:")) {
     const show = await showForAlarm(alarm.name);
     if (show) {
+      let preparedShow = show;
       let discoveryError = null;
       try {
         await discoverVenue(show.venueCode, show.dateCode, { allowImminent: true });
@@ -207,18 +208,23 @@ async function handleAlarm(alarm) {
         discoveryError = error;
       }
       if (show.venueCode === "SCM" && !discoveryError) {
-        await primeSaiChitraDistrictRoute(show).catch((error) => appendAgentDiagnostic({
-          type: "sai_chitra_district_route_prime_failed",
-          venueCode: show.venueCode,
-          dateCode: show.dateCode,
-          naturalKey: show.naturalKey,
-          showTimeLabel: show.showTimeLabel,
-          error: String(error?.message || error).slice(0, 500)
-        }));
+        try {
+          preparedShow = await primeSaiChitraDistrictRoute(show);
+        } catch (error) {
+          await appendAgentDiagnostic({
+            type: "sai_chitra_district_route_prime_failed",
+            venueCode: show.venueCode,
+            dateCode: show.dateCode,
+            naturalKey: show.naturalKey,
+            showTimeLabel: show.showTimeLabel,
+            error: String(error?.message || error).slice(0, 500)
+          });
+        }
       }
       const state = await getCaptureState(show.naturalKey);
-      if (captureModeFor(show, state) === "recovery") {
-        await prepareRecoverySeatLayout(show);
+      if (captureModeFor(show, state) === "recovery" &&
+          (show.venueCode !== "SCM" || preparedShow.liveSeatLayoutProvider === "district")) {
+        await prepareRecoverySeatLayout(preparedShow);
       }
       if (discoveryError) throw discoveryError;
     }
@@ -565,6 +571,7 @@ async function primeSaiChitraDistrictRoute(show) {
       ? {
           ...candidate,
           directSeatLayoutUrl: fallback.directSeatLayoutUrl,
+          liveSeatLayoutProvider: "district",
           districtRouteVerifiedAt: new Date().toISOString()
         }
       : candidate
@@ -578,6 +585,12 @@ async function primeSaiChitraDistrictRoute(show) {
     naturalKey: show.naturalKey,
     showTimeLabel: show.showTimeLabel
   });
+  return {
+    ...show,
+    directSeatLayoutUrl: fallback.directSeatLayoutUrl,
+    liveSeatLayoutProvider: "district",
+    districtRouteVerifiedAt: new Date().toISOString()
+  };
 }
 
 async function beginCapture(show) {
@@ -588,7 +601,9 @@ async function beginCapture(show) {
   if (await getPending(show.naturalKey)) return;
   const state = await getCaptureState(show.naturalKey);
   const captureMode = captureModeFor(show, state);
-  const captureShow = captureMode === "primary" ? await withCachedTicketNewSeatLayout(show) : show;
+  const captureShow = show.venueCode === "SCM"
+    ? await withCachedTicketNewSeatLayout(show)
+    : show;
   const attemptStartedAt = new Date().toISOString();
   const attemptId = `${Date.now()}-${crypto.randomUUID()}`;
   const pending = { ...captureShow, attemptId, attemptStartedAt, captureMode };
@@ -704,14 +719,14 @@ async function failCapture(show, error, stage, { pendingAlreadyRemoved = false }
 async function captureSaiChitraSummaryEstimate(show, phase) {
   if (show.venueCode !== "SCM" || show.platform !== "ticketnew") return { skipped: "not Sai Chitra" };
   let state = await getCaptureState(show.naturalKey);
-  if (phase === "final" && hasFinalLiveCapture(show, state)) {
+  if (phase === "final" && hasAnyLiveCapture(show, state)) {
     await appendAgentDiagnostic({
       type: "sai_chitra_final_summary_skipped",
       naturalKey: show.naturalKey,
       showTimeLabel: show.showTimeLabel,
-      reason: "final live capture already protected"
+      reason: "a live District capture is already protected"
     });
-    return { skipped: "final live capture already protected" };
+    return { skipped: "a live District capture is already protected" };
   }
 
   const attemptedAt = new Date().toISOString();
@@ -722,14 +737,14 @@ async function captureSaiChitraSummaryEstimate(show, phase) {
   const attemptId = `ticketnew-summary-${phase}-${Date.now()}-${crypto.randomUUID()}`;
   const result = await readTicketNewSummaryCapture({ ...show, attemptId }, phase);
   state = await getCaptureState(show.naturalKey);
-  if (phase === "final" && hasFinalLiveCapture(show, state)) {
+  if (phase === "final" && hasAnyLiveCapture(show, state)) {
     await appendAgentDiagnostic({
       type: "sai_chitra_final_summary_skipped",
       naturalKey: show.naturalKey,
       showTimeLabel: show.showTimeLabel,
-      reason: "final live capture completed while summary was loading"
+      reason: "a live District capture completed while summary was loading"
     });
-    return { skipped: "final live capture completed while summary was loading" };
+    return { skipped: "a live District capture completed while summary was loading" };
   }
 
   const estimatedResult = {
@@ -819,7 +834,9 @@ async function refreshRecoveryShow(show, recovery, previousState) {
       });
       await scheduleShow(refreshed);
     }
-    return refreshed;
+    return refreshed.venueCode === "SCM"
+      ? await withCachedTicketNewSeatLayout(refreshed)
+      : refreshed;
   } catch (error) {
     await updateCaptureState(show.naturalKey, {
       lastRecoveryDiscoveryError: String(error?.message || error)
@@ -1065,9 +1082,16 @@ async function withCachedTicketNewSeatLayout(show) {
   if (show.platform !== "ticketnew") return show;
   const { ticketNewLiveUrls = {} } = await chrome.storage.local.get({ ticketNewLiveUrls: {} });
   const cached = ticketNewLiveUrls[show.naturalKey];
-  return cachedTicketNewUrlMatches(cached, show)
-    ? { ...show, directSeatLayoutUrl: cached.url }
-    : show;
+  if (cachedTicketNewUrlMatches(cached, show) && cached.provider === "district") {
+    return { ...show, directSeatLayoutUrl: cached.url, liveSeatLayoutProvider: "district" };
+  }
+  if (cachedTicketNewUrlMatches({
+    url: show.directSeatLayoutUrl,
+    dateCode: show.dateCode,
+    sessionId: show.sessionId,
+    provider: show.liveSeatLayoutProvider
+  }, show) && show.liveSeatLayoutProvider === "district") return show;
+  return primeSaiChitraDistrictRoute(show);
 }
 
 function cachedTicketNewUrlMatches(cached, show) {
@@ -1080,9 +1104,10 @@ function cachedTicketNewUrlMatches(cached, show) {
     const encodedSession = String(url.searchParams.get("encsessionid") || "").toLowerCase();
     const dateCode = String(url.searchParams.get("fromdate") || "").replaceAll("-", "");
     const sessionId = String(show.sessionId).toLowerCase();
-    return url.hostname.endsWith("ticketnew.com") &&
+    const district = url.hostname === "district.in" || url.hostname === "www.district.in" || url.hostname.endsWith(".district.in");
+    return district &&
       url.pathname.includes("/movies/seat-layout/") &&
-      dateCode === show.dateCode &&
+      (!dateCode || dateCode === show.dateCode) &&
       globalThis.SKCTTicketNew.sessionIdentityMatches(pathSession, encodedSession, sessionId);
   } catch {
     return false;
