@@ -90,3 +90,14 @@ test("Sai Chitra summary fallback is isolated from the live seat-map tab", () =>
   assert.match(summary, /chrome\.tabs\.remove/);
   assert.match(contentSource, /get\("skctsummary"\) === "1"\) return/);
 });
+
+test("manual discovery verifies every Sai Chitra District live route", () => {
+  const source = fs.readFileSync(backgroundUrl, "utf8");
+  const runStart = source.indexOf('if (message.type === "RUN_DISCOVERY")');
+  const runEnd = source.indexOf('if (message.type === "CAPTURE_RESULT")', runStart);
+  const runDiscovery = source.slice(runStart, runEnd);
+
+  assert.match(runDiscovery, /await discoverAll\(dateCode, \{ force: true \}\)/);
+  assert.match(runDiscovery, /await primeAllSaiChitraDistrictRoutes\(dateCode\)/);
+  assert.match(source, /liveSeatLayoutProvider:\s*"district"/);
+});

@@ -264,7 +264,10 @@ async function handleAlarm(alarm) {
 
 async function handleMessage(message) {
   if (message.type === "RUN_DISCOVERY") {
-    return { ok: true, result: await discoverAll(indiaDateCode(0), { force: true }) };
+    const dateCode = indiaDateCode(0);
+    const result = await discoverAll(dateCode, { force: true });
+    const districtLiveRoutes = await primeAllSaiChitraDistrictRoutes(dateCode);
+    return { ok: true, result: { ...result, districtLiveRoutes } };
   }
   if (message.type === "CAPTURE_RESULT") {
     const pending = await getPending(message.result.naturalKey);
@@ -591,6 +594,37 @@ async function primeSaiChitraDistrictRoute(show) {
     liveSeatLayoutProvider: "district",
     districtRouteVerifiedAt: new Date().toISOString()
   };
+}
+
+async function primeAllSaiChitraDistrictRoutes(dateCode) {
+  const venue = venueFor("SCM");
+  const stored = await chrome.storage.local.get({ knownShows: {} });
+  const key = `SCM:${dateCode}`;
+  const known = stored.knownShows[key] || [];
+  if (!known.length) return 0;
+
+  const district = await readDistrictVenuePage(venue, dateCode);
+  const districtByNaturalKey = new Map(district.shows.map((show) => [show.naturalKey, show]));
+  const missing = known.filter((show) => !districtByNaturalKey.get(show.naturalKey)?.directSeatLayoutUrl);
+  if (missing.length) {
+    throw new Error(`District did not verify ${missing.map((show) => show.showTimeLabel).join(", ")}`);
+  }
+
+  const verifiedAt = new Date().toISOString();
+  stored.knownShows[key] = known.map((show) => ({
+    ...show,
+    directSeatLayoutUrl: districtByNaturalKey.get(show.naturalKey).directSeatLayoutUrl,
+    liveSeatLayoutProvider: "district",
+    districtRouteVerifiedAt: verifiedAt
+  }));
+  await chrome.storage.local.set({ knownShows: stored.knownShows });
+  await appendAgentDiagnostic({
+    type: "sai_chitra_all_district_routes_primed",
+    venueCode: "SCM",
+    dateCode,
+    shows: known.length
+  });
+  return known.length;
 }
 
 async function beginCapture(show) {

@@ -16,7 +16,7 @@ The extension creates one pinned BookMyShow or TicketNew tab per theatre. Keep C
 
 - today's schedule refreshes every fifteen minutes
 - each theatre's routine discovery pauses after its final known show has a successful capture and passes cutoff
-- **Save and test now** always forces a fresh discovery, including after the routine pause
+- **Save and test now** forces a fresh discovery and verifies an exact District live route for every discovered Sai Chitra show
 - tomorrow is never opened early; discovery rolls to the new India date just after 12:00 AM IST
 - the India-date rollover discards the extension-owned collector tabs and opens fresh current-date tabs
 - a tab that remains loading or cannot run discovery is replaced once immediately; continued failures retry only that theatre after 2, 5, then 15 minutes

@@ -16,7 +16,7 @@ document.querySelector("#test").addEventListener("click", async () => {
   status.textContent = "Opening all four theatre tabs and testing discovery…";
   const result = await chrome.runtime.sendMessage({ type: "RUN_DISCOVERY" });
   status.textContent = result.ok
-    ? `Working: discovered ${result.result.shows} shows across ${result.result.venues.length} theatres.`
+    ? `Working: discovered ${result.result.shows} shows across ${result.result.venues.length} theatres. District live routes verified for ${result.result.districtLiveRoutes} Sai Chitra shows.`
     : `Needs attention: ${result.error}`;
   status.dataset.ok = String(result.ok);
 });
