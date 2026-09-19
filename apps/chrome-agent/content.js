@@ -334,23 +334,7 @@ function ticketNewIdentity(show) {
 }
 
 async function primaryQuantityControl() {
-  const selectSeats = await waitForControl(
-    () => currentBookMyShowControls().selectSeats,
-    "select_seats_button",
-    20_000
-  );
-  selectSeats.click();
-  const accessibility = await waitForControl(
-    () => currentBookMyShowControls().accessibility,
-    "accessibility_seat_button",
-    20_000
-  );
-  accessibility.click();
-  return waitForControl(
-    () => currentBookMyShowControls().quantity,
-    "ticket_quantity_select",
-    20_000
-  );
+  return bookMyShowQuantityControl(Date.now() + 28_000, false);
 }
 
 async function primaryCategoryControls() {
@@ -368,6 +352,10 @@ async function primaryCategoryControls() {
 }
 
 async function recoveryQuantityControl(deadline) {
+  return bookMyShowQuantityControl(deadline, true);
+}
+
+async function bookMyShowQuantityControl(deadline, recoveryMode) {
   let lastAction = "wait_booking_entry_control";
   let lastClickedAt = 0;
 
@@ -382,7 +370,10 @@ async function recoveryQuantityControl(deadline) {
     if (controls.quantity) return controls.quantity;
     if (lastAction === "seat_controls_ready") return null;
 
-    const clickable = lastAction === "click_accessibility"
+    const clickable = (
+      lastAction === "click_accessibility" ||
+      lastAction === "click_accessibility_with_selected_quantity"
+    )
       ? controls.accessibility
       : lastAction === "click_select_seats" ? controls.selectSeats : null;
     if (clickable && Date.now() - lastClickedAt >= 2_000) {
@@ -392,7 +383,15 @@ async function recoveryQuantityControl(deadline) {
     await delay(100);
   }
 
-  throwCaptureControlError(lastAction, { recoveryMode: true });
+  const controls = currentBookMyShowControls();
+  throwCaptureControlError("ticket_quantity_or_seat_controls", {
+    recoveryMode,
+    lastAction,
+    selectedTicketCount: globalThis.SKCTBookMyShow.selectedTicketCount(controls.selectedQuantity),
+    quantityPresent: Boolean(controls.quantity),
+    categorySelectPresent: Boolean(controls.categorySelect),
+    rowSelectPresent: Boolean(controls.rowSelect)
+  });
 }
 
 async function recoveryCategoryControls(deadline) {
@@ -413,11 +412,15 @@ async function recoveryCategoryControls(deadline) {
 }
 
 function currentBookMyShowControls() {
+  const interactiveControls = Array.from(document.querySelectorAll("button, [role=\"button\"]"));
   return {
     selectSeats: Array.from(document.querySelectorAll("button"))
       .find((button) => button.textContent.trim() === "Select Seats") || null,
     accessibility: document.querySelector('button[aria-label="Open accessibility seat selection"]'),
     quantity: document.querySelector('select[aria-label="Select number of tickets, required"]'),
+    selectedQuantity: interactiveControls.find((control) => (
+      globalThis.SKCTBookMyShow.selectedTicketCount(control) != null
+    )) || null,
     categorySelect: document.querySelector('select[aria-label="Select seat category"]'),
     rowSelect: document.querySelector('select[aria-label="Select row"]'),
     visualSeatMap: Boolean(document.querySelector('[aria-label^="Seats for Row"], [aria-label^="Select seat"]'))

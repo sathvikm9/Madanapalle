@@ -5,6 +5,7 @@ await import("./bookmyshow.js");
 const {
   enabledTicketOptions,
   singleTicketOption,
+  selectedTicketCount,
   isFullySold,
   layoutSignature,
   completeFromVerifiedLayout,
@@ -31,6 +32,21 @@ test("recognizes a BookMyShow quantity control with no selectable tickets", () =
   ]);
   assert.equal(enabledTicketOptions(quantity).length, 0);
   assert.equal(singleTicketOption(quantity), null);
+});
+
+test("recognizes an already-selected BookMyShow ticket quantity without matching unrelated labels", () => {
+  assert.equal(selectedTicketCount("2 Tickets"), 2);
+  assert.equal(selectedTicketCount("1 Ticket"), 1);
+  assert.equal(selectedTicketCount({
+    getAttribute: (name) => name === "aria-label" ? "4 Tickets" : null,
+    textContent: "Change quantity"
+  }), 4);
+  assert.equal(selectedTicketCount({
+    getAttribute: (name) => name === "aria-label" ? "Change ticket quantity" : null,
+    textContent: "2 Tickets"
+  }), 2);
+  assert.equal(selectedTicketCount("02:00 PM ATMOS 4K"), null);
+  assert.equal(selectedTicketCount("Buy 2 Tickets"), null);
 });
 
 test("requires every real seat in every category to be sold", () => {
@@ -92,6 +108,8 @@ test("recovery resumes from the furthest usable BookMyShow control", () => {
   }), "ready");
   assert.equal(recoveryAction({ categorySelect: {}, rowSelect: {} }), "seat_controls_ready");
   assert.equal(recoveryAction({ quantity: {}, accessibility: {}, selectSeats: {} }), "quantity_ready");
+  assert.equal(recoveryAction({ categorySelect: {}, accessibility: {} }), "wait_seat_controls");
+  assert.equal(recoveryAction({ selectedQuantity: {}, accessibility: {}, selectSeats: {} }), "click_accessibility_with_selected_quantity");
   assert.equal(recoveryAction({ accessibility: {}, selectSeats: {} }), "click_accessibility");
   assert.equal(recoveryAction({ selectSeats: {} }), "click_select_seats");
   assert.equal(recoveryAction({ visualSeatMap: true }), "visual_seat_map_without_accessibility_controls");

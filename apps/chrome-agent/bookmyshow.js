@@ -30,6 +30,19 @@
     }) || options[0] || null;
   }
 
+  function selectedTicketCount(controlOrLabel) {
+    const labels = typeof controlOrLabel === "string"
+      ? [controlOrLabel]
+      : [controlOrLabel?.getAttribute?.("aria-label"), controlOrLabel?.textContent];
+    for (const label of labels) {
+      const match = String(label || "").trim().match(/^(\d{1,2})\s+tickets?$/i);
+      if (!match) continue;
+      const count = Number(match[1]);
+      if (Number.isSafeInteger(count) && count > 0) return count;
+    }
+    return null;
+  }
+
   function isFullySold(categories) {
     return Array.isArray(categories) && categories.length > 0 && categories.every((category) => (
       Number(category.capacity) > 0 &&
@@ -83,6 +96,8 @@
     if (controls.quantity && controls.categorySelect && controls.rowSelect) return "ready";
     if (controls.categorySelect && controls.rowSelect) return "seat_controls_ready";
     if (controls.quantity) return "quantity_ready";
+    if (controls.categorySelect || controls.rowSelect) return "wait_seat_controls";
+    if (controls.selectedQuantity && controls.accessibility) return "click_accessibility_with_selected_quantity";
     if (controls.accessibility) return "click_accessibility";
     if (controls.selectSeats) return "click_select_seats";
     if (controls.visualSeatMap) return "visual_seat_map_without_accessibility_controls";
@@ -93,6 +108,7 @@
     VERIFIED_LAYOUTS,
     enabledTicketOptions,
     singleTicketOption,
+    selectedTicketCount,
     isFullySold,
     layoutSignature,
     completeFromVerifiedLayout,
