@@ -5,6 +5,7 @@ import {
   clampDashboardDate,
   indiaToday,
   millisecondsUntilNextIndiaMidnight,
+  reconcileDashboardDate,
   shiftDashboardDate
 } from "./dateRange.js";
 
@@ -29,4 +30,30 @@ test("date navigation stays within launch day and India today", () => {
   assert.equal(shiftDashboardDate("2026-08-27", 1, "2026-08-28"), "2026-08-28");
   assert.equal(shiftDashboardDate("2026-08-28", 1, "2026-08-28"), "2026-08-28");
   assert.equal(shiftDashboardDate("2026-08-31", 1, "2026-09-01"), "2026-09-01");
+});
+
+test("foreground reconciliation follows India today across midnight", () => {
+  assert.deepEqual(reconcileDashboardDate({
+    selectedDate: "2026-09-19",
+    latestDate: "2026-09-19",
+    currentIndiaDate: "2026-09-20"
+  }), {
+    dateChanged: true,
+    selectedDateChanged: true,
+    latestDate: "2026-09-20",
+    selectedDate: "2026-09-20"
+  });
+});
+
+test("foreground reconciliation preserves an intentionally selected historical date", () => {
+  assert.deepEqual(reconcileDashboardDate({
+    selectedDate: "2026-09-18",
+    latestDate: "2026-09-19",
+    currentIndiaDate: "2026-09-20"
+  }), {
+    dateChanged: true,
+    selectedDateChanged: false,
+    latestDate: "2026-09-20",
+    selectedDate: "2026-09-18"
+  });
 });

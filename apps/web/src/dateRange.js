@@ -32,6 +32,19 @@ export function shiftDashboardDate(value, dayOffset, latestDate = indiaToday()) 
   return clampDashboardDate(shifted, latestDate);
 }
 
+export function reconcileDashboardDate({ selectedDate, latestDate, currentIndiaDate = indiaToday() }) {
+  const nextLatestDate = currentIndiaDate < FIRST_LIVE_DATE ? FIRST_LIVE_DATE : currentIndiaDate;
+  const nextSelectedDate = selectedDate === latestDate
+    ? nextLatestDate
+    : clampDashboardDate(selectedDate, nextLatestDate);
+  return {
+    dateChanged: nextLatestDate !== latestDate,
+    selectedDateChanged: nextSelectedDate !== selectedDate,
+    latestDate: nextLatestDate,
+    selectedDate: nextSelectedDate
+  };
+}
+
 export function millisecondsUntilNextIndiaMidnight(now = new Date()) {
   const indiaTimestamp = now.getTime() + INDIA_OFFSET_MS;
   const nextMidnight = (Math.floor(indiaTimestamp / DAY_MS) + 1) * DAY_MS;

@@ -8,9 +8,11 @@ import {
   FIRST_LIVE_DATE,
   indiaToday,
   millisecondsUntilNextIndiaMidnight,
+  reconcileDashboardDate,
   shiftDashboardDate
 } from "./dateRange.js";
 import {
+  FOREGROUND_REFRESH_RETRY_MS,
   shouldAutoRefreshDashboard,
   TODAY_REFRESH_INTERVAL_MS
 } from "./dashboardRefresh.js";
@@ -310,6 +312,8 @@ export default function App() {
   );
   const latestRequestRef = useRef(0);
   const latestDateRef = useRef(initialIndiaDate);
+  const selectedDateRef = useRef(selectedDate);
+  const dateTransitionRef = useRef(false);
   const activeLoadingRequestsRef = useRef(0);
   const autoRefreshInFlightRef = useRef(false);
 
@@ -333,9 +337,12 @@ export default function App() {
       if (requestId === latestRequestRef.current) {
         setData(nextData);
         setError("");
+        return true;
       }
+      return false;
     } catch (requestError) {
       if (!silent && requestId === latestRequestRef.current) setError(requestError.message);
+      return false;
     } finally {
       if (!silent) {
         activeLoadingRequestsRef.current = Math.max(0, activeLoadingRequestsRef.current - 1);
@@ -344,65 +351,100 @@ export default function App() {
     }
   }, [selectedDate, selectedVenue]);
 
-  useEffect(() => { load(); }, [load]);
-  useEffect(() => {
-    let timer;
-    const refreshIndiaDate = () => {
-      const nextLatestDate = indiaToday();
-      const previousLatestDate = latestDateRef.current;
-      latestDateRef.current = nextLatestDate;
-      setLatestDate(nextLatestDate);
-      setSelectedDate((current) => current === previousLatestDate
-        ? nextLatestDate
-        : clampDashboardDate(current, nextLatestDate));
-    };
-    const scheduleRollover = () => {
-      timer = setTimeout(() => {
-        refreshIndiaDate();
-        scheduleRollover();
-      }, millisecondsUntilNextIndiaMidnight() + 250);
-    };
-    scheduleRollover();
-    return () => clearTimeout(timer);
-  }, []);
-  useEffect(() => {
-    if (inDemoMode || selectedDate !== latestDate) return undefined;
+  const syncIndiaDate = useCallback(() => {
+    const nextState = reconcileDashboardDate({
+      selectedDate: selectedDateRef.current,
+      latestDate: latestDateRef.current,
+      currentIndiaDate: indiaToday()
+    });
+    if (!nextState.dateChanged) return nextState;
 
+    latestDateRef.current = nextState.latestDate;
+    setLatestDate(nextState.latestDate);
+    if (nextState.selectedDateChanged) {
+      latestRequestRef.current += 1;
+      dateTransitionRef.current = true;
+      selectedDateRef.current = nextState.selectedDate;
+      setSelectedDate(nextState.selectedDate);
+    }
+    return nextState;
+  }, []);
+
+  const chooseDate = useCallback((nextDate) => {
+    const boundedDate = clampDashboardDate(nextDate, latestDateRef.current);
+    if (boundedDate === selectedDateRef.current) return;
+    latestRequestRef.current += 1;
+    dateTransitionRef.current = true;
+    selectedDateRef.current = boundedDate;
+    setSelectedDate(boundedDate);
+  }, []);
+
+  useEffect(() => {
+    dateTransitionRef.current = false;
+    void load();
+  }, [load]);
+  useEffect(() => {
+    let rolloverTimer;
+    let foregroundRetryTimer;
     let wasHidden = document.visibilityState === "hidden";
     const refreshToday = async () => {
       if (!shouldAutoRefreshDashboard({
-        selectedDate,
-        latestDate,
+        selectedDate: selectedDateRef.current,
+        latestDate: latestDateRef.current,
         visibilityState: document.visibilityState
       })) return;
-      if (activeLoadingRequestsRef.current > 0 || autoRefreshInFlightRef.current) return;
+      if (dateTransitionRef.current || activeLoadingRequestsRef.current > 0 || autoRefreshInFlightRef.current) return;
       autoRefreshInFlightRef.current = true;
       try {
-        await load({ silent: true });
+        return await load({ silent: true });
       } finally {
         autoRefreshInFlightRef.current = false;
       }
+    };
+    const scheduleForegroundRetry = () => {
+      window.clearTimeout(foregroundRetryTimer);
+      foregroundRetryTimer = window.setTimeout(() => void refreshToday(), FOREGROUND_REFRESH_RETRY_MS);
+    };
+    const scheduleRollover = () => {
+      window.clearTimeout(rolloverTimer);
+      rolloverTimer = window.setTimeout(() => {
+        syncIndiaDate();
+        scheduleRollover();
+      }, millisecondsUntilNextIndiaMidnight() + 250);
+    };
+    const refreshAfterResume = async () => {
+      const dateState = syncIndiaDate();
+      scheduleRollover();
+      if (dateState.dateChanged) return;
+      const refreshed = await refreshToday();
+      if (refreshed === false) scheduleForegroundRetry();
     };
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
         wasHidden = true;
       } else if (wasHidden) {
         wasHidden = false;
-        void refreshToday();
+        void refreshAfterResume();
       }
     };
     const handlePageShow = (event) => {
-      if (event.persisted) void refreshToday();
+      if (event.persisted) void refreshAfterResume();
     };
+    const handleOnline = () => void refreshAfterResume();
     const timer = window.setInterval(() => void refreshToday(), TODAY_REFRESH_INTERVAL_MS);
+    scheduleRollover();
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("pageshow", handlePageShow);
+    window.addEventListener("online", handleOnline);
     return () => {
       window.clearInterval(timer);
+      window.clearTimeout(rolloverTimer);
+      window.clearTimeout(foregroundRetryTimer);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("pageshow", handlePageShow);
+      window.removeEventListener("online", handleOnline);
     };
-  }, [latestDate, load, selectedDate]);
+  }, [load, syncIndiaDate]);
   useEffect(() => {
     function captureInstallPrompt(event) {
       event.preventDefault();
@@ -440,7 +482,7 @@ export default function App() {
   }
 
   function moveSelectedDate(dayOffset) {
-    setSelectedDate((current) => shiftDashboardDate(current, dayOffset, latestDate));
+    chooseDate(shiftDashboardDate(selectedDateRef.current, dayOffset, latestDateRef.current));
   }
 
   async function copyData() {
@@ -520,7 +562,7 @@ export default function App() {
               min={FIRST_LIVE_DATE}
               max={latestDate}
               value={selectedDate}
-              onChange={(event) => setSelectedDate(clampDashboardDate(event.target.value, latestDate))}
+              onChange={(event) => chooseDate(event.target.value)}
             />
           </div>
           <button className="refresh-button" type="button" onClick={() => load()} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>
@@ -535,7 +577,7 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={() => setSelectedDate(latestDate)}
+              onClick={() => chooseDate(latestDateRef.current)}
               disabled={selectedDate === latestDate}
             >
               Today
