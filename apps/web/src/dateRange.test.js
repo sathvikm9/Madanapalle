@@ -4,7 +4,8 @@ import {
   FIRST_LIVE_DATE,
   clampDashboardDate,
   indiaToday,
-  millisecondsUntilNextIndiaMidnight
+  millisecondsUntilNextIndiaMidnight,
+  shiftDashboardDate
 } from "./dateRange.js";
 
 test("India today rolls forward only at midnight in Asia/Kolkata", () => {
@@ -20,4 +21,12 @@ test("dashboard dates are limited to launch day through India today", () => {
   assert.equal(clampDashboardDate("2026-08-27", "2026-08-28"), "2026-08-27");
   assert.equal(clampDashboardDate("2026-08-29", "2026-08-28"), "2026-08-28");
   assert.equal(clampDashboardDate("invalid", "2026-08-28"), "2026-08-28");
+});
+
+test("date navigation stays within launch day and India today", () => {
+  assert.equal(shiftDashboardDate("2026-08-21", -1, "2026-08-28"), "2026-08-21");
+  assert.equal(shiftDashboardDate("2026-08-22", -1, "2026-08-28"), "2026-08-21");
+  assert.equal(shiftDashboardDate("2026-08-27", 1, "2026-08-28"), "2026-08-28");
+  assert.equal(shiftDashboardDate("2026-08-28", 1, "2026-08-28"), "2026-08-28");
+  assert.equal(shiftDashboardDate("2026-08-31", 1, "2026-09-01"), "2026-09-01");
 });

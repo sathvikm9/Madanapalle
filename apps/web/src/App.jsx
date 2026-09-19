@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { demoDashboard } from "./demo.js";
 import { groupShowsByMovie, sortMovieGroups } from "./movieGroups.js";
 import { buildMoviesCopyText, buildShowsCopyText } from "./copyData.js";
@@ -7,8 +7,13 @@ import {
   clampDashboardDate,
   FIRST_LIVE_DATE,
   indiaToday,
-  millisecondsUntilNextIndiaMidnight
+  millisecondsUntilNextIndiaMidnight,
+  shiftDashboardDate
 } from "./dateRange.js";
+import {
+  shouldAutoRefreshDashboard,
+  TODAY_REFRESH_INTERVAL_MS
+} from "./dashboardRefresh.js";
 
 const API_BASE = (import.meta.env.VITE_API_BASE || "http://localhost:8787").replace(/\/$/, "");
 const pageParams = new URLSearchParams(window.location.search);
@@ -303,33 +308,53 @@ export default function App() {
     () => !isStandaloneApp()
       && (installRequested || ((isMobileDevice() || Boolean(installPreview)) && !installPromptWasDismissed()))
   );
+  const latestRequestRef = useRef(0);
+  const latestDateRef = useRef(initialIndiaDate);
+  const activeLoadingRequestsRef = useRef(0);
+  const autoRefreshInFlightRef = useRef(false);
 
-  async function load() {
-    setLoading(true);
-    setError("");
+  const load = useCallback(async ({ silent = false } = {}) => {
+    const requestId = ++latestRequestRef.current;
+    if (!silent) {
+      activeLoadingRequestsRef.current += 1;
+      setLoading(true);
+      setError("");
+    }
     try {
+      let nextData;
       if (inDemoMode) {
-        setData(demoDashboard(selectedDate, selectedVenue));
+        nextData = demoDashboard(selectedDate, selectedVenue);
       } else {
         const query = new URLSearchParams({ date: selectedDate, venueCode: selectedVenue });
         const response = await fetch(`${API_BASE}/api/dashboard?${query}`, { cache: "no-store" });
         if (!response.ok) throw new Error(`Tracker API returned ${response.status}`);
-        setData(await response.json());
+        nextData = await response.json();
+      }
+      if (requestId === latestRequestRef.current) {
+        setData(nextData);
+        setError("");
       }
     } catch (requestError) {
-      setError(requestError.message);
+      if (!silent && requestId === latestRequestRef.current) setError(requestError.message);
     } finally {
-      setLoading(false);
+      if (!silent) {
+        activeLoadingRequestsRef.current = Math.max(0, activeLoadingRequestsRef.current - 1);
+        if (activeLoadingRequestsRef.current === 0) setLoading(false);
+      }
     }
-  }
+  }, [selectedDate, selectedVenue]);
 
-  useEffect(() => { load(); }, [selectedDate, selectedVenue]);
+  useEffect(() => { load(); }, [load]);
   useEffect(() => {
     let timer;
     const refreshIndiaDate = () => {
       const nextLatestDate = indiaToday();
+      const previousLatestDate = latestDateRef.current;
+      latestDateRef.current = nextLatestDate;
       setLatestDate(nextLatestDate);
-      setSelectedDate((current) => clampDashboardDate(current, nextLatestDate));
+      setSelectedDate((current) => current === previousLatestDate
+        ? nextLatestDate
+        : clampDashboardDate(current, nextLatestDate));
     };
     const scheduleRollover = () => {
       timer = setTimeout(() => {
@@ -341,10 +366,43 @@ export default function App() {
     return () => clearTimeout(timer);
   }, []);
   useEffect(() => {
-    if (inDemoMode) return undefined;
-    const timer = setInterval(load, 30_000);
-    return () => clearInterval(timer);
-  }, [selectedDate, selectedVenue]);
+    if (inDemoMode || selectedDate !== latestDate) return undefined;
+
+    let wasHidden = document.visibilityState === "hidden";
+    const refreshToday = async () => {
+      if (!shouldAutoRefreshDashboard({
+        selectedDate,
+        latestDate,
+        visibilityState: document.visibilityState
+      })) return;
+      if (activeLoadingRequestsRef.current > 0 || autoRefreshInFlightRef.current) return;
+      autoRefreshInFlightRef.current = true;
+      try {
+        await load({ silent: true });
+      } finally {
+        autoRefreshInFlightRef.current = false;
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        wasHidden = true;
+      } else if (wasHidden) {
+        wasHidden = false;
+        void refreshToday();
+      }
+    };
+    const handlePageShow = (event) => {
+      if (event.persisted) void refreshToday();
+    };
+    const timer = window.setInterval(() => void refreshToday(), TODAY_REFRESH_INTERVAL_MS);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pageshow", handlePageShow);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pageshow", handlePageShow);
+    };
+  }, [latestDate, load, selectedDate]);
   useEffect(() => {
     function captureInstallPrompt(event) {
       event.preventDefault();
@@ -379,6 +437,10 @@ export default function App() {
     }
     setInstallPrompt(null);
     setShowInstallCard(false);
+  }
+
+  function moveSelectedDate(dayOffset) {
+    setSelectedDate((current) => shiftDashboardDate(current, dayOffset, latestDate));
   }
 
   async function copyData() {
@@ -461,7 +523,32 @@ export default function App() {
               onChange={(event) => setSelectedDate(clampDashboardDate(event.target.value, latestDate))}
             />
           </div>
-          <button type="button" onClick={load} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>
+          <button className="refresh-button" type="button" onClick={() => load()} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>
+          <nav className="date-navigation" aria-label="Navigate show dates">
+            <button
+              type="button"
+              onClick={() => moveSelectedDate(-1)}
+              disabled={selectedDate <= FIRST_LIVE_DATE}
+              aria-label="Previous show date"
+            >
+              <span aria-hidden="true">←</span> Previous
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedDate(latestDate)}
+              disabled={selectedDate === latestDate}
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              onClick={() => moveSelectedDate(1)}
+              disabled={selectedDate >= latestDate}
+              aria-label="Next show date"
+            >
+              Next <span aria-hidden="true">→</span>
+            </button>
+          </nav>
         </section>
 
         {showInstallCard && !installRequested && (
@@ -469,7 +556,7 @@ export default function App() {
         )}
 
         {inDemoMode && <div className="notice notice--demo">Demo preview — these are illustrative numbers, not live BookMyShow data.</div>}
-        {error && <div className="notice notice--error"><strong>Unable to load the tracker.</strong> {error} <button onClick={load}>Try again</button></div>}
+        {error && <div className="notice notice--error"><strong>Unable to load the tracker.</strong> {error} <button onClick={() => load()}>Try again</button></div>}
         {loading && !data && <DashboardSkeleton />}
 
         {data && (

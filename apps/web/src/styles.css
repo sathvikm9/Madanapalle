@@ -121,7 +121,7 @@ main { max-width: 1120px; margin: 0 auto; padding: 30px 24px 88px; }
   border-color: var(--ink);
   box-shadow: 0 0 0 3px rgba(23, 32, 30, .08);
 }
-.date-control button {
+.date-control .refresh-button {
   min-width: 118px;
   height: 46px;
   padding: 0 20px;
@@ -132,8 +132,30 @@ main { max-width: 1120px; margin: 0 auto; padding: 30px 24px 88px; }
   font-weight: 700;
   transition: transform .16s ease, opacity .16s ease;
 }
-.date-control button:hover { transform: translateY(-1px); }
-.date-control button:disabled { opacity: .52; cursor: wait; transform: none; }
+.date-control .refresh-button:hover { transform: translateY(-1px); }
+.date-control .refresh-button:disabled { opacity: .52; cursor: wait; transform: none; }
+.date-navigation {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  width: min(100%, 420px);
+  justify-self: center;
+}
+.date-navigation button {
+  min-width: 0;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--ink);
+  background: var(--surface);
+  font-size: 11px;
+  font-weight: 700;
+  transition: border-color .16s ease, background .16s ease, opacity .16s ease;
+}
+.date-navigation button:hover:not(:disabled) { border-color: #bcb6aa; background: #ebe7dd; }
+.date-navigation button:disabled { opacity: .4; cursor: not-allowed; }
 
 .install-card {
   position: relative;
@@ -569,8 +591,10 @@ main { max-width: 1120px; margin: 0 auto; padding: 30px 24px 88px; }
   main { padding: 18px 14px 64px; }
 
   .date-control { grid-template-columns: minmax(0, 1fr); gap: 11px; padding: 13px; border-radius: 14px; }
-  .date-control input, .date-control select, .date-control button { width: 100%; min-width: 0; max-width: 100%; inline-size: 100%; min-inline-size: 0; max-inline-size: 100%; }
-  .date-control button { margin-top: 1px; }
+  .date-control input, .date-control select, .date-control .refresh-button { width: 100%; min-width: 0; max-width: 100%; inline-size: 100%; min-inline-size: 0; max-inline-size: 100%; }
+  .date-control .refresh-button { margin-top: 1px; }
+  .date-navigation { width: 100%; margin-top: 1px; }
+  .date-navigation button { padding-inline: 8px; }
 
   .install-card { grid-template-columns: auto minmax(0, 1fr); gap: 10px; padding: 12px 42px 12px 12px; }
   .install-card__icon { width: 42px; height: 42px; }

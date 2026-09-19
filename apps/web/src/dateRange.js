@@ -23,6 +23,15 @@ export function clampDashboardDate(value, latestDate = indiaToday()) {
   return value;
 }
 
+export function shiftDashboardDate(value, dayOffset, latestDate = indiaToday()) {
+  const current = clampDashboardDate(value, latestDate);
+  const [year, month, day] = current.split("-").map(Number);
+  const shifted = new Date(Date.UTC(year, month - 1, day + Number(dayOffset || 0)))
+    .toISOString()
+    .slice(0, 10);
+  return clampDashboardDate(shifted, latestDate);
+}
+
 export function millisecondsUntilNextIndiaMidnight(now = new Date()) {
   const indiaTimestamp = now.getTime() + INDIA_OFFSET_MS;
   const nextMidnight = (Math.floor(indiaTimestamp / DAY_MS) + 1) * DAY_MS;
