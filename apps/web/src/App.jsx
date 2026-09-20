@@ -534,7 +534,13 @@ export default function App() {
           <span className="brand__mark">MPL</span>
           <span><strong>MPLTalkies</strong><small>Collection Desk</small></span>
         </a>
-        <div className="live-indicator"><i /> Automatic backup + final capture</div>
+        <div className="live-indicator">
+          <i />
+          <span className="live-indicator__status">Automatic backup + final capture</span>
+          {data?.generatedAt && (
+            <span className="live-indicator__updated">Updated {dateTime.format(new Date(data.generatedAt))}</span>
+          )}
+        </div>
       </header>
 
       <main>

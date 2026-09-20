@@ -54,6 +54,7 @@ button { cursor: pointer; }
 .brand small { margin-top: 3px; color: var(--muted); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
 .live-indicator { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 12px; font-weight: 600; }
 .live-indicator i, .updated-dot { width: 7px; height: 7px; border-radius: 50%; background: #28a578; box-shadow: 0 0 0 5px rgba(40, 165, 120, .11); }
+.live-indicator__updated { display: none; }
 
 main { max-width: 1120px; margin: 0 auto; padding: 30px 24px 88px; }
 
@@ -587,7 +588,10 @@ main { max-width: 1120px; margin: 0 auto; padding: 30px 24px 88px; }
 @media (max-width: 640px) {
   .topbar { height: 64px; padding: 0 14px; }
   .brand__mark { width: 38px; height: 38px; flex-basis: 38px; border-radius: 11px; }
-  .live-indicator { font-size: 0; }
+  .live-indicator { min-width: 0; gap: 8px; font-size: 9px; font-weight: 500; white-space: nowrap; }
+  .live-indicator i { flex: 0 0 7px; }
+  .live-indicator__status { display: none; }
+  .live-indicator__updated { display: inline; }
   main { padding: 18px 14px 64px; }
 
   .date-control { grid-template-columns: minmax(0, 1fr); gap: 11px; padding: 13px; border-radius: 14px; }
