@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { attemptSecondOffset, canPauseVenueDiscovery, nextCaptureWhen, preflightTimes } from "./schedule.js";
+import {
+  attemptSecondOffset,
+  canPauseVenueDiscovery,
+  captureDeadline,
+  nextCaptureWhen,
+  preflightTimes
+} from "./schedule.js";
 
 const sriKrishna = {
   venueCode: "SKMD",
@@ -111,6 +117,49 @@ test("does not retry after the final-minute attempt", () => {
       lastSuccessAt: "2026-08-20T05:40:28.000Z"
     }, new Date("2026-08-20T05:44:35.000Z").getTime()),
     null
+  );
+});
+
+test("immediately schedules one BookMyShow recovery after a failed final attempt", () => {
+  const state = {
+    recoveryMode: true,
+    lastAttemptAt: "2026-08-20T05:44:05.000Z",
+    lastSuccessAt: "2026-08-20T05:40:28.000Z"
+  };
+  assert.equal(
+    nextCaptureWhen(sriKrishna, state, new Date("2026-08-20T05:44:26.000Z").getTime()),
+    new Date("2026-08-20T05:44:27.000Z").getTime()
+  );
+  assert.equal(
+    nextCaptureWhen(sriKrishna, state, new Date("2026-08-20T05:45:30.000Z").getTime()),
+    new Date("2026-08-20T05:45:31.000Z").getTime()
+  );
+});
+
+test("BookMyShow recovery ends after the cutoff minute and runs only once", () => {
+  const recovery = {
+    recoveryMode: true,
+    lastAttemptAt: "2026-08-20T05:44:05.000Z",
+    lastSuccessAt: "2026-08-20T05:40:28.000Z"
+  };
+  assert.equal(
+    captureDeadline(sriKrishna, recovery),
+    new Date("2026-08-20T05:46:00.000Z").getTime()
+  );
+  assert.equal(
+    nextCaptureWhen(sriKrishna, recovery, new Date("2026-08-20T05:46:00.000Z").getTime()),
+    null
+  );
+  assert.equal(
+    nextCaptureWhen(sriKrishna, {
+      ...recovery,
+      finalRecoveryAttemptedAt: "2026-08-20T05:44:27.000Z"
+    }, new Date("2026-08-20T05:44:30.000Z").getTime()),
+    null
+  );
+  assert.equal(
+    captureDeadline(saiChitra, { recoveryMode: true }),
+    new Date("2026-09-07T05:45:00.000Z").getTime()
   );
 });
 

@@ -143,7 +143,12 @@ async function captureSeats(show) {
     return captureTicketNewSeats(show);
   }
   const recoveryMode = show.captureMode === "recovery";
-  const recoveryDeadline = recoveryMode ? Date.now() + 28_000 : null;
+  const configuredRecoveryDeadline = new Date(show.captureDeadlineAt || 0).getTime();
+  const recoveryDeadline = recoveryMode
+    ? (show.isFinalRecovery && Number.isFinite(configuredRecoveryDeadline)
+        ? configuredRecoveryDeadline
+        : Date.now() + 28_000)
+    : null;
   const quantity = recoveryMode
     ? await recoveryQuantityControl(recoveryDeadline)
     : await primaryQuantityControl();
@@ -206,6 +211,7 @@ async function captureSeats(show) {
   return {
     naturalKey: show.naturalKey,
     attemptId: show.attemptId,
+    captureMode: show.captureMode || "primary",
     capturedAt,
     captureMinute: indiaCaptureMinute(capturedAt),
     categories,

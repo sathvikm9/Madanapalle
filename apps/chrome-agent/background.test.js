@@ -101,3 +101,27 @@ test("manual discovery verifies every Sai Chitra District live route", () => {
   assert.match(runDiscovery, /await primeAllSaiChitraDistrictRoutes\(dateCode\)/);
   assert.match(source, /liveSeatLayoutProvider:\s*"district"/);
 });
+
+test("BookMyShow final failure primes and schedules a bounded recovery capture", () => {
+  const source = fs.readFileSync(backgroundUrl, "utf8");
+  const beginStart = source.indexOf("async function beginCapture");
+  const beginEnd = source.indexOf("function discoveryHousefullResult", beginStart);
+  const beginCapture = source.slice(beginStart, beginEnd);
+  const failureStart = source.indexOf("async function failCapture");
+  const failureEnd = source.indexOf("async function captureSaiChitraSummaryEstimate", failureStart);
+  const failCapture = source.slice(failureStart, failureEnd);
+  const recoveryStart = source.indexOf("async function openRecoverySeatLayout");
+  const recoveryEnd = source.indexOf("async function closeRecoveryTab", recoveryStart);
+  const openRecovery = source.slice(recoveryStart, recoveryEnd);
+
+  assert.match(beginCapture, /finalRecoveryAttemptedAt/);
+  assert.match(beginCapture, /primaryFinalTimeoutMs[\s\S]*?20_000/);
+  assert.match(beginCapture, /extendedBookMyShowRecovery[\s\S]*?deadlineRemainingMs - 1_000/);
+  assert.match(beginCapture, /isFinalRecovery[\s\S]*?captureDeadlineAt/);
+  assert.ok(
+    failCapture.indexOf("prepareRecoverySeatLayout") < failCapture.indexOf("scheduleShow"),
+    "the fresh recovery tab must be primed before its immediate alarm is scheduled"
+  );
+  assert.match(failCapture, /recoveryTabPrimedAt/);
+  assert.match(openRecovery, /if \(!show\.reusePreparedRecoveryTab\) await chrome\.tabs\.reload/);
+});

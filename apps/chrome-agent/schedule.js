@@ -1,6 +1,7 @@
 import { protectedCaptureAt } from "./capture-outbox.js";
 
 const DEFAULT_ATTEMPT_SECOND_OFFSET_MS = 5_000;
+const BOOKMYSHOW_RECOVERY_GRACE_MS = 60_000;
 
 function timestamp(value) {
   const result = new Date(value).getTime();
@@ -21,26 +22,41 @@ export function attemptSecondOffset(show) {
   return DEFAULT_ATTEMPT_SECOND_OFFSET_MS;
 }
 
+export function captureDeadline(show, state = {}) {
+  const cutoff = timestamp(show.cutoffAt);
+  if (cutoff == null) return null;
+  return show.platform === "bookmyshow" && state.recoveryMode
+    ? cutoff + BOOKMYSHOW_RECOVERY_GRACE_MS
+    : cutoff;
+}
+
 export function nextCaptureWhen(show, state = {}, now = Date.now()) {
   const windowStart = timestamp(show.captureAt);
   const finalStart = finalCaptureAt(show);
   const cutoff = timestamp(show.cutoffAt);
-  if (windowStart == null || finalStart == null || cutoff == null || now >= cutoff) return null;
+  const deadline = captureDeadline(show, state);
+  if (windowStart == null || finalStart == null || cutoff == null || deadline == null || now >= deadline) return null;
 
   const attemptOffset = attemptSecondOffset(show);
   const firstAttempt = windowStart + attemptOffset;
   const finalAttempt = finalStart + attemptOffset;
   const lastAttempt = timestamp(state.lastAttemptAt);
   const lastSuccess = protectedCaptureAt(state);
+  const needsFinalRecovery = show.platform === "bookmyshow" && state.recoveryMode &&
+    lastAttempt != null && lastAttempt >= finalStart && !state.finalRecoveryAttemptedAt;
 
   if (lastSuccess != null) {
-    if (lastSuccess >= finalStart || (lastAttempt != null && lastAttempt >= finalStart)) return null;
-    return now <= finalAttempt ? finalAttempt : Math.min(now + 1_000, cutoff - 1_000);
+    if (lastSuccess >= finalStart) return null;
+    if (needsFinalRecovery) return Math.min(now + 1_000, deadline - 1_000);
+    if (lastAttempt != null && lastAttempt >= finalStart) return null;
+    return now <= finalAttempt ? finalAttempt : Math.min(now + 1_000, deadline - 1_000);
   }
+
+  if (needsFinalRecovery) return Math.min(now + 1_000, deadline - 1_000);
 
   if (now <= firstAttempt) return firstAttempt;
   if (lastAttempt == null || minuteStart(lastAttempt) < minuteStart(now)) {
-    return Math.min(now + 1_000, cutoff - 1_000);
+    return Math.min(now + 1_000, deadline - 1_000);
   }
 
   const nextMinuteAttempt = minuteStart(now) + 60_000 + attemptOffset;

@@ -180,9 +180,19 @@ export function normalizeCapture(body, show, receivedAt = new Date()) {
   const clientCaptureId = body.clientCaptureId
     ? requiredString(body.clientCaptureId, "clientCaptureId", 100)
     : null;
+  const venue = venueForCode(show.venue_code);
+  const captureMode = body.captureMode == null
+    ? "primary"
+    : requiredString(body.captureMode, "captureMode", 20);
+  if (!new Set(["primary", "recovery"]).has(captureMode)) {
+    throw new RequestError("captureMode must be primary or recovery");
+  }
   const captureStart = new Date(show.capture_at);
   const cutoff = new Date(show.cutoff_at);
-  if (capturedAt < captureStart || capturedAt >= cutoff) {
+  const recoveryDeadline = venue?.platform === "bookmyshow" && captureMode === "recovery"
+    ? new Date(cutoff.getTime() + 60_000)
+    : cutoff;
+  if (capturedAt < captureStart || capturedAt >= recoveryDeadline) {
     throw new RequestError("Capture was outside the configured booking window", 409, "outside_capture_window");
   }
   const uploadDelayMs = receivedAt.getTime() - capturedAt.getTime();
@@ -232,7 +242,6 @@ export function normalizeCapture(body, show, receivedAt = new Date()) {
   if (calculated.categories.some((category) => category.listPricePaise <= 0 || category.listPricePaise > 100_000)) {
     throw new RequestError("Capture contained an invalid ticket price");
   }
-  const venue = venueForCode(show.venue_code);
   if (venue?.platform === "bookmyshow") {
     const expected = venue.layoutCategories || [];
     const actual = new Map(calculated.categories.map((category) => [category.name.trim().toUpperCase(), category.capacity]));
@@ -242,6 +251,9 @@ export function normalizeCapture(body, show, receivedAt = new Date()) {
   }
 
   let source = "local-chrome-extension";
+  if (venue?.platform === "bookmyshow" && captureMode === "recovery") {
+    source = "local-chrome-extension-recovery";
+  }
   const summaryEstimate = body.captureMethod === "ticketnew-summary-estimate";
   const districtLive = body.captureMethod === "district-live";
   if (body.captureMethod != null && !summaryEstimate && !districtLive) {

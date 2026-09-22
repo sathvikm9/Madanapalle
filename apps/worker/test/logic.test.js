@@ -410,3 +410,34 @@ test("accepts a Sri Krishna backup at 11:10 and rejects anything earlier", () =>
     /configured booking window/
   );
 });
+
+test("accepts only BookMyShow recovery captures through the end of the cutoff minute", () => {
+  const show = {
+    natural_key: "ASRM:20260921:2145:12345:MOV1",
+    venue_code: "ASRM",
+    is_current: 1,
+    capture_at: "2026-09-21T16:00:00.000Z",
+    cutoff_at: "2026-09-21T16:05:00.000Z"
+  };
+  const body = {
+    naturalKey: show.natural_key,
+    captureMode: "recovery",
+    capturedAt: "2026-09-21T16:05:59.000Z",
+    categories: [
+      { name: "RESERVED", price: 105, capacity: 386, available: 300, sold: 86, unknown: 0 },
+      { name: "SECOND CLASS", price: 84, capacity: 134, available: 120, sold: 14, unknown: 0 }
+    ]
+  };
+
+  const result = normalizeCapture(body, show, new Date("2026-09-21T16:05:59.500Z"));
+  assert.equal(result.sold, 100);
+  assert.equal(result.source, "local-chrome-extension-recovery");
+  assert.throws(
+    () => normalizeCapture({ ...body, captureMode: "primary" }, show, new Date("2026-09-21T16:05:59.500Z")),
+    /configured booking window/
+  );
+  assert.throws(
+    () => normalizeCapture({ ...body, capturedAt: "2026-09-21T16:06:00.000Z" }, show, new Date("2026-09-21T16:06:00.500Z")),
+    /configured booking window/
+  );
+});
