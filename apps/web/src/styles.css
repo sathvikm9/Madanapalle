@@ -594,8 +594,10 @@ main { max-width: 1120px; margin: 0 auto; padding: 30px 24px 88px; }
   .live-indicator__updated { display: inline; }
   main { padding: 18px 14px 64px; }
 
-  .date-control { grid-template-columns: minmax(0, 1fr); gap: 11px; padding: 13px; border-radius: 14px; }
-  .date-control input, .date-control select { width: 100%; min-width: 0; max-width: 100%; inline-size: 100%; min-inline-size: 0; max-inline-size: 100%; }
+  .date-control { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 8px; row-gap: 11px; padding: 13px; border-radius: 14px; }
+  .date-control input, .date-control select { width: 100%; min-width: 0; max-width: 100%; inline-size: 100%; min-inline-size: 0; max-inline-size: 100%; padding-inline: 10px; }
+  .date-control input[type="date"] { padding-inline: 6px; }
+  .date-control input[type="date"]::-webkit-calendar-picker-indicator { flex: 0 0 auto; margin: 0; padding: 0; }
   .date-control .refresh-button { display: none; }
   .date-navigation { width: 100%; margin-top: 1px; }
   .date-navigation button { padding-inline: 8px; }
