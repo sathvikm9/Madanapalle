@@ -607,6 +607,12 @@ main { max-width: 1120px; margin: 0 auto; padding: 26px 24px 88px; }
     border-left: 0;
   }
   .show-card__result strong { font-size: clamp(22px, 2.2vw, 28px); }
+  .show-card__result--pending .pending-copy strong {
+    margin-top: 4px;
+    font-size: 13px;
+    line-height: 1.4;
+    letter-spacing: 0;
+  }
   .show-card__meta { padding: 9px 12px 9px 16px; }
   .price-table { padding-inline: 12px; }
   .price-table__head,
