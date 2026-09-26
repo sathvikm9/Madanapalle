@@ -43,7 +43,8 @@ export function nextCaptureWhen(show, state = {}, now = Date.now()) {
   const lastAttempt = timestamp(state.lastAttemptAt);
   const lastSuccess = protectedCaptureAt(state);
   const needsFinalRecovery = show.platform === "bookmyshow" && state.recoveryMode &&
-    lastAttempt != null && lastAttempt >= finalStart && !state.finalRecoveryAttemptedAt;
+    lastAttempt != null && lastAttempt >= finalStart &&
+    (lastSuccess == null || lastSuccess < finalStart);
 
   if (lastSuccess != null) {
     if (lastSuccess >= finalStart) return null;

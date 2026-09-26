@@ -26,15 +26,16 @@ The extension creates one pinned BookMyShow or TicketNew tab per theatre. Keep C
 - at cutoff −0:50, a fresh final TicketNew summary tab is cache-bypass refreshed immediately before reading; it is saved only when no District live result has been protected, and any successful District live result remains authoritative
 - Ravi backup capture starts shortly after showtime +15 minutes
 - ASR backup capture starts shortly after showtime +15 minutes
-- a second preflight refreshes the schedule before the final attempt
+- a second preflight refreshes the schedule and prepares an inactive exact-session standby tab before each BookMyShow final attempt
 - a successful backup waits until the final minute; a failed backup retries once per minute
-- a failed Sri Krishna, Ravi, or ASR page read refreshes that exact session, then switches the show to a separate active recovery tab and a state-aware BookMyShow reader for every remaining attempt
+- a failed Sri Krishna, Ravi, or ASR final read skips another discovery, reloads its exact-session standby only after the pending capture is registered, and retries fresh recovery tabs in bounded 18-second attempts through the end of the cutoff minute
 - Sai Chitra reads the exact movie, showtime and session route from District during both capture preflights, then verifies the District session token before counting seats
 - District session URLs remain valid when movie and screen identifiers follow the exact session token; partial or different session IDs are rejected
 - after a Sai Chitra live failure, every remaining attempt rebuilds or reuses only the exact District session route; a movie replacement in the same theatre slot is adopted during recovery discovery
 - a successfully counted District seat-layout URL is cached only for that exact natural key, date, and session; it is never reused for another movie or day
 - TicketNew remains the isolated ESTIMATED summary fallback when District never yields a live seat map; even an earlier verified District live capture outranks a later TicketNew estimate
 - the newest successful snapshot is finalized after cutoff, so a failed final attempt keeps the backup
+- a protected backup can be finalized without erasing the last failed-final diagnostic
 - simultaneous theatre captures use independent tabs and pending jobs
 - every successful seat count is written to a durable Chrome-storage outbox before its browser attempt is closed
 - uploads are retried every minute, including after cutoff, after Chrome restarts, and while automatic booking capture is disabled

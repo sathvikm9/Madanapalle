@@ -102,7 +102,7 @@ test("manual discovery verifies every Sai Chitra District live route", () => {
   assert.match(source, /liveSeatLayoutProvider:\s*"district"/);
 });
 
-test("BookMyShow final failure primes and schedules a bounded recovery capture", () => {
+test("BookMyShow final failure primes and repeatedly schedules bounded recovery captures", () => {
   const source = fs.readFileSync(backgroundUrl, "utf8");
   const beginStart = source.indexOf("async function beginCapture");
   const beginEnd = source.indexOf("function discoveryHousefullResult", beginStart);
@@ -114,14 +114,27 @@ test("BookMyShow final failure primes and schedules a bounded recovery capture",
   const recoveryEnd = source.indexOf("async function closeRecoveryTab", recoveryStart);
   const openRecovery = source.slice(recoveryStart, recoveryEnd);
 
-  assert.match(beginCapture, /finalRecoveryAttemptedAt/);
+  assert.match(beginCapture, /finalRecoveryAttemptCount/);
   assert.match(beginCapture, /primaryFinalTimeoutMs[\s\S]*?20_000/);
-  assert.match(beginCapture, /extendedBookMyShowRecovery[\s\S]*?deadlineRemainingMs - 1_000/);
+  assert.match(beginCapture, /BOOKMYSHOW_FINAL_RECOVERY_TIMEOUT_MS/);
   assert.match(beginCapture, /isFinalRecovery[\s\S]*?captureDeadlineAt/);
+  assert.match(failCapture, /recoveryJustActivated && !bookMyShowFinalWindow/);
   assert.ok(
     failCapture.indexOf("prepareRecoverySeatLayout") < failCapture.indexOf("scheduleShow"),
     "the fresh recovery tab must be primed before its immediate alarm is scheduled"
   );
   assert.match(failCapture, /recoveryTabPrimedAt/);
-  assert.match(openRecovery, /if \(!show\.reusePreparedRecoveryTab\) await chrome\.tabs\.reload/);
+  assert.match(openRecovery, /await chrome\.tabs\.reload\(tab\.id\)/);
+  assert.doesNotMatch(failCapture, /finalRecoveryExhausted/);
+});
+
+test("BookMyShow final preflight prepares an inactive standby recovery tab", () => {
+  const source = fs.readFileSync(backgroundUrl, "utf8");
+  const start = source.indexOf('if (alarm.name.startsWith("preflight:")');
+  const end = source.indexOf('if (alarm.name.startsWith("capture:"))', start);
+  const preflight = source.slice(start, end);
+
+  assert.match(preflight, /isFinalPreflight/);
+  assert.match(preflight, /show\.platform === "bookmyshow"/);
+  assert.match(preflight, /prepareRecoverySeatLayout\(preparedShow, \{ active: false, replace: true \}\)/);
 });

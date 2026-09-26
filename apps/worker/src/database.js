@@ -342,7 +342,7 @@ export async function finalizeExpiredShows(db, now = new Date()) {
          status=CASE WHEN EXISTS (SELECT 1 FROM snapshots WHERE snapshots.show_id=shows.id)
                      THEN 'completed' ELSE 'missed' END,
          last_error=CASE WHEN EXISTS (SELECT 1 FROM snapshots WHERE snapshots.show_id=shows.id)
-                         THEN NULL ELSE COALESCE(last_error, 'No successful capture before cutoff') END,
+                         THEN last_error ELSE COALESCE(last_error, 'No successful capture before cutoff') END,
          updated_at=?
        WHERE is_current=1 AND status IN ('scheduled','capturing') AND cutoff_at <= ?`
     ).bind(timestamp, timestamp)
