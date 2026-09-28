@@ -672,7 +672,7 @@ export default function App() {
                         <span className="change-row__showtime">{previousTime}</span>
                         <strong>{change.previousMovie || "Removed show"}</strong>
                         <strong className="change-row__arrow">→</strong>
-                        {change.nextShowTime && change.nextShowTime !== previousTime && (
+                        {change.nextShowTime && (
                           <span className="change-row__showtime">{change.nextShowTime}</span>
                         )}
                         <strong>{nextMovie}</strong>

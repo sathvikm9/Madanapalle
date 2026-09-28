@@ -32,6 +32,8 @@ test("schedule audit exposes both sides of a shifted showtime", () => {
 
   assert.match(source, /previous\.show_time_label AS previous_show_time/);
   assert.match(source, /next_show\.show_time_label AS next_show_time/);
+  assert.match(source, /events\.event_type IN \('replaced','removed','added'\)/);
+  assert.match(source, /reconcileHistoricalScheduleChanges/);
   assert.match(source, /previousShowTime: event\.previous_show_time/);
   assert.match(source, /nextShowTime: event\.next_show_time/);
 });

@@ -1,4 +1,4 @@
-import { classifyScheduleChanges } from "@skct/core";
+import { classifyScheduleChanges, reconcileHistoricalScheduleChanges } from "@skct/core";
 import { parseJson, RequestError, resolveInternalMovieCodes } from "./logic.js";
 import { dashboardVenueForCode, publicVenues, venueForCode } from "./venues.js";
 
@@ -436,11 +436,13 @@ export async function dashboardData(db, date, venueCode, now = new Date()) {
     `SELECT events.*, previous.movie_title AS previous_movie,
       next_show.movie_title AS next_movie,
       previous.show_time_label AS previous_show_time,
-      next_show.show_time_label AS next_show_time
+      next_show.show_time_label AS next_show_time,
+      previous.start_at AS previous_start_at,
+      next_show.start_at AS next_start_at
      FROM schedule_events events
      LEFT JOIN shows previous ON previous.id=events.previous_show_id
      LEFT JOIN shows next_show ON next_show.id=events.next_show_id
-     WHERE ${changesWhere} AND events.event_type IN ('replaced','removed')
+     WHERE ${changesWhere} AND events.event_type IN ('replaced','removed','added')
      ORDER BY events.observed_at DESC`
   );
   const changesResult = allTheatres
@@ -511,18 +513,23 @@ export async function dashboardData(db, date, venueCode, now = new Date()) {
       occupancyPercent: totals.capacity ? Number(((totals.ticketsSold / totals.capacity) * 100).toFixed(2)) : 0
     },
     shows,
-    scheduleChanges: (changesResult.results || []).map((event) => ({
+    scheduleChanges: reconcileHistoricalScheduleChanges((changesResult.results || []).map((event) => ({
       id: String(event.id),
       venueCode: event.venue_code,
       venueName: venueForCode(event.venue_code)?.shortName || event.venue_code,
+      showDate: event.show_date,
       type: event.event_type,
+      previousShowId: event.previous_show_id == null ? null : String(event.previous_show_id),
+      nextShowId: event.next_show_id == null ? null : String(event.next_show_id),
       showTime: event.previous_show_time,
       previousShowTime: event.previous_show_time,
       nextShowTime: event.next_show_time,
+      previousStartAt: event.previous_start_at,
+      nextStartAt: event.next_start_at,
       previousMovie: event.previous_movie,
       nextMovie: event.next_movie,
       observedAt: event.observed_at
-    }))
+    })))
   };
 }
 

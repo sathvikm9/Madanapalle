@@ -1,5 +1,6 @@
 import { pool } from "./db.js";
 import { config } from "./config.js";
+import { reconcileHistoricalScheduleChanges } from "@skct/core";
 
 export function validDate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
@@ -59,11 +60,13 @@ export async function getDashboard(date, venueCode = "SKMD") {
   const changes = await pool.query(
     `SELECT e.*, previous.movie_title AS previous_movie, next_show.movie_title AS next_movie,
       previous.show_time_label AS previous_show_time,
-      next_show.show_time_label AS next_show_time
+      next_show.show_time_label AS next_show_time,
+      previous.start_at AS previous_start_at,
+      next_show.start_at AS next_start_at
      FROM schedule_events e
      LEFT JOIN shows previous ON previous.id=e.previous_show_id
      LEFT JOIN shows next_show ON next_show.id=e.next_show_id
-     WHERE ${changesWhere} AND e.event_type IN ('replaced','removed')
+     WHERE ${changesWhere} AND e.event_type IN ('replaced','removed','added')
      ORDER BY e.observed_at DESC`,
     showParameters
   );
@@ -134,17 +137,22 @@ export async function getDashboard(date, venueCode = "SKMD") {
         : 0
     },
     shows,
-    scheduleChanges: changes.rows.map((event) => ({
+    scheduleChanges: reconcileHistoricalScheduleChanges(changes.rows.map((event) => ({
       id: String(event.id),
       venueCode: event.venue_code,
       venueName: config.venues.find((venue) => venue.venueCode === event.venue_code)?.shortName || event.venue_code,
+      showDate: event.show_date,
       type: event.event_type,
+      previousShowId: event.previous_show_id == null ? null : String(event.previous_show_id),
+      nextShowId: event.next_show_id == null ? null : String(event.next_show_id),
       showTime: event.previous_show_time,
       previousShowTime: event.previous_show_time,
       nextShowTime: event.next_show_time,
+      previousStartAt: event.previous_start_at,
+      nextStartAt: event.next_start_at,
       previousMovie: event.previous_movie,
       nextMovie: event.next_movie,
       observedAt: event.observed_at
-    }))
+    })))
   };
 }

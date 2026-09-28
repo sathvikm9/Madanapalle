@@ -7,7 +7,8 @@ import {
   captureAtFromCutoff,
   classifyScheduleChanges,
   extractAssignedJson,
-  parseVenueShowsFromHtml
+  parseVenueShowsFromHtml,
+  reconcileHistoricalScheduleChanges
 } from "../src/index.js";
 
 test("subtracts exactly five rupees from each category price", () => {
@@ -131,4 +132,69 @@ test("does not merge independent shows outside the one-hour audit window", () =>
   assert.equal(changes.replaced.length, 0);
   assert.equal(changes.added.length, 1);
   assert.equal(changes.removed.length, 1);
+});
+
+test("reconstructs a historical shifted replacement from separate removed and added events", () => {
+  const changes = reconcileHistoricalScheduleChanges([
+    {
+      id: "607",
+      venueCode: "SKMD",
+      showDate: "2026-09-23",
+      type: "removed",
+      previousShowId: "43004",
+      previousShowTime: "09:00 PM",
+      previousMovie: "Mandaadi",
+      previousStartAt: "2026-09-23T21:00:00+05:30",
+      observedAt: "2026-09-23T08:10:45.175Z"
+    },
+    {
+      id: "608",
+      venueCode: "SKMD",
+      showDate: "2026-09-23",
+      type: "added",
+      nextShowId: "43754",
+      nextShowTime: "10:00 PM",
+      nextMovie: "The Paradise",
+      nextStartAt: "2026-09-23T22:00:00+05:30",
+      observedAt: "2026-09-23T08:25:44.710Z"
+    }
+  ]);
+
+  assert.equal(changes.length, 1);
+  assert.equal(changes[0].type, "replaced");
+  assert.equal(changes[0].previousShowTime, "09:00 PM");
+  assert.equal(changes[0].nextShowTime, "10:00 PM");
+  assert.equal(changes[0].nextMovie, "The Paradise");
+  assert.equal(changes[0].reconstructed, true);
+});
+
+test("does not use an initial added event that predates a later removal", () => {
+  const changes = reconcileHistoricalScheduleChanges([
+    {
+      id: "1",
+      venueCode: "SKMD",
+      showDate: "2026-09-23",
+      type: "added",
+      nextShowId: "old",
+      nextShowTime: "09:00 PM",
+      nextMovie: "Mandaadi",
+      nextStartAt: "2026-09-23T21:00:00+05:30",
+      observedAt: "2026-09-22T18:30:00.000Z"
+    },
+    {
+      id: "2",
+      venueCode: "SKMD",
+      showDate: "2026-09-23",
+      type: "removed",
+      previousShowId: "old",
+      previousShowTime: "09:00 PM",
+      previousMovie: "Mandaadi",
+      previousStartAt: "2026-09-23T21:00:00+05:30",
+      observedAt: "2026-09-23T08:10:00.000Z"
+    }
+  ]);
+
+  assert.equal(changes.length, 1);
+  assert.equal(changes[0].type, "removed");
+  assert.equal(changes[0].nextMovie, undefined);
 });
