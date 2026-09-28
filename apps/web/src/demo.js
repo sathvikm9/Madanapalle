@@ -27,6 +27,21 @@ export function demoDashboard(date = today, venueCode = "ALL") {
     makeShow("12", "ASRM", "ASR", "06:00 PM", `${base}18:00:00+05:30`, "Vishwanath and Sons", "scheduled", 15)
   ];
   const shows = venueCode === "ALL" ? allShows : allShows.filter((show) => show.venueCode === venueCode);
+  const allScheduleChanges = [{
+    id: "demo-shifted-replacement",
+    venueCode: "SKMD",
+    venueName: "Sri Krishna",
+    type: "replaced",
+    showTime: "02:00 PM",
+    previousShowTime: "02:00 PM",
+    nextShowTime: "02:15 PM",
+    previousMovie: "Previous movie",
+    nextMovie: "Replacement movie",
+    observedAt: new Date().toISOString()
+  }];
+  const scheduleChanges = venueCode === "ALL"
+    ? allScheduleChanges
+    : allScheduleChanges.filter((change) => change.venueCode === venueCode);
   const finalized = shows.filter((show) => show.status === "completed" && show.snapshot);
   const totals = finalized.reduce((sum, show) => ({
     ticketsSold: sum.ticketsSold + show.snapshot.sold,
@@ -49,7 +64,7 @@ export function demoDashboard(date = today, venueCode = "ALL") {
       occupancyPercent: totals.capacity ? Number(((totals.ticketsSold / totals.capacity) * 100).toFixed(2)) : 0
     },
     shows,
-    scheduleChanges: []
+    scheduleChanges
   };
 }
 

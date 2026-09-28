@@ -85,3 +85,50 @@ test("detects a movie replacement in the same showtime slot", () => {
   assert.equal(changes.replaced.length, 1);
   assert.equal(changes.added.length, 0);
 });
+
+for (const [previousTime, nextTime] of [
+  ["11:00:00", "11:45:00"],
+  ["14:00:00", "14:15:00"],
+  ["18:00:00", "18:30:00"],
+  ["21:00:00", "21:45:00"]
+]) {
+  test(`detects a shifted replacement from ${previousTime} to ${nextTime}`, () => {
+    const changes = classifyScheduleChanges(
+      [{
+        slotKey: `SKMD:20260820:${previousTime.replaceAll(":", "").slice(0, 4)}`,
+        naturalKey: "old",
+        startAt: `2026-08-20T${previousTime}+05:30`,
+        isCurrent: true
+      }],
+      [{
+        slotKey: `SKMD:20260820:${nextTime.replaceAll(":", "").slice(0, 4)}`,
+        naturalKey: "new",
+        startAt: `2026-08-20T${nextTime}+05:30`
+      }]
+    );
+
+    assert.equal(changes.replaced.length, 1);
+    assert.equal(changes.added.length, 0);
+    assert.equal(changes.removed.length, 0);
+  });
+}
+
+test("does not merge independent shows outside the one-hour audit window", () => {
+  const changes = classifyScheduleChanges(
+    [{
+      slotKey: "SKMD:20260820:1100",
+      naturalKey: "old",
+      startAt: "2026-08-20T11:00:00+05:30",
+      isCurrent: true
+    }],
+    [{
+      slotKey: "SKMD:20260820:1215",
+      naturalKey: "new",
+      startAt: "2026-08-20T12:15:00+05:30"
+    }]
+  );
+
+  assert.equal(changes.replaced.length, 0);
+  assert.equal(changes.added.length, 1);
+  assert.equal(changes.removed.length, 1);
+});

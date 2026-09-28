@@ -134,7 +134,24 @@ function dbShowToCore(row) {
     id: row.id,
     naturalKey: row.natural_key,
     slotKey: row.slot_key,
+    startAt: row.start_at,
+    showTimeLabel: row.show_time_label,
     isCurrent: row.is_current
+  };
+}
+
+function replacementDetails(change) {
+  const previousStart = new Date(change.previous.startAt).getTime();
+  const nextStart = new Date(change.next.startAt).getTime();
+  return {
+    previousNaturalKey: change.previous.naturalKey,
+    nextNaturalKey: change.next.naturalKey,
+    previousShowTime: change.previous.showTimeLabel,
+    nextShowTime: change.next.showTimeLabel,
+    timeShiftMinutes: Number.isFinite(previousStart) && Number.isFinite(nextStart)
+      ? Math.round((nextStart - previousStart) / 60_000)
+      : null,
+    replacementWindowMinutes: 60
   };
 }
 
@@ -176,7 +193,29 @@ export async function reconcileDiscoveredShows(venue, dateCode, discoveredShows)
       `SELECT * FROM shows WHERE venue_code=$1 AND show_date=$2 AND is_current=true FOR UPDATE`,
       [venue.venueCode, showDate]
     );
-    const changes = classifyScheduleChanges(existingResult.rows.map(dbShowToCore), discoveredShows);
+    const previouslyRemovedResult = await client.query(
+      `SELECT previous.* FROM shows previous
+       WHERE previous.venue_code=$1 AND previous.show_date=$2
+         AND previous.is_current=false AND previous.status='removed'
+         AND NOT EXISTS (
+           SELECT 1 FROM schedule_events replacement
+           WHERE replacement.event_type='replaced' AND replacement.previous_show_id=previous.id
+         )
+       ORDER BY previous.removed_at DESC, previous.start_at ASC
+       FOR UPDATE`,
+      [venue.venueCode, showDate]
+    );
+    const classified = classifyScheduleChanges(existingResult.rows.map(dbShowToCore), discoveredShows);
+    const delayed = classifyScheduleChanges(
+      previouslyRemovedResult.rows.map((show) => ({ ...dbShowToCore(show), isCurrent: true })),
+      classified.added
+    );
+    const changes = {
+      ...classified,
+      added: delayed.added,
+      replaced: [...classified.replaced, ...delayed.replaced],
+      reappeared: delayed.unchanged
+    };
     const insertedByKey = new Map();
 
     for (const discovered of discoveredShows) {
@@ -187,6 +226,11 @@ export async function reconcileDiscoveredShows(venue, dateCode, discoveredShows)
     for (const change of changes.replaced) {
       const next = insertedByKey.get(change.next.naturalKey);
       await client.query(
+        `DELETE FROM schedule_events
+         WHERE event_type='removed' AND previous_show_id=$1 AND next_show_id IS NULL`,
+        [change.previous.id]
+      );
+      await client.query(
         `UPDATE shows SET is_current=false, status='replaced', replaced_at=now(), updated_at=now() WHERE id=$1`,
         [change.previous.id]
       );
@@ -194,7 +238,15 @@ export async function reconcileDiscoveredShows(venue, dateCode, discoveredShows)
         `INSERT INTO schedule_events (venue_code, show_date, slot_key, event_type, previous_show_id, next_show_id, details)
          VALUES ($1,$2,$3,'replaced',$4,$5,$6)`,
         [venue.venueCode, showDate, change.next.slotKey, change.previous.id, next.id,
-          JSON.stringify({ previousNaturalKey: change.previous.naturalKey, nextNaturalKey: change.next.naturalKey })]
+          JSON.stringify(replacementDetails(change))]
+      );
+    }
+
+    for (const change of changes.reappeared) {
+      await client.query(
+        `DELETE FROM schedule_events
+         WHERE event_type='removed' AND previous_show_id=$1 AND next_show_id IS NULL`,
+        [change.existing.id]
       );
     }
 

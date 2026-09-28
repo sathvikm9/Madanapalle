@@ -58,7 +58,8 @@ export async function getDashboard(date, venueCode = "SKMD") {
   const changesWhere = allTheatres ? "e.show_date=$1" : "e.venue_code=$1 AND e.show_date=$2";
   const changes = await pool.query(
     `SELECT e.*, previous.movie_title AS previous_movie, next_show.movie_title AS next_movie,
-      previous.show_time_label AS show_time_label
+      previous.show_time_label AS previous_show_time,
+      next_show.show_time_label AS next_show_time
      FROM schedule_events e
      LEFT JOIN shows previous ON previous.id=e.previous_show_id
      LEFT JOIN shows next_show ON next_show.id=e.next_show_id
@@ -138,7 +139,9 @@ export async function getDashboard(date, venueCode = "SKMD") {
       venueCode: event.venue_code,
       venueName: config.venues.find((venue) => venue.venueCode === event.venue_code)?.shortName || event.venue_code,
       type: event.event_type,
-      showTime: event.show_time_label,
+      showTime: event.previous_show_time,
+      previousShowTime: event.previous_show_time,
+      nextShowTime: event.next_show_time,
       previousMovie: event.previous_movie,
       nextMovie: event.next_movie,
       observedAt: event.observed_at

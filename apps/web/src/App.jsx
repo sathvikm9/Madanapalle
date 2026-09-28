@@ -660,13 +660,27 @@ export default function App() {
               <section className="changes">
                 <p className="eyebrow">Schedule audit</p>
                 <h2>Movie and show changes</h2>
-                {data.scheduleChanges.map((change) => (
-                  <div className="change-row" key={change.id}>
-                    <span>{selectedVenue === "ALL" ? `${change.venueName} · ` : ""}{change.showTime || "Show"}</span>
-                    <strong>{change.previousMovie || "Removed"} → {change.nextMovie || "No replacement"}</strong>
-                    <time>{dateTime.format(new Date(change.observedAt))}</time>
-                  </div>
-                ))}
+                {data.scheduleChanges.map((change) => {
+                  const previousTime = change.previousShowTime || change.showTime || "Show";
+                  const nextMovie = change.nextMovie
+                    ? `${change.nextMovie}${/[.!?]$/.test(change.nextMovie) ? "" : "."}`
+                    : "No replacement";
+                  return (
+                    <div className="change-row" key={change.id}>
+                      <div className="change-row__change">
+                        <span className="change-row__venue">{change.venueName} ·</span>
+                        <span className="change-row__showtime">{previousTime}</span>
+                        <strong>{change.previousMovie || "Removed show"}</strong>
+                        <strong className="change-row__arrow">→</strong>
+                        {change.nextShowTime && change.nextShowTime !== previousTime && (
+                          <span className="change-row__showtime">{change.nextShowTime}</span>
+                        )}
+                        <strong>{nextMovie}</strong>
+                      </div>
+                      <time>{dateTime.format(new Date(change.observedAt))}</time>
+                    </div>
+                  );
+                })}
               </section>
             )}
           </>

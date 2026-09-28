@@ -64,7 +64,24 @@ function coreShow(row) {
     id: row.id,
     naturalKey: row.natural_key,
     slotKey: row.slot_key,
+    startAt: row.start_at,
+    showTimeLabel: row.show_time_label,
     isCurrent: Boolean(row.is_current)
+  };
+}
+
+function replacementDetails(change) {
+  const previousStart = new Date(change.previous.startAt).getTime();
+  const nextStart = new Date(change.next.startAt).getTime();
+  return {
+    previousNaturalKey: change.previous.naturalKey,
+    nextNaturalKey: change.next.naturalKey,
+    previousShowTime: change.previous.showTimeLabel,
+    nextShowTime: change.next.showTimeLabel,
+    timeShiftMinutes: Number.isFinite(previousStart) && Number.isFinite(nextStart)
+      ? Math.round((nextStart - previousStart) / 60_000)
+      : null,
+    replacementWindowMinutes: 60
   };
 }
 
@@ -74,6 +91,17 @@ export async function reconcileDiscovery(db, discovery, now = new Date()) {
     `SELECT * FROM shows WHERE venue_code=? AND show_date=? AND is_current=1 ORDER BY start_at`
   ).bind(discovery.venueCode, discovery.showDate).all();
   const existing = existingResult.results || [];
+  const previouslyRemovedResult = await db.prepare(
+    `SELECT previous.* FROM shows previous
+     WHERE previous.venue_code=? AND previous.show_date=?
+       AND previous.is_current=0 AND previous.status='removed'
+       AND NOT EXISTS (
+         SELECT 1 FROM schedule_events replacement
+         WHERE replacement.event_type='replaced' AND replacement.previous_show_id=previous.id
+       )
+     ORDER BY previous.removed_at DESC, previous.start_at ASC`
+  ).bind(discovery.venueCode, discovery.showDate).all();
+  const previouslyRemoved = previouslyRemovedResult.results || [];
   const futureExisting = existing.filter((show) => new Date(show.start_at).getTime() > now.getTime());
   if (!discovery.shows.length && futureExisting.length) {
     throw new RequestError(
@@ -84,8 +112,15 @@ export async function reconcileDiscovery(db, discovery, now = new Date()) {
   }
 
   const classified = classifyScheduleChanges(existing.map(coreShow), discovery.shows);
+  const delayed = classifyScheduleChanges(
+    previouslyRemoved.map((show) => ({ ...coreShow(show), isCurrent: true })),
+    classified.added
+  );
   const changes = {
     ...classified,
+    added: delayed.added,
+    replaced: [...classified.replaced, ...delayed.replaced],
+    reappeared: delayed.unchanged,
     removed: classified.removed.filter((show) => {
       const row = existing.find((candidate) => candidate.id === show.id);
       return row && new Date(row.start_at).getTime() > now.getTime();
@@ -95,6 +130,10 @@ export async function reconcileDiscovery(db, discovery, now = new Date()) {
 
   for (const change of changes.replaced) {
     statements.push(
+      db.prepare(
+        `DELETE FROM schedule_events
+         WHERE event_type='removed' AND previous_show_id=? AND next_show_id IS NULL`
+      ).bind(change.previous.id),
       db.prepare(
         `UPDATE shows SET is_current=0, status='replaced', replaced_at=?, updated_at=? WHERE id=?`
       ).bind(observedAt, observedAt, change.previous.id),
@@ -108,12 +147,18 @@ export async function reconcileDiscovery(db, discovery, now = new Date()) {
         change.next.slotKey,
         change.previous.id,
         change.next.naturalKey,
-        JSON.stringify({
-          previousNaturalKey: change.previous.naturalKey,
-          nextNaturalKey: change.next.naturalKey
-        }),
+        JSON.stringify(replacementDetails(change)),
         observedAt
       )
+    );
+  }
+
+  for (const change of changes.reappeared) {
+    statements.push(
+      db.prepare(
+        `DELETE FROM schedule_events
+         WHERE event_type='removed' AND previous_show_id=? AND next_show_id IS NULL`
+      ).bind(change.existing.id)
     );
   }
 
@@ -389,7 +434,9 @@ export async function dashboardData(db, date, venueCode, now = new Date()) {
   const changesWhere = allTheatres ? "events.show_date=?" : "events.venue_code=? AND events.show_date=?";
   const changesStatement = db.prepare(
     `SELECT events.*, previous.movie_title AS previous_movie,
-      next_show.movie_title AS next_movie, previous.show_time_label AS show_time_label
+      next_show.movie_title AS next_movie,
+      previous.show_time_label AS previous_show_time,
+      next_show.show_time_label AS next_show_time
      FROM schedule_events events
      LEFT JOIN shows previous ON previous.id=events.previous_show_id
      LEFT JOIN shows next_show ON next_show.id=events.next_show_id
@@ -469,7 +516,9 @@ export async function dashboardData(db, date, venueCode, now = new Date()) {
       venueCode: event.venue_code,
       venueName: venueForCode(event.venue_code)?.shortName || event.venue_code,
       type: event.event_type,
-      showTime: event.show_time_label,
+      showTime: event.previous_show_time,
+      previousShowTime: event.previous_show_time,
+      nextShowTime: event.next_show_time,
       previousMovie: event.previous_movie,
       nextMovie: event.next_movie,
       observedAt: event.observed_at
