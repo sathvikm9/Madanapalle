@@ -12,6 +12,7 @@
     "migrate:remote": "wrangler d1 migrations apply sri-krishna-tracker --remote"
   },
   "dependencies": {
+    "@block65/webcrypto-web-push": "^2.0.0",
     "@skct/core": "1.0.0"
   },
   "devDependencies": {

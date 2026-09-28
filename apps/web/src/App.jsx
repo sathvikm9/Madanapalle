@@ -3,6 +3,7 @@ import { demoDashboard } from "./demo.js";
 import { groupShowsByMovie, sortMovieGroups } from "./movieGroups.js";
 import { buildMoviesCopyText, buildShowsCopyText } from "./copyData.js";
 import AnalyticsAssistant from "./AnalyticsAssistant.jsx";
+import NotificationSettings from "./NotificationSettings.jsx";
 import {
   clampDashboardDate,
   FIRST_LIVE_DATE,
@@ -22,6 +23,7 @@ const pageParams = new URLSearchParams(window.location.search);
 const inDemoMode = pageParams.get("demo") === "1";
 const installRequested = pageParams.get("install") === "1";
 const installPreview = import.meta.env.DEV ? pageParams.get("installPreview") : "";
+const notificationsPreview = import.meta.env.DEV && pageParams.get("notificationsPreview") === "1";
 const INSTALL_DISMISSED_KEY = "mpltalkies-install-dismissed-at";
 const INSTALL_DISMISS_MS = 30 * 24 * 60 * 60 * 1000;
 const THEATRE_OPTIONS = [
@@ -298,7 +300,10 @@ export default function App() {
   const [selectedDate, setSelectedDate] = useState(
     () => clampDashboardDate(pageParams.get("date") || initialIndiaDate, initialIndiaDate)
   );
-  const [selectedVenue, setSelectedVenue] = useState("ALL");
+  const [selectedVenue, setSelectedVenue] = useState(() => {
+    const requestedVenue = pageParams.get("venue") || "ALL";
+    return THEATRE_OPTIONS.some((venue) => venue.code === requestedVenue) ? requestedVenue : "ALL";
+  });
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -534,12 +539,15 @@ export default function App() {
           <span className="brand__mark">MPL</span>
           <span><strong>MPLTalkies</strong><small>Collection Desk</small></span>
         </a>
-        <div className="live-indicator">
-          <i />
-          <span className="live-indicator__status">Automatic backup + final capture</span>
-          {data?.generatedAt && (
-            <span className="live-indicator__updated">Updated {dateTime.format(new Date(data.generatedAt))}</span>
-          )}
+        <div className="topbar__actions">
+          <div className="live-indicator">
+            <i />
+            <span className="live-indicator__status">Automatic backup + final capture</span>
+            {data?.generatedAt && (
+              <span className="live-indicator__updated">Updated {dateTime.format(new Date(data.generatedAt))}</span>
+            )}
+          </div>
+          <NotificationSettings apiBase={API_BASE} preview={notificationsPreview} />
         </div>
       </header>
 

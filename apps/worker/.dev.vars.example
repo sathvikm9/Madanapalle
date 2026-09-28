@@ -1,1 +1,4 @@
 AGENT_TOKEN=replace-with-a-long-random-token
+VAPID_SUBJECT=mailto:replace-with-your-email@example.com
+VAPID_PUBLIC_KEY=replace-with-a-url-safe-base64-public-key
+VAPID_PRIVATE_KEY=replace-with-a-url-safe-base64-private-key

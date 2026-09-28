@@ -37,3 +37,9 @@ test("schedule audit exposes both sides of a shifted showtime", () => {
   assert.match(source, /previousShowTime: event\.previous_show_time/);
   assert.match(source, /nextShowTime: event\.next_show_time/);
 });
+
+test("the Worker finalizes shows before dispatching grouped notifications", () => {
+  const source = fs.readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
+  assert.match(source, /await finalizeExpiredShows\(env\.DB\);\s+await dispatchNotifications\(env\.DB, env\);/);
+  assert.match(source, /\/api\/notifications\/subscriptions/);
+});

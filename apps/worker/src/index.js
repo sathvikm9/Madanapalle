@@ -18,6 +18,12 @@ import {
   validDate
 } from "./logic.js";
 import { dashboardVenueForCode, publicVenues } from "./venues.js";
+import {
+  deletePushSubscription,
+  dispatchNotifications,
+  notificationConfig,
+  savePushSubscription
+} from "./notifications.js";
 
 function allowedOrigin(request, env) {
   const origin = request.headers.get("origin");
@@ -34,7 +40,7 @@ function allowedOrigin(request, env) {
 function corsHeaders(origin) {
   const headers = {
     "access-control-allow-headers": "authorization, content-type",
-    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
     "access-control-max-age": "86400",
     "vary": "Origin"
   };
@@ -91,6 +97,23 @@ async function route(request, env, origin) {
     }, 200, origin);
   }
 
+  if (request.method === "GET" && url.pathname === "/api/notifications/config") {
+    return json(notificationConfig(env), 200, origin);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/notifications/subscriptions") {
+    if (!origin) throw new RequestError("An approved dashboard origin is required", 403, "origin_required");
+    if (!notificationConfig(env).available) {
+      throw new RequestError("Push notifications are not configured", 503, "notifications_unavailable");
+    }
+    return json(await savePushSubscription(env.DB, await bodyJson(request)), 200, origin);
+  }
+
+  if (request.method === "DELETE" && url.pathname === "/api/notifications/subscriptions") {
+    if (!origin) throw new RequestError("An approved dashboard origin is required", 403, "origin_required");
+    return json(await deletePushSubscription(env.DB, await bodyJson(request)), 200, origin);
+  }
+
   if (request.method === "GET" && url.pathname === "/api/dashboard") {
     const date = String(url.searchParams.get("date") || "");
     const venueCode = String(url.searchParams.get("venueCode") || "SKMD");
@@ -139,7 +162,9 @@ async function route(request, env, origin) {
   if (request.method === "POST" && url.pathname === "/api/agent/discovery") {
     requireAgent(request, env);
     const discovery = normalizeDiscovery(await bodyJson(request));
-    return json(await reconcileDiscovery(env.DB, discovery), 200, origin);
+    const result = await reconcileDiscovery(env.DB, discovery);
+    await dispatchNotifications(env.DB, env);
+    return json(result, 200, origin);
   }
 
   if (request.method === "POST" && url.pathname === "/api/agent/capture") {
@@ -213,6 +238,9 @@ async function handleFetch(request, env) {
 export default {
   fetch: handleFetch,
   async scheduled(_controller, env, context) {
-    context.waitUntil(finalizeExpiredShows(env.DB).catch((error) => console.error("Finalization cron failed", error)));
+    context.waitUntil((async () => {
+      await finalizeExpiredShows(env.DB);
+      await dispatchNotifications(env.DB, env);
+    })().catch((error) => console.error("Finalization/notification cron failed", error)));
   }
 };
