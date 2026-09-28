@@ -111,18 +111,13 @@ export async function disablePushNotifications(apiBase, subscription) {
   await subscription.unsubscribe();
 }
 
-export async function showTestNotification() {
+export async function showTestNotification({ title, body, tag = "preview" }) {
   const registration = await window.navigator.serviceWorker.ready;
-  await registration.showNotification("Morning shows", {
-    body: [
-      "Sai Chitra · 11:20 AM — Mandaadi · ₹38,810",
-      "Sri Krishna · 11:10 AM — Mandaadi · ₹34,125",
-      "Ravi · 10:45 AM — The Paradise · ₹31,750",
-      "ASR · 11:15 AM — Irumudi · ₹29,600"
-    ].join("\n"),
+  await registration.showNotification(title, {
+    body,
     icon: `${import.meta.env.BASE_URL}icons/icon-192.png`,
     badge: `${import.meta.env.BASE_URL}icons/icon-192.png`,
-    tag: "mpltalkies-test",
+    tag: `mpltalkies-test-${tag}`,
     data: { url: "./" }
   });
 }

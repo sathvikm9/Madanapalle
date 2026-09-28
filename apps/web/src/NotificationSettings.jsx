@@ -44,6 +44,25 @@ const PREVIEW_RESULTS = {
   ASRM: { collectionPaise: 2960000, line: "ASR · 11:15 AM — Irumudi · ₹29,600" }
 };
 
+const STATIC_PREVIEWS = {
+  schedule_changes: {
+    label: "Schedule",
+    title: "Schedule change",
+    body: "Ravi · 1:45 PM Mandaadi changed to 2:00 PM The Paradise"
+  },
+  daily_summary: {
+    label: "Daily summary",
+    title: "27th September - All theatres",
+    body: [
+      "The Paradise - 9 Shows - 6,69,040/-",
+      "Devara - Part 1 - 2 Shows - 1,09,106/-",
+      "Irumudi - 4 Shows - 72,620/-",
+      "Avengers Endgame: Encore - 2 Shows - 41,580/-",
+      "Mandaadi - 1 Show - 3,895/-"
+    ].join("\n")
+  }
+};
+
 function toggleValue(values, value) {
   return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
 }
@@ -53,16 +72,29 @@ export default function NotificationSettings({ apiBase, preview = false }) {
   const [config, setConfig] = useState({ available: preview, venues: FALLBACK_VENUES, publicKey: "preview" });
   const [preferences, setPreferences] = useState(loadNotificationPreferences);
   const [subscription, setSubscription] = useState(null);
+  const [previewType, setPreviewType] = useState("period_results");
   const [working, setWorking] = useState(false);
   const [message, setMessage] = useState("");
   const support = useMemo(notificationSupport, []);
   const allSelected = preferences.venues.length === config.venues.length;
   const enabled = Boolean(subscription);
+  const canSave = preferences.venues.length > 0 && preferences.types.length > 0;
   const previewResults = config.venues
     .filter((venue) => preferences.venues.includes(venue.code))
     .map((venue) => PREVIEW_RESULTS[venue.code])
     .filter(Boolean)
     .sort((left, right) => right.collectionPaise - left.collectionPaise);
+  const notificationPreviews = {
+    period_results: {
+      label: "Show results",
+      title: previewResults.length === 1 ? "Morning show" : "Morning shows",
+      body: previewResults.length
+        ? previewResults.map((result) => result.line).join("\n")
+        : "Select at least one theatre to preview results."
+    },
+    ...STATIC_PREVIEWS
+  };
+  const selectedPreview = notificationPreviews[previewType];
 
   useEffect(() => {
     if (!open || preview) return;
@@ -87,16 +119,13 @@ export default function NotificationSettings({ apiBase, preview = false }) {
     setPreferences((current) => ({
       ...current,
       venues: current.venues.length === config.venues.length
-        ? [config.venues[0].code]
+        ? []
         : config.venues.map((venue) => venue.code)
     }));
   }
 
   function toggleTheatre(code) {
-    setPreferences((current) => {
-      const venues = toggleValue(current.venues, code);
-      return venues.length ? { ...current, venues } : current;
-    });
+    setPreferences((current) => ({ ...current, venues: toggleValue(current.venues, code) }));
   }
 
   function toggleType(code) {
@@ -107,6 +136,10 @@ export default function NotificationSettings({ apiBase, preview = false }) {
   }
 
   async function save() {
+    if (!canSave) {
+      setMessage(preferences.venues.length ? "Select at least one notification type." : "Select at least one theatre.");
+      return;
+    }
     setWorking(true);
     setMessage("");
     try {
@@ -148,9 +181,13 @@ export default function NotificationSettings({ apiBase, preview = false }) {
     setMessage("");
     try {
       if (preview) {
-        setMessage("This is how the grouped Morning notification will appear.");
+        setMessage(`This is how the ${selectedPreview.label.toLowerCase()} notification will appear.`);
       } else {
-        await showTestNotification();
+        await showTestNotification({
+          title: selectedPreview.title,
+          body: selectedPreview.body,
+          tag: previewType
+        });
         setMessage("Test notification sent to this device.");
       }
     } catch (error) {
@@ -200,9 +237,14 @@ export default function NotificationSettings({ apiBase, preview = false }) {
               <section className="notification-settings-group">
                 <div className="notification-settings-group__heading">
                   <div><strong>Theatres</strong><span>Results are grouped after the last selected theatre finishes.</span></div>
-                  <button type="button" className={allSelected ? "is-selected" : ""} onClick={toggleAllTheatres}>All theatres</button>
                 </div>
                 <div className="notification-theatres">
+                  <label className={`notification-theatres__all${allSelected ? " is-selected" : ""}`}>
+                    <input type="checkbox" checked={allSelected} onChange={toggleAllTheatres} />
+                    <span className="notification-theatre-check" aria-hidden="true">✓</span>
+                    <span className="notification-theatre-name">All theatres</span>
+                    <small>One combined notification</small>
+                  </label>
                   {config.venues.map((venue) => (
                     <label key={venue.code} className={preferences.venues.includes(venue.code) ? "is-selected" : ""}>
                       <input
@@ -215,6 +257,7 @@ export default function NotificationSettings({ apiBase, preview = false }) {
                     </label>
                   ))}
                 </div>
+                {!preferences.venues.length && <p className="notification-selection-error">Select at least one theatre.</p>}
               </section>
 
               <section className="notification-settings-group">
@@ -236,11 +279,30 @@ export default function NotificationSettings({ apiBase, preview = false }) {
                 </div>
               </section>
 
-              <section className="notification-preview" aria-label="Grouped notification preview">
+              <div className="notification-preview-switch" role="group" aria-label="Test notification preview">
+                {Object.entries(notificationPreviews).map(([code, item]) => (
+                  <button
+                    key={code}
+                    type="button"
+                    className={previewType === code ? "is-selected" : ""}
+                    onClick={() => setPreviewType(code)}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+
+              <section className="notification-preview" aria-label={`${selectedPreview.label} notification preview`}>
                 <div className="notification-preview__top"><span>MPL</span><small>now</small></div>
-                <strong>{previewResults.length === 1 ? "Morning show" : "Morning shows"}</strong>
-                <p>{previewResults.map((result, index) => <span key={result.line}>{index > 0 && <br />}{result.line}</span>)}</p>
-                <button type="button" onClick={testNotification}>{preview ? "Preview notification" : "Send test notification"}</button>
+                <strong>{selectedPreview.title}</strong>
+                <p>{selectedPreview.body}</p>
+                <button
+                  type="button"
+                  onClick={testNotification}
+                  disabled={previewType === "period_results" && !previewResults.length}
+                >
+                  {preview ? "Preview notification" : "Send test notification"}
+                </button>
               </section>
 
               {message && <p className="notification-message" aria-live="polite">{message}</p>}
@@ -252,7 +314,7 @@ export default function NotificationSettings({ apiBase, preview = false }) {
                 className="notification-save"
                 type="button"
                 onClick={save}
-                disabled={working || (!support.supported && !preview) || (support.requiresInstall && !preview)}
+                disabled={working || !canSave || (!support.supported && !preview) || (support.requiresInstall && !preview)}
               >
                 {working ? "Saving…" : enabled ? "Save preferences" : "Enable notifications"}
               </button>

@@ -10,6 +10,7 @@ import { publicVenues, venueForCode } from "./venues.js";
 
 const ALLOWED_TYPES = new Set(DEFAULT_NOTIFICATION_TYPES);
 const TERMINAL_SHOW_STATUSES = new Set(["completed", "missed"]);
+const DAILY_SUMMARY_GAP_MS = 60_000;
 
 function indiaDate(now = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -188,6 +189,35 @@ function deepLink(showDate, venues) {
   return `?date=${encodeURIComponent(showDate)}&venue=${encodeURIComponent(venue)}`;
 }
 
+function latestShow(shows) {
+  return [...shows].sort((left, right) => (
+    new Date(right.startAt).getTime() - new Date(left.startAt).getTime()
+  ))[0];
+}
+
+function latestTerminalTime(shows) {
+  return Math.max(...shows.map((show) => new Date(
+    show.updatedAt || show.snapshot?.capturedAt || show.cutoffAt
+  ).getTime()).filter(Number.isFinite));
+}
+
+export async function dailySummaryReady(db, subscription, preferences, selected, showDate, now) {
+  const finalShow = latestShow(selected);
+  if (!finalShow) return false;
+  if (preferences.types.includes("period_results")) {
+    const periodKey = showPeriod(finalShow.showTime).key;
+    const delivery = await db.prepare(
+      `SELECT sent_at FROM push_deliveries
+       WHERE subscription_id=? AND notification_key=? AND status='sent'
+       LIMIT 1`
+    ).bind(subscription.id, `period:${showDate}:${periodKey}`).first();
+    if (!delivery?.sent_at) return false;
+    return now.getTime() - new Date(delivery.sent_at).getTime() >= DAILY_SUMMARY_GAP_MS;
+  }
+  const completedAt = latestTerminalTime(selected);
+  return Number.isFinite(completedAt) && now.getTime() - completedAt >= DAILY_SUMMARY_GAP_MS;
+}
+
 async function queuePeriodAndDailyNotifications(db, subscription, shows, now) {
   const preferences = subscriptionPreferences(subscription);
   const selected = shows.filter((show) => preferences.venues.includes(show.venueCode));
@@ -211,7 +241,12 @@ async function queuePeriodAndDailyNotifications(db, subscription, shows, now) {
     }
   }
 
-  if (preferences.types.includes("daily_summary") && terminal(selected) && completedAfterSubscription(selected, subscription.created_at)) {
+  if (
+    preferences.types.includes("daily_summary")
+    && terminal(selected)
+    && completedAfterSubscription(selected, subscription.created_at)
+    && await dailySummaryReady(db, subscription, preferences, selected, shows[0].showDate, now)
+  ) {
     const allVenuesSelected = preferences.venues.length === allowedVenueCodes().length;
     const theatreLabel = allVenuesSelected
       ? "All theatres"

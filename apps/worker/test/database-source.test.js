@@ -27,6 +27,17 @@ test("discovery pairs a delayed shifted show with its removed predecessor", () =
   assert.match(reconcile, /DELETE FROM schedule_events[\s\S]*event_type='removed'[\s\S]*previous_show_id=\?/);
 });
 
+test("schedule push waits for a matched replacement instead of notifying on removal", () => {
+  const notifications = fs.readFileSync(new URL("../src/notifications.js", import.meta.url), "utf8");
+  const start = notifications.indexOf("async function queueScheduleNotifications");
+  const end = notifications.indexOf("async function sendPendingDeliveries", start);
+  const scheduleQueue = notifications.slice(start, end);
+
+  assert.match(scheduleQueue, /JOIN shows next_show ON next_show\.id=events\.next_show_id/);
+  assert.match(scheduleQueue, /events\.event_type='replaced'/);
+  assert.doesNotMatch(scheduleQueue, /event_type='removed'/);
+});
+
 test("schedule audit exposes both sides of a shifted showtime", () => {
   const source = fs.readFileSync(databaseUrl, "utf8");
 
