@@ -71,9 +71,10 @@ function normalizeSubscription(body) {
 }
 
 export function notificationConfig(env) {
+  const enabled = String(env.NOTIFICATIONS_ENABLED || "").toLowerCase() === "true";
   const publicKey = String(env.VAPID_PUBLIC_KEY || "").trim();
   return {
-    available: Boolean(publicKey && env.VAPID_PRIVATE_KEY && env.VAPID_SUBJECT),
+    available: Boolean(enabled && publicKey && env.VAPID_PRIVATE_KEY && env.VAPID_SUBJECT),
     publicKey,
     venues: publicVenues().filter((venue) => venue.code !== "ALL").map((venue) => ({
       code: venue.code,

@@ -24,6 +24,7 @@ const inDemoMode = pageParams.get("demo") === "1";
 const installRequested = pageParams.get("install") === "1";
 const installPreview = import.meta.env.DEV ? pageParams.get("installPreview") : "";
 const notificationsPreview = import.meta.env.DEV && pageParams.get("notificationsPreview") === "1";
+const notificationsEnabled = import.meta.env.VITE_NOTIFICATIONS_ENABLED === "true";
 const INSTALL_DISMISSED_KEY = "mpltalkies-install-dismissed-at";
 const INSTALL_DISMISS_MS = 30 * 24 * 60 * 60 * 1000;
 const THEATRE_OPTIONS = [
@@ -547,7 +548,9 @@ export default function App() {
               <span className="live-indicator__updated">Updated {dateTime.format(new Date(data.generatedAt))}</span>
             )}
           </div>
-          <NotificationSettings apiBase={API_BASE} preview={notificationsPreview} />
+          {(notificationsEnabled || notificationsPreview) && (
+            <NotificationSettings apiBase={API_BASE} preview={notificationsPreview} />
+          )}
         </div>
       </header>
 

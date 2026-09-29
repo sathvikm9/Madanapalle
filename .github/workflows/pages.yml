@@ -30,6 +30,7 @@ jobs:
         env:
           VITE_API_BASE: ${{ vars.VITE_API_BASE }}
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
+          VITE_NOTIFICATIONS_ENABLED: ${{ vars.VITE_NOTIFICATIONS_ENABLED }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

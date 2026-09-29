@@ -29,6 +29,7 @@ const FINAL_SHOWS = [{
 
 test("notification config exposes only the public VAPID key", () => {
   const config = notificationConfig({
+    NOTIFICATIONS_ENABLED: "true",
     VAPID_SUBJECT: "mailto:test@example.com",
     VAPID_PUBLIC_KEY: "public-key",
     VAPID_PRIVATE_KEY: "private-key"
@@ -37,6 +38,20 @@ test("notification config exposes only the public VAPID key", () => {
   assert.equal(config.publicKey, "public-key");
   assert.equal("privateKey" in config, false);
   assert.deepEqual(config.venues.map((venue) => venue.code), ["SKMD", "SCM", "RTDM", "ASRM"]);
+});
+
+test("notification feature switch keeps configured push delivery disabled", async () => {
+  const env = {
+    NOTIFICATIONS_ENABLED: "false",
+    VAPID_SUBJECT: "mailto:test@example.com",
+    VAPID_PUBLIC_KEY: "public-key",
+    VAPID_PRIVATE_KEY: "private-key"
+  };
+  assert.equal(notificationConfig(env).available, false);
+  assert.deepEqual(
+    await dispatchNotifications(null, env, new Date("2026-09-27T12:00:00Z")),
+    { queued: 0, available: false }
+  );
 });
 test("saving a subscription normalizes theatre and type filters", async () => {
   const calls = [];
