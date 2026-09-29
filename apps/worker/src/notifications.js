@@ -11,17 +11,9 @@ import { publicVenues, venueForCode } from "./venues.js";
 const ALLOWED_TYPES = new Set(DEFAULT_NOTIFICATION_TYPES);
 const TERMINAL_SHOW_STATUSES = new Set(["completed", "missed"]);
 const DAILY_SUMMARY_GAP_MS = 60_000;
+const MAX_EVENT_ATTEMPTS = 10;
+const MAX_DELIVERY_ATTEMPTS = 10;
 
-function indiaDate(now = new Date()) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Kolkata",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).formatToParts(now);
-  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${value.year}-${value.month}-${value.day}`;
-}
 function parseJson(value, fallback) {
   try {
     return JSON.parse(value);
@@ -45,6 +37,26 @@ function normalizePreferences(value = {}) {
   return { venues, types };
 }
 
+function normalizeInstallationId(value) {
+  const installationId = String(value || "").trim();
+  if (!/^[a-zA-Z0-9_-]{16,100}$/.test(installationId)) {
+    throw new RequestError("A valid PWA installation ID is required");
+  }
+  return installationId;
+}
+
+function normalizePlatform(value) {
+  const platform = String(value || "web").trim().toLowerCase();
+  return new Set(["ios", "android", "web"]).has(platform) ? platform : "web";
+}
+
+function normalizeInstallSource(value) {
+  const source = String(value || "standalone_launch").trim().toLowerCase();
+  return new Set(["appinstalled", "standalone_launch", "notifications"]).has(source)
+    ? source
+    : "standalone_launch";
+}
+
 function normalizeSubscription(body) {
   const subscription = body?.subscription;
   const endpoint = String(subscription?.endpoint || "").trim();
@@ -65,6 +77,8 @@ function normalizeSubscription(body) {
     p256dh,
     auth,
     expirationTime: expiration?.toISOString() || null,
+    installationId: normalizeInstallationId(body?.installationId),
+    platform: normalizePlatform(body?.platform),
     deviceName: String(body?.deviceName || "MPLTalkies device").trim().slice(0, 80),
     preferences: normalizePreferences(body?.preferences)
   };
@@ -84,45 +98,134 @@ export function notificationConfig(env) {
   };
 }
 
+export async function recordPwaInstallation(db, body, now = new Date()) {
+  const installationId = normalizeInstallationId(body?.installationId);
+  const platform = normalizePlatform(body?.platform);
+  const source = normalizeInstallSource(body?.source);
+  const timestamp = now.toISOString();
+  await db.prepare(
+    `INSERT INTO pwa_installations (
+       installation_id, platform, install_source, installed_at, first_seen_at, last_seen_at
+     ) VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(installation_id) DO UPDATE SET
+       platform=excluded.platform,
+       install_source=CASE
+         WHEN pwa_installations.install_source='appinstalled' THEN pwa_installations.install_source
+         ELSE excluded.install_source
+       END,
+       last_seen_at=excluded.last_seen_at`
+  ).bind(installationId, platform, source, timestamp, timestamp, timestamp).run();
+  return { ok: true };
+}
+
+export async function adoptionStats(db) {
+  const stats = await db.prepare(
+    `SELECT
+       COUNT(*) AS installed_pwas,
+       SUM(CASE WHEN notification_enabled=1 THEN 1 ELSE 0 END) AS notifications_enabled
+     FROM pwa_installations`
+  ).first();
+  return {
+    installedPwas: Number(stats?.installed_pwas || 0),
+    notificationsEnabled: Number(stats?.notifications_enabled || 0)
+  };
+}
+
 export async function savePushSubscription(db, body, now = new Date()) {
   const value = normalizeSubscription(body);
   const timestamp = now.toISOString();
-  await db.prepare(
-    `INSERT INTO push_subscriptions (
-       endpoint, p256dh, auth, expiration_time, device_name, venues_json, types_json,
-       enabled, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-     ON CONFLICT(endpoint) DO UPDATE SET
-       p256dh=excluded.p256dh,
-       auth=excluded.auth,
-       expiration_time=excluded.expiration_time,
-       device_name=excluded.device_name,
-       venues_json=excluded.venues_json,
-       types_json=excluded.types_json,
-       enabled=1,
-       updated_at=excluded.updated_at,
-       last_error=NULL,
-       failure_count=0`
-  ).bind(
-    value.endpoint,
-    value.p256dh,
-    value.auth,
-    value.expirationTime,
-    value.deviceName,
-    JSON.stringify(value.preferences.venues),
-    JSON.stringify(value.preferences.types),
-    timestamp,
-    timestamp
-  ).run();
+  const existing = await db.prepare(
+    `SELECT id FROM push_subscriptions
+     WHERE installation_id=? OR endpoint=?
+     ORDER BY CASE WHEN installation_id=? THEN 0 ELSE 1 END, id DESC
+     LIMIT 1`
+  ).bind(value.installationId, value.endpoint, value.installationId).first();
+
+  const statements = [];
+  if (existing?.id) {
+    statements.push(
+      db.prepare(
+        `DELETE FROM push_subscriptions
+         WHERE (installation_id=? OR endpoint=?) AND id<>?`
+      ).bind(value.installationId, value.endpoint, existing.id),
+      db.prepare(
+        `UPDATE push_subscriptions SET
+           endpoint=?, p256dh=?, auth=?, expiration_time=?, installation_id=?, device_name=?,
+           venues_json=?, types_json=?, enabled=1, updated_at=?, last_error=NULL, failure_count=0
+         WHERE id=?`
+      ).bind(
+        value.endpoint,
+        value.p256dh,
+        value.auth,
+        value.expirationTime,
+        value.installationId,
+        value.deviceName,
+        JSON.stringify(value.preferences.venues),
+        JSON.stringify(value.preferences.types),
+        timestamp,
+        existing.id
+      )
+    );
+  } else {
+    statements.push(
+      db.prepare(
+        `INSERT INTO push_subscriptions (
+           endpoint, p256dh, auth, expiration_time, installation_id, device_name,
+           venues_json, types_json, enabled, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
+      ).bind(
+        value.endpoint,
+        value.p256dh,
+        value.auth,
+        value.expirationTime,
+        value.installationId,
+        value.deviceName,
+        JSON.stringify(value.preferences.venues),
+        JSON.stringify(value.preferences.types),
+        timestamp,
+        timestamp
+      )
+    );
+  }
+  statements.push(
+    db.prepare(
+      `INSERT INTO pwa_installations (
+         installation_id, platform, install_source, installed_at, first_seen_at, last_seen_at,
+         notification_enabled, notification_enabled_at
+       ) VALUES (?, ?, 'notifications', ?, ?, ?, 1, ?)
+       ON CONFLICT(installation_id) DO UPDATE SET
+         platform=excluded.platform,
+         last_seen_at=excluded.last_seen_at,
+         notification_enabled=1,
+         notification_enabled_at=COALESCE(pwa_installations.notification_enabled_at, excluded.notification_enabled_at),
+         notification_disabled_at=NULL`
+    ).bind(value.installationId, value.platform, timestamp, timestamp, timestamp, timestamp)
+  );
+  await db.batch(statements);
   return { ok: true, preferences: value.preferences };
 }
 
-export async function deletePushSubscription(db, body) {
+export async function deletePushSubscription(db, body, now = new Date()) {
   const endpoint = String(body?.endpoint || "").trim();
   if (!endpoint.startsWith("https://") || endpoint.length > 2000) {
     throw new RequestError("A valid push subscription endpoint is required");
   }
-  await db.prepare(`DELETE FROM push_subscriptions WHERE endpoint=?`).bind(endpoint).run();
+  const installationId = body?.installationId
+    ? normalizeInstallationId(body.installationId)
+    : null;
+  const timestamp = now.toISOString();
+  const statements = [
+    db.prepare(`DELETE FROM push_subscriptions WHERE endpoint=?`).bind(endpoint)
+  ];
+  if (installationId) {
+    statements.push(
+      db.prepare(
+        `UPDATE pwa_installations SET notification_enabled=0,
+          notification_disabled_at=?, last_seen_at=? WHERE installation_id=?`
+      ).bind(timestamp, timestamp, installationId)
+    );
+  }
+  await db.batch(statements);
   return { ok: true };
 }
 
@@ -161,14 +264,6 @@ async function notificationShows(db, showDate) {
   }));
 }
 
-async function queueDelivery(db, subscriptionId, notificationKey, notificationType, payload, now) {
-  await db.prepare(
-    `INSERT OR IGNORE INTO push_deliveries (
-       subscription_id, notification_key, notification_type, payload_json, status, created_at
-     ) VALUES (?, ?, ?, ?, 'pending', ?)`
-  ).bind(subscriptionId, notificationKey, notificationType, JSON.stringify(payload), now.toISOString()).run();
-}
-
 function subscriptionPreferences(row) {
   return normalizePreferences({
     venues: parseJson(row.venues_json, allowedVenueCodes()),
@@ -190,122 +285,179 @@ function deepLink(showDate, venues) {
   return `?date=${encodeURIComponent(showDate)}&venue=${encodeURIComponent(venue)}`;
 }
 
-function latestShow(shows) {
-  return [...shows].sort((left, right) => (
-    new Date(right.startAt).getTime() - new Date(left.startAt).getTime()
-  ))[0];
-}
-
 function latestTerminalTime(shows) {
   return Math.max(...shows.map((show) => new Date(
     show.updatedAt || show.snapshot?.capturedAt || show.cutoffAt
   ).getTime()).filter(Number.isFinite));
 }
 
-export async function dailySummaryReady(db, subscription, preferences, selected, showDate, now) {
-  const finalShow = latestShow(selected);
-  if (!finalShow) return false;
-  if (preferences.types.includes("period_results")) {
-    const periodKey = showPeriod(finalShow.showTime).key;
-    const delivery = await db.prepare(
-      `SELECT sent_at FROM push_deliveries
-       WHERE subscription_id=? AND notification_key=? AND status='sent'
-       LIMIT 1`
-    ).bind(subscription.id, `period:${showDate}:${periodKey}`).first();
-    if (!delivery?.sent_at) return false;
-    return now.getTime() - new Date(delivery.sent_at).getTime() >= DAILY_SUMMARY_GAP_MS;
-  }
-  const completedAt = latestTerminalTime(selected);
-  return Number.isFinite(completedAt) && now.getTime() - completedAt >= DAILY_SUMMARY_GAP_MS;
+function deliveryStatement(db, subscriptionId, key, type, payload, dueAt, now) {
+  return db.prepare(
+    `INSERT OR IGNORE INTO push_deliveries (
+       subscription_id, notification_key, notification_type, payload_json,
+       status, due_at, next_attempt_at, created_at
+     ) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)`
+  ).bind(
+    subscriptionId,
+    key,
+    type,
+    JSON.stringify(payload),
+    dueAt,
+    dueAt,
+    now.toISOString()
+  );
 }
 
-async function queuePeriodAndDailyNotifications(db, subscription, shows, now) {
-  const preferences = subscriptionPreferences(subscription);
-  const selected = shows.filter((show) => preferences.venues.includes(show.venueCode));
-  if (!selected.length) return;
-  const byPeriod = new Map();
-  for (const show of selected) {
-    const period = showPeriod(show.showTime);
-    if (!byPeriod.has(period.key)) byPeriod.set(period.key, []);
-    byPeriod.get(period.key).push(show);
-  }
+function dateDeliveryStatements(db, subscriptions, shows, showDate, now) {
+  const statements = [];
+  for (const subscription of subscriptions) {
+    const preferences = subscriptionPreferences(subscription);
+    const selected = shows.filter((show) => preferences.venues.includes(show.venueCode));
+    if (!selected.length || !completedAfterSubscription(selected, subscription.created_at)) continue;
 
-  if (preferences.types.includes("period_results")) {
-    for (const [periodKey, periodShows] of byPeriod) {
-      if (!terminal(periodShows) || !completedAfterSubscription(periodShows, subscription.created_at)) continue;
-      const message = buildPeriodNotification(periodShows);
-      await queueDelivery(db, subscription.id, `period:${shows[0].showDate}:${periodKey}`, "period_results", {
-        ...message,
-        tag: `period-${shows[0].showDate}-${periodKey}`,
-        url: deepLink(shows[0].showDate, preferences.venues)
-      }, now);
+    const byPeriod = new Map();
+    for (const show of selected) {
+      const period = showPeriod(show.showTime);
+      if (!byPeriod.has(period.key)) byPeriod.set(period.key, []);
+      byPeriod.get(period.key).push(show);
+    }
+    if (preferences.types.includes("period_results")) {
+      for (const [periodKey, periodShows] of byPeriod) {
+        if (!terminal(periodShows) || !completedAfterSubscription(periodShows, subscription.created_at)) continue;
+        const message = buildPeriodNotification(periodShows);
+        statements.push(deliveryStatement(
+          db,
+          subscription.id,
+          `period:${showDate}:${periodKey}`,
+          "period_results",
+          {
+            ...message,
+            tag: `period-${showDate}-${periodKey}`,
+            url: deepLink(showDate, preferences.venues)
+          },
+          now.toISOString(),
+          now
+        ));
+      }
+    }
+
+    if (preferences.types.includes("daily_summary") && terminal(selected)) {
+      const allVenuesSelected = preferences.venues.length === allowedVenueCodes().length;
+      const theatreLabel = allVenuesSelected
+        ? "All theatres"
+        : preferences.venues.length === 1
+          ? venueForCode(preferences.venues[0])?.shortName || preferences.venues[0]
+          : `${preferences.venues.length} theatres`;
+      const message = buildDailySummaryNotification({ showDate, theatreLabel, shows: selected });
+      const completedAt = latestTerminalTime(selected);
+      const dueAt = new Date(Math.max(now.getTime(), completedAt + DAILY_SUMMARY_GAP_MS)).toISOString();
+      statements.push(deliveryStatement(
+        db,
+        subscription.id,
+        `daily:${showDate}`,
+        "daily_summary",
+        {
+          ...message,
+          tag: `daily-${showDate}`,
+          url: deepLink(showDate, preferences.venues)
+        },
+        dueAt,
+        now
+      ));
     }
   }
-
-  if (
-    preferences.types.includes("daily_summary")
-    && terminal(selected)
-    && completedAfterSubscription(selected, subscription.created_at)
-    && await dailySummaryReady(db, subscription, preferences, selected, shows[0].showDate, now)
-  ) {
-    const allVenuesSelected = preferences.venues.length === allowedVenueCodes().length;
-    const theatreLabel = allVenuesSelected
-      ? "All theatres"
-      : preferences.venues.length === 1
-        ? venueForCode(preferences.venues[0])?.shortName || preferences.venues[0]
-        : `${preferences.venues.length} theatres`;
-    const message = buildDailySummaryNotification({
-      showDate: shows[0].showDate,
-      theatreLabel,
-      shows: selected
-    });
-    await queueDelivery(db, subscription.id, `daily:${shows[0].showDate}`, "daily_summary", {
-      ...message,
-      tag: `daily-${shows[0].showDate}`,
-      url: deepLink(shows[0].showDate, preferences.venues)
-    }, now);
-  }
+  return statements;
 }
 
-async function queueScheduleNotifications(db, subscription, now) {
-  const preferences = subscriptionPreferences(subscription);
-  if (!preferences.types.includes("schedule_changes")) return;
-  const events = await db.prepare(
-    `SELECT events.id, events.venue_code, events.show_date, events.observed_at,
-      previous.show_time_label AS previous_time, previous.movie_title AS previous_movie,
-      next_show.show_time_label AS next_time, next_show.movie_title AS next_movie
-     FROM schedule_events events
-     JOIN shows previous ON previous.id=events.previous_show_id
-     JOIN shows next_show ON next_show.id=events.next_show_id
-     WHERE events.event_type='replaced' AND events.observed_at >= ?
-     ORDER BY events.observed_at ASC`
-  ).bind(subscription.created_at).all();
-
-  for (const event of events.results || []) {
-    if (!preferences.venues.includes(event.venue_code)) continue;
-    const venue = venueForCode(event.venue_code)?.shortName || event.venue_code;
-    await queueDelivery(db, subscription.id, `schedule:${event.id}`, "schedule_changes", {
-      title: "Schedule change",
-      body: `${venue} · ${event.previous_time} ${event.previous_movie} changed to ${event.next_time} ${event.next_movie}`,
-      tag: `schedule-${event.id}`,
-      url: deepLink(event.show_date, preferences.venues)
-    }, now);
+function scheduleDeliveryStatements(db, subscriptions, event, now) {
+  const payload = parseJson(event.payload_json, {});
+  const venueCode = event.venue_code || payload.venueCode;
+  const venue = venueForCode(venueCode)?.shortName || venueCode;
+  const statements = [];
+  for (const subscription of subscriptions) {
+    const preferences = subscriptionPreferences(subscription);
+    if (!preferences.types.includes("schedule_changes") || !preferences.venues.includes(venueCode)) continue;
+    statements.push(deliveryStatement(
+      db,
+      subscription.id,
+      event.event_key,
+      "schedule_changes",
+      {
+        title: "Schedule change",
+        body: `${venue} · ${payload.previousTime} ${payload.previousMovie} changed to ${payload.nextTime} ${payload.nextMovie}`,
+        tag: event.event_key,
+        url: deepLink(event.show_date, preferences.venues)
+      },
+      now.toISOString(),
+      now
+    ));
   }
+  return statements;
 }
 
-async function sendPendingDeliveries(db, env, now) {
+export async function processNotificationEvents(db, env, now = new Date()) {
+  if (!notificationConfig(env).available) return { processed: 0, queued: 0, available: false };
+  const timestamp = now.toISOString();
   const pending = await db.prepare(
-    `SELECT deliveries.*, subscriptions.endpoint, subscriptions.p256dh, subscriptions.auth
+    `SELECT id, event_key, event_type, show_date, venue_code, payload_json
+     FROM notification_events
+     WHERE status='pending' AND due_at<=? AND attempts<?
+     ORDER BY due_at ASC, id ASC LIMIT 100`
+  ).bind(timestamp, MAX_EVENT_ATTEMPTS).all();
+  const events = pending.results || [];
+  if (!events.length) return { processed: 0, queued: 0, available: true };
+
+  const subscriptionsResult = await db.prepare(
+    `SELECT * FROM push_subscriptions WHERE enabled=1 ORDER BY id ASC`
+  ).all();
+  const subscriptions = subscriptionsResult.results || [];
+  const statements = [];
+  const showDates = [...new Set(events
+    .filter((event) => event.event_type === "show_finalized" && event.show_date)
+    .map((event) => event.show_date))];
+  for (const showDate of showDates) {
+    const shows = await notificationShows(db, showDate);
+    statements.push(...dateDeliveryStatements(db, subscriptions, shows, showDate, now));
+  }
+  for (const event of events.filter((candidate) => candidate.event_type === "schedule_change")) {
+    statements.push(...scheduleDeliveryStatements(db, subscriptions, event, now));
+  }
+  for (const event of events) {
+    statements.push(
+      db.prepare(
+        `UPDATE notification_events SET status='processed', processed_at=?, error=NULL,
+          attempts=attempts+1 WHERE id=?`
+      ).bind(timestamp, event.id)
+    );
+  }
+  if (statements.length) await db.batch(statements);
+  return { processed: events.length, queued: statements.length - events.length, available: true };
+}
+
+function retryDelayMs(attempt) {
+  if (attempt <= 1) return 60_000;
+  if (attempt <= 3) return 5 * 60_000;
+  return 15 * 60_000;
+}
+
+export async function sendPendingDeliveries(db, env, now = new Date()) {
+  if (!notificationConfig(env).available) return { sent: 0, available: false };
+  const timestamp = now.toISOString();
+  const pending = await db.prepare(
+    `SELECT deliveries.*, subscriptions.endpoint, subscriptions.p256dh, subscriptions.auth,
+      subscriptions.installation_id
      FROM push_deliveries deliveries
      JOIN push_subscriptions subscriptions ON subscriptions.id=deliveries.subscription_id
-     WHERE deliveries.status='pending' AND deliveries.attempts < 10 AND subscriptions.enabled=1
-     ORDER BY deliveries.created_at ASC LIMIT 100`
-  ).all();
+     WHERE deliveries.status='pending' AND deliveries.attempts<? AND subscriptions.enabled=1
+       AND deliveries.due_at<=? AND deliveries.next_attempt_at<=?
+     ORDER BY deliveries.due_at ASC, deliveries.created_at ASC LIMIT 100`
+  ).bind(MAX_DELIVERY_ATTEMPTS, timestamp, timestamp).all();
   const vapid = {
     subject: env.VAPID_SUBJECT,
     publicKey: env.VAPID_PUBLIC_KEY,
     privateKey: env.VAPID_PRIVATE_KEY
   };
+  let sent = 0;
 
   for (const delivery of pending.results || []) {
     const attemptedAt = now.toISOString();
@@ -331,35 +483,44 @@ async function sendPendingDeliveries(db, env, now) {
              failure_count=0, updated_at=? WHERE id=?`
         ).bind(attemptedAt, attemptedAt, delivery.subscription_id)
       ]);
+      sent += 1;
     } catch (error) {
       const gone = error?.status === 404 || error?.status === 410;
       const message = String(error?.message || error).slice(0, 500);
-      await db.batch([
+      const nextAttempt = new Date(now.getTime() + retryDelayMs(Number(delivery.attempts) + 1)).toISOString();
+      const exhausted = Number(delivery.attempts) + 1 >= MAX_DELIVERY_ATTEMPTS;
+      const statements = [
         db.prepare(
-          `UPDATE push_deliveries SET status=CASE WHEN ? THEN 'expired' ELSE status END,
-             attempts=attempts+1, last_attempt_at=?, error=? WHERE id=?`
-        ).bind(gone ? 1 : 0, attemptedAt, message, delivery.id),
+          `UPDATE push_deliveries SET status=CASE WHEN ? THEN 'expired' WHEN ? THEN 'failed' ELSE 'pending' END,
+             attempts=attempts+1, last_attempt_at=?, next_attempt_at=?, error=? WHERE id=?`
+        ).bind(gone ? 1 : 0, exhausted ? 1 : 0, attemptedAt, nextAttempt, message, delivery.id),
         db.prepare(
           `UPDATE push_subscriptions SET enabled=CASE WHEN ? THEN 0 ELSE enabled END,
              last_error=?, failure_count=failure_count+1, updated_at=? WHERE id=?`
         ).bind(gone ? 1 : 0, message, attemptedAt, delivery.subscription_id)
-      ]);
+      ];
+      if (gone && delivery.installation_id) {
+        statements.push(
+          db.prepare(
+            `UPDATE pwa_installations SET notification_enabled=0,
+              notification_disabled_at=?, last_seen_at=? WHERE installation_id=?`
+          ).bind(attemptedAt, attemptedAt, delivery.installation_id)
+        );
+      }
+      await db.batch(statements);
     }
   }
+  return { sent, available: true };
 }
 
 export async function dispatchNotifications(db, env, now = new Date()) {
-  if (!notificationConfig(env).available) return { queued: 0, available: false };
-  const subscriptions = await db.prepare(
-    `SELECT * FROM push_subscriptions WHERE enabled=1 ORDER BY id ASC`
-  ).all();
-  if (!subscriptions.results?.length) return { queued: 0, available: true };
-  const showDate = indiaDate(now);
-  const shows = await notificationShows(db, showDate);
-  for (const subscription of subscriptions.results) {
-    if (shows.length) await queuePeriodAndDailyNotifications(db, subscription, shows, now);
-    await queueScheduleNotifications(db, subscription, now);
-  }
-  await sendPendingDeliveries(db, env, now);
-  return { subscriptions: subscriptions.results.length, available: true };
+  if (!notificationConfig(env).available) return { queued: 0, sent: 0, available: false };
+  const processed = await processNotificationEvents(db, env, now);
+  const delivered = await sendPendingDeliveries(db, env, now);
+  return {
+    queued: processed.queued,
+    processed: processed.processed,
+    sent: delivered.sent,
+    available: true
+  };
 }

@@ -72,6 +72,7 @@ export default function NotificationSettings({ apiBase, preview = false }) {
   const [config, setConfig] = useState({ available: preview, venues: FALLBACK_VENUES, publicKey: "preview" });
   const [preferences, setPreferences] = useState(loadNotificationPreferences);
   const [subscription, setSubscription] = useState(null);
+  const [adoption, setAdoption] = useState(null);
   const [previewType, setPreviewType] = useState("period_results");
   const [working, setWorking] = useState(false);
   const [message, setMessage] = useState("");
@@ -104,11 +105,15 @@ export default function NotificationSettings({ apiBase, preview = false }) {
         if (!response.ok) throw new Error(`Notification API returned ${response.status}`);
         return response.json();
       }),
-      currentPushSubscription()
-    ]).then(([nextConfig, nextSubscription]) => {
+      currentPushSubscription(),
+      fetch(`${apiBase}/api/adoption`, { cache: "no-store" })
+        .then((response) => response.ok ? response.json() : null)
+        .catch(() => null)
+    ]).then(([nextConfig, nextSubscription, nextAdoption]) => {
       if (!active) return;
       setConfig(nextConfig);
       setSubscription(nextSubscription);
+      setAdoption(nextAdoption);
     }).catch((error) => {
       if (active) setMessage(error.message);
     });
@@ -233,6 +238,13 @@ export default function NotificationSettings({ apiBase, preview = false }) {
               {!support.supported && !preview && (
                 <div className="notification-info notification-info--error">This browser does not support Web Push notifications.</div>
               )}
+              {adoption && (
+                <p className="notification-adoption" aria-label="MPLTalkies adoption">
+                  <strong>{adoption.installedPwas}</strong> PWA {adoption.installedPwas === 1 ? "install" : "installs"}
+                  <span aria-hidden="true">·</span>
+                  <strong>{adoption.notificationsEnabled}</strong> {adoption.notificationsEnabled === 1 ? "device has" : "devices have"} alerts enabled
+                </p>
+              )}
 
               <section className="notification-settings-group">
                 <div className="notification-settings-group__heading">
@@ -293,7 +305,6 @@ export default function NotificationSettings({ apiBase, preview = false }) {
               </div>
 
               <section className="notification-preview" aria-label={`${selectedPreview.label} notification preview`}>
-                <div className="notification-preview__top"><span>MPL</span><small>now</small></div>
                 <strong>{selectedPreview.title}</strong>
                 <p>{selectedPreview.body}</p>
                 <button

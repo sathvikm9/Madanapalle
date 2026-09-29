@@ -28,14 +28,16 @@ test("discovery pairs a delayed shifted show with its removed predecessor", () =
 });
 
 test("schedule push waits for a matched replacement instead of notifying on removal", () => {
-  const notifications = fs.readFileSync(new URL("../src/notifications.js", import.meta.url), "utf8");
-  const start = notifications.indexOf("async function queueScheduleNotifications");
-  const end = notifications.indexOf("async function sendPendingDeliveries", start);
-  const scheduleQueue = notifications.slice(start, end);
+  const database = fs.readFileSync(databaseUrl, "utf8");
+  const start = database.indexOf("export async function reconcileDiscovery");
+  const end = database.indexOf("export async function currentShow", start);
+  const discovery = database.slice(start, end);
 
-  assert.match(scheduleQueue, /JOIN shows next_show ON next_show\.id=events\.next_show_id/);
-  assert.match(scheduleQueue, /events\.event_type='replaced'/);
-  assert.doesNotMatch(scheduleQueue, /event_type='removed'/);
+  assert.match(discovery, /event_type, show_date, venue_code, payload_json/);
+  assert.match(discovery, /VALUES \(\?, 'schedule_change'/);
+  assert.match(discovery, /for \(const change of changes\.replaced\)/);
+  const removedStart = discovery.indexOf("for (const removed of changes.removed)");
+  assert.doesNotMatch(discovery.slice(removedStart), /'schedule_change'/);
 });
 
 test("schedule audit exposes both sides of a shifted showtime", () => {
@@ -53,4 +55,6 @@ test("the Worker finalizes shows before dispatching grouped notifications", () =
   const source = fs.readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
   assert.match(source, /await finalizeExpiredShows\(env\.DB\);\s+await dispatchNotifications\(env\.DB, env\);/);
   assert.match(source, /\/api\/notifications\/subscriptions/);
+  assert.match(source, /\/api\/installations/);
+  assert.match(source, /\/api\/adoption/);
 });

@@ -19,11 +19,15 @@ import {
 } from "./logic.js";
 import { dashboardVenueForCode, publicVenues } from "./venues.js";
 import {
+  adoptionStats,
   deletePushSubscription,
   dispatchNotifications,
   notificationConfig,
+  recordPwaInstallation,
   savePushSubscription
 } from "./notifications.js";
+
+const DASHBOARD_CACHE_TTL_SECONDS = 45;
 
 function allowedOrigin(request, env) {
   const origin = request.headers.get("origin");
@@ -84,7 +88,48 @@ async function sha256(value) {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function route(request, env, origin) {
+function dashboardCacheRequest(date, venueCode) {
+  const url = new URL("https://mpltalkies-dashboard-cache.invalid/api/dashboard");
+  url.searchParams.set("date", date);
+  url.searchParams.set("venueCode", venueCode);
+  return new Request(url.toString(), { method: "GET" });
+}
+
+async function cachedDashboard(db, date, venueCode) {
+  const cache = globalThis.caches?.default;
+  const cacheKey = dashboardCacheRequest(date, venueCode);
+  if (cache) {
+    const hit = await cache.match(cacheKey);
+    if (hit) return hit.json();
+  }
+  const data = await dashboardData(db, date, venueCode);
+  if (cache) {
+    await cache.put(cacheKey, new Response(JSON.stringify(data), {
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": `public, max-age=${DASHBOARD_CACHE_TTL_SECONDS}`
+      }
+    }));
+  }
+  return data;
+}
+
+async function invalidateDashboardCache(date, venueCode) {
+  const cache = globalThis.caches?.default;
+  if (!cache || !validDate(date)) return;
+  await Promise.all([
+    cache.delete(dashboardCacheRequest(date, venueCode)),
+    cache.delete(dashboardCacheRequest(date, "ALL"))
+  ]);
+}
+
+function runInBackground(context, promise, label) {
+  const guarded = promise.catch((error) => console.error(label, error));
+  if (context?.waitUntil) context.waitUntil(guarded);
+  else void guarded;
+}
+
+async function route(request, env, origin, context) {
   const url = new URL(request.url);
   if (request.method === "GET" && url.pathname === "/health") {
     await env.DB.prepare("SELECT 1 AS ok").first();
@@ -99,6 +144,15 @@ async function route(request, env, origin) {
 
   if (request.method === "GET" && url.pathname === "/api/notifications/config") {
     return json(notificationConfig(env), 200, origin);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/installations") {
+    if (!origin) throw new RequestError("An approved dashboard origin is required", 403, "origin_required");
+    return json(await recordPwaInstallation(env.DB, await bodyJson(request)), 200, origin);
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/adoption") {
+    return json(await adoptionStats(env.DB), 200, origin);
   }
 
   if (request.method === "POST" && url.pathname === "/api/notifications/subscriptions") {
@@ -119,7 +173,7 @@ async function route(request, env, origin) {
     const venueCode = String(url.searchParams.get("venueCode") || "SKMD");
     if (!validDate(date)) throw new RequestError("date must be a real YYYY-MM-DD date");
     if (!dashboardVenueForCode(venueCode)) throw new RequestError(`Venue ${venueCode} is not configured`);
-    return json(await dashboardData(env.DB, date, venueCode), 200, origin);
+    return json(await cachedDashboard(env.DB, date, venueCode), 200, origin);
   }
 
   if (request.method === "GET" && url.pathname === "/api/analytics/catalog") {
@@ -163,7 +217,12 @@ async function route(request, env, origin) {
     requireAgent(request, env);
     const discovery = normalizeDiscovery(await bodyJson(request));
     const result = await reconcileDiscovery(env.DB, discovery);
-    await dispatchNotifications(env.DB, env);
+    await invalidateDashboardCache(discovery.showDate, discovery.venueCode);
+    runInBackground(
+      context,
+      dispatchNotifications(env.DB, env),
+      "Schedule notification dispatch failed"
+    );
     return json(result, 200, origin);
   }
 
@@ -180,7 +239,9 @@ async function route(request, env, origin) {
         categories: capture.categories
       }));
     }
-    return json(await saveCapture(env.DB, show, capture), 200, origin);
+    const result = await saveCapture(env.DB, show, capture);
+    await invalidateDashboardCache(show.show_date, show.venue_code);
+    return json(result, 200, origin);
   }
 
   if (request.method === "POST" && url.pathname === "/api/agent/event") {
@@ -218,14 +279,14 @@ async function route(request, env, origin) {
   throw new RequestError("Not found", 404, "not_found");
 }
 
-async function handleFetch(request, env) {
+async function handleFetch(request, env, context) {
   const origin = allowedOrigin(request, env);
   if (origin === false) return json({ error: "origin_not_allowed" }, 403, null);
   if (request.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders(origin) });
   }
   try {
-    return await route(request, env, origin);
+    return await route(request, env, origin, context);
   } catch (error) {
     if (error instanceof RequestError) {
       return json({ error: error.code, message: error.message }, error.status, origin);

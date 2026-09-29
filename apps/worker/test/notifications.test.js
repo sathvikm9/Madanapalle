@@ -1,31 +1,46 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import test from "node:test";
 import {
-  dailySummaryReady,
+  adoptionStats,
   dispatchNotifications,
   notificationConfig,
+  recordPwaInstallation,
   savePushSubscription
 } from "../src/notifications.js";
 
-function deliveryDb(sentAt) {
+function statementDb({ first = null } = {}) {
+  const prepared = [];
+  const batches = [];
   return {
-    prepare() {
+    prepared,
+    batches,
+    prepare(sql) {
+      const direct = {
+        sql,
+        first: async () => first,
+        run: async () => ({ success: true })
+      };
       return {
-        bind() {
-          return { first: async () => sentAt ? { sent_at: sentAt } : null };
+        ...direct,
+        bind(...values) {
+          const statement = {
+            sql,
+            values,
+            first: async () => first,
+            run: async () => ({ success: true })
+          };
+          prepared.push(statement);
+          return statement;
         }
       };
+    },
+    async batch(statements) {
+      batches.push(statements);
+      return statements.map(() => ({ success: true }));
     }
   };
 }
-
-const FINAL_SHOWS = [{
-  showTime: "09:20 PM",
-  startAt: "2026-09-27T15:50:00.000Z",
-  cutoffAt: "2026-09-27T16:10:00.000Z",
-  updatedAt: "2026-09-27T16:10:04.000Z",
-  snapshot: { capturedAt: "2026-09-27T16:09:00.000Z" }
-}];
 
 test("notification config exposes only the public VAPID key", () => {
   const config = notificationConfig({
@@ -50,22 +65,15 @@ test("notification feature switch keeps configured push delivery disabled", asyn
   assert.equal(notificationConfig(env).available, false);
   assert.deepEqual(
     await dispatchNotifications(null, env, new Date("2026-09-27T12:00:00Z")),
-    { queued: 0, available: false }
+    { queued: 0, sent: 0, available: false }
   );
 });
-test("saving a subscription normalizes theatre and type filters", async () => {
-  const calls = [];
-  const db = {
-    prepare(sql) {
-      return {
-        bind(...values) {
-          calls.push({ sql, values });
-          return { run: async () => ({ success: true }) };
-        }
-      };
-    }
-  };
+
+test("saving a subscription deduplicates one physical PWA and normalizes filters", async () => {
+  const db = statementDb();
   const result = await savePushSubscription(db, {
+    installationId: "9cb5ba9a-e47a-4cff-995f-bf27f16fb086",
+    platform: "ios",
     subscription: {
       endpoint: "https://push.example/subscription",
       expirationTime: null,
@@ -78,46 +86,39 @@ test("saving a subscription normalizes theatre and type filters", async () => {
   }, new Date("2026-09-27T12:00:00Z"));
 
   assert.deepEqual(result.preferences, { venues: ["SKMD"], types: ["period_results"] });
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].values[0], "https://push.example/subscription");
+  assert.equal(db.batches.length, 1);
+  const batchSql = db.batches[0].map((statement) => statement.sql).join("\n");
+  assert.match(batchSql, /INSERT INTO push_subscriptions/);
+  assert.match(batchSql, /INSERT INTO pwa_installations/);
+  assert.match(batchSql, /notification_enabled=1/);
 });
 
-test("dispatcher is inert until production VAPID secrets are configured", async () => {
-  const result = await dispatchNotifications(null, {}, new Date("2026-09-27T12:00:00Z"));
-  assert.deepEqual(result, { queued: 0, available: false });
+test("standalone PWA launches are counted once per installation ID", async () => {
+  const db = statementDb();
+  await recordPwaInstallation(db, {
+    installationId: "9cb5ba9a-e47a-4cff-995f-bf27f16fb086",
+    platform: "android",
+    source: "standalone_launch"
+  }, new Date("2026-09-27T12:00:00Z"));
+  assert.match(db.prepared[0].sql, /ON CONFLICT\(installation_id\) DO UPDATE/);
+  assert.equal(db.prepared[0].values[0], "9cb5ba9a-e47a-4cff-995f-bf27f16fb086");
 });
 
-test("daily summary waits one minute after the final period notification was sent", async () => {
-  const subscription = { id: 9 };
-  const preferences = { types: ["period_results", "daily_summary"] };
-  const beforeGap = await dailySummaryReady(
-    deliveryDb("2026-09-27T16:10:30.000Z"),
-    subscription,
-    preferences,
-    FINAL_SHOWS,
-    "2026-09-27",
-    new Date("2026-09-27T16:11:29.000Z")
-  );
-  const afterGap = await dailySummaryReady(
-    deliveryDb("2026-09-27T16:10:30.000Z"),
-    subscription,
-    preferences,
-    FINAL_SHOWS,
-    "2026-09-27",
-    new Date("2026-09-27T16:11:30.000Z")
-  );
-  assert.equal(beforeGap, false);
-  assert.equal(afterGap, true);
+test("adoption totals expose aggregate installs and enabled devices only", async () => {
+  const db = statementDb({ first: { installed_pwas: 5, notifications_enabled: 4 } });
+  assert.deepEqual(await adoptionStats(db), { installedPwas: 5, notificationsEnabled: 4 });
 });
 
-test("daily-only subscribers wait one minute after the latest show becomes terminal", async () => {
-  const ready = await dailySummaryReady(
-    deliveryDb(null),
-    { id: 10 },
-    { types: ["daily_summary"] },
-    FINAL_SHOWS,
-    "2026-09-27",
-    new Date("2026-09-27T16:11:04.000Z")
-  );
-  assert.equal(ready, true);
+test("notification dispatcher is event-driven and uses indexed pending work", () => {
+  const source = fs.readFileSync(new URL("../src/notifications.js", import.meta.url), "utf8");
+  assert.match(source, /FROM notification_events\s+WHERE status='pending' AND due_at<=\?/);
+  assert.match(source, /FROM push_deliveries deliveries[\s\S]*deliveries\.next_attempt_at<=\?/);
+  assert.doesNotMatch(source, /SELECT DISTINCT show_date FROM shows/);
+  assert.match(source, /if \(!events\.length\) return \{ processed: 0, queued: 0, available: true \}/);
+});
+
+test("daily summary is scheduled one minute after the selected day completes", () => {
+  const source = fs.readFileSync(new URL("../src/notifications.js", import.meta.url), "utf8");
+  assert.match(source, /completedAt \+ DAILY_SUMMARY_GAP_MS/);
+  assert.match(source, /const DAILY_SUMMARY_GAP_MS = 60_000/);
 });

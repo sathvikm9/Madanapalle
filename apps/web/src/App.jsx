@@ -4,6 +4,7 @@ import { groupShowsByMovie, sortMovieGroups } from "./movieGroups.js";
 import { buildMoviesCopyText, buildShowsCopyText } from "./copyData.js";
 import AnalyticsAssistant from "./AnalyticsAssistant.jsx";
 import NotificationSettings from "./NotificationSettings.jsx";
+import { reportPwaInstallation } from "./notifications.js";
 import {
   clampDashboardDate,
   FIRST_LIVE_DATE,
@@ -461,6 +462,8 @@ export default function App() {
     function markInstalled() {
       setInstallPrompt(null);
       setShowInstallCard(false);
+      void reportPwaInstallation(API_BASE, { force: true, source: "appinstalled" })
+        .catch((error) => console.warn("PWA installation reporting failed", error));
       try {
         window.localStorage.removeItem(INSTALL_DISMISSED_KEY);
       } catch {
@@ -474,6 +477,11 @@ export default function App() {
       window.removeEventListener("beforeinstallprompt", captureInstallPrompt);
       window.removeEventListener("appinstalled", markInstalled);
     };
+  }, []);
+
+  useEffect(() => {
+    void reportPwaInstallation(API_BASE)
+      .catch((error) => console.warn("PWA installation reporting failed", error));
   }, []);
 
   function closeInstallCard(dismissed = false) {

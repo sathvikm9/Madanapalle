@@ -66,6 +66,7 @@ function coreShow(row) {
     slotKey: row.slot_key,
     startAt: row.start_at,
     showTimeLabel: row.show_time_label,
+    movieTitle: row.movie_title,
     isCurrent: Boolean(row.is_current)
   };
 }
@@ -129,6 +130,16 @@ export async function reconcileDiscovery(db, discovery, now = new Date()) {
   const statements = discovery.shows.map((show) => db.prepare(UPSERT_SHOW).bind(...showValues(show, observedAt)));
 
   for (const change of changes.replaced) {
+    const notificationPayload = {
+      venueCode: discovery.venueCode,
+      showDate: discovery.showDate,
+      previousShowId: String(change.previous.id),
+      previousTime: change.previous.showTimeLabel,
+      previousMovie: change.previous.movieTitle,
+      nextNaturalKey: change.next.naturalKey,
+      nextTime: change.next.showTimeLabel,
+      nextMovie: change.next.movieTitle
+    };
     statements.push(
       db.prepare(
         `DELETE FROM schedule_events
@@ -148,6 +159,18 @@ export async function reconcileDiscovery(db, discovery, now = new Date()) {
         change.previous.id,
         change.next.naturalKey,
         JSON.stringify(replacementDetails(change)),
+        observedAt
+      ),
+      db.prepare(
+        `INSERT OR IGNORE INTO notification_events (
+          event_key, event_type, show_date, venue_code, payload_json, due_at, status, created_at
+        ) VALUES (?, 'schedule_change', ?, ?, ?, ?, 'pending', ?)`
+      ).bind(
+        `schedule:${change.previous.id}:${change.next.naturalKey}`,
+        discovery.showDate,
+        discovery.venueCode,
+        JSON.stringify(notificationPayload),
+        observedAt,
         observedAt
       )
     );
@@ -361,12 +384,12 @@ export async function recordCaptureEvent(db, show, event, now = new Date()) {
 export async function finalizeExpiredShows(db, now = new Date()) {
   const timestamp = now.toISOString();
   const expired = await db.prepare(
-    `SELECT id FROM shows
+    `SELECT id, show_date FROM shows
      WHERE is_current=1 AND status IN ('scheduled','capturing') AND cutoff_at <= ?`
   ).bind(timestamp).all();
   if (!expired.results?.length) return 0;
 
-  await db.batch([
+  const statements = [
     db.prepare(
       `UPDATE snapshots SET is_final=1
        WHERE id IN (
@@ -391,7 +414,23 @@ export async function finalizeExpiredShows(db, now = new Date()) {
          updated_at=?
        WHERE is_current=1 AND status IN ('scheduled','capturing') AND cutoff_at <= ?`
     ).bind(timestamp, timestamp)
-  ]);
+  ];
+  for (const show of expired.results) {
+    statements.push(
+      db.prepare(
+        `INSERT OR IGNORE INTO notification_events (
+          event_key, event_type, show_date, payload_json, due_at, status, created_at
+        ) VALUES (?, 'show_finalized', ?, ?, ?, 'pending', ?)`
+      ).bind(
+        `finalize:${show.id}`,
+        show.show_date,
+        JSON.stringify({ showId: String(show.id), showDate: show.show_date }),
+        timestamp,
+        timestamp
+      )
+    );
+  }
+  await db.batch(statements);
   return expired.results.length;
 }
 

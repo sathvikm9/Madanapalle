@@ -8,9 +8,9 @@ self.addEventListener("push", (event) => {
   try {
     payload = event.data?.json() || {};
   } catch {
-    payload = { title: "MPLTalkies", body: event.data?.text() || "New collection update" };
+    payload = { title: "Show update", body: event.data?.text() || "New collection update" };
   }
-  const title = payload.title || "MPLTalkies";
+  const title = payload.title || "Show update";
   event.waitUntil(self.registration.showNotification(title, {
     body: payload.body || "New collection update",
     icon: new URL("icons/icon-192.png", APP_PATH).href,

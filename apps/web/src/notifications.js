@@ -4,6 +4,69 @@ export const DEFAULT_NOTIFICATION_PREFERENCES = {
 };
 
 const PREFERENCES_KEY = "mpltalkies-notification-preferences";
+const INSTALLATION_ID_KEY = "mpltalkies-pwa-installation-id";
+const INSTALLATION_REPORTED_KEY = "mpltalkies-pwa-installation-reported-at";
+const INSTALLATION_REPORT_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+function randomInstallationId() {
+  if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+  const bytes = new Uint8Array(24);
+  window.crypto.getRandomValues(bytes);
+  return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+export function getPwaInstallationId() {
+  try {
+    const existing = window.localStorage.getItem(INSTALLATION_ID_KEY);
+    if (existing) return existing;
+    const installationId = randomInstallationId();
+    window.localStorage.setItem(INSTALLATION_ID_KEY, installationId);
+    return installationId;
+  } catch {
+    return randomInstallationId();
+  }
+}
+
+export function pwaPlatform() {
+  if (/iphone|ipad|ipod/i.test(window.navigator.userAgent)
+    || (window.navigator.platform === "MacIntel" && window.navigator.maxTouchPoints > 1)) return "ios";
+  if (/android/i.test(window.navigator.userAgent)) return "android";
+  return "web";
+}
+
+export function isStandalonePwa() {
+  return window.matchMedia("(display-mode: standalone)").matches
+    || window.navigator.standalone === true;
+}
+
+export async function reportPwaInstallation(apiBase, { force = false, source = "standalone_launch" } = {}) {
+  if (!force && !isStandalonePwa()) return { reported: false };
+  try {
+    const reportedAt = Number(window.localStorage.getItem(INSTALLATION_REPORTED_KEY));
+    if (!force && Number.isFinite(reportedAt) && Date.now() - reportedAt < INSTALLATION_REPORT_INTERVAL_MS) {
+      return { reported: false };
+    }
+  } catch {
+    // Reporting remains best-effort when local storage is unavailable.
+  }
+  const response = await fetch(`${apiBase}/api/installations`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      installationId: getPwaInstallationId(),
+      platform: pwaPlatform(),
+      source
+    }),
+    keepalive: true
+  });
+  if (!response.ok) throw new Error(`Installation API returned ${response.status}`);
+  try {
+    window.localStorage.setItem(INSTALLATION_REPORTED_KEY, String(Date.now()));
+  } catch {
+    // The server record is already saved.
+  }
+  return { reported: true };
+}
 
 function base64UrlToUint8Array(value) {
   const padding = "=".repeat((4 - value.length % 4) % 4);
@@ -70,7 +133,9 @@ async function saveSubscription(apiBase, subscription, preferences) {
     body: JSON.stringify({
       subscription: subscription.toJSON(),
       preferences,
-      deviceName: deviceName()
+      deviceName: deviceName(),
+      installationId: getPwaInstallationId(),
+      platform: pwaPlatform()
     })
   });
   if (!response.ok) {
@@ -106,7 +171,10 @@ export async function disablePushNotifications(apiBase, subscription) {
   await fetch(`${apiBase}/api/notifications/subscriptions`, {
     method: "DELETE",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ endpoint: subscription.endpoint })
+    body: JSON.stringify({
+      endpoint: subscription.endpoint,
+      installationId: getPwaInstallationId()
+    })
   });
   await subscription.unsubscribe();
 }
