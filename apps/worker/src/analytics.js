@@ -1,3 +1,4 @@
+import { movieReleaseSchedule } from "@skct/core";
 import { parseJson, resolveInternalMovieCodes } from "./logic.js";
 import { publicVenues, venueForCode } from "./venues.js";
 
@@ -190,9 +191,13 @@ export async function analyticsCatalog(db, now = new Date()) {
     const movie = movies.get(key) || {
       title: show.movieTitle,
       firstTrackedDate: show.show_date,
+      firstTrackedStartAt: show.start_at,
       lastTrackedDate: show.show_date
     };
-    if (show.show_date < movie.firstTrackedDate) movie.firstTrackedDate = show.show_date;
+    if (show.start_at < movie.firstTrackedStartAt) {
+      movie.firstTrackedDate = show.show_date;
+      movie.firstTrackedStartAt = show.start_at;
+    }
     if (show.show_date > movie.lastTrackedDate) movie.lastTrackedDate = show.show_date;
     movies.set(key, movie);
   }
@@ -202,7 +207,9 @@ export async function analyticsCatalog(db, now = new Date()) {
     generatedAt: now.toISOString(),
     venues: publicVenues(),
     capacityProfiles: buildCapacityProfiles(capacityResult.results || []),
-    movies: Array.from(movies.values()).sort((left, right) => left.title.localeCompare(right.title))
+    movies: Array.from(movies.values())
+      .map((movie) => ({ ...movie, ...movieReleaseSchedule(movie.firstTrackedStartAt) }))
+      .sort((left, right) => left.title.localeCompare(right.title))
   };
 }
 

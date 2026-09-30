@@ -20,6 +20,7 @@ export function groupShowsByMovie(shows = []) {
       movieTitle: show.movieTitle || "Movie details unavailable",
       language: show.language || "",
       format: show.format || "",
+      movieRun: show.movieRun || null,
       shows: [],
       capturedShows: 0,
       finalizedShows: 0,
@@ -32,6 +33,7 @@ export function groupShowsByMovie(shows = []) {
     };
 
     group.shows.push(show);
+    if (!group.movieRun && show.movieRun) group.movieRun = show.movieRun;
     if (!group.earliestStartAt || (show.startAt && show.startAt < group.earliestStartAt)) {
       group.earliestStartAt = show.startAt;
     }

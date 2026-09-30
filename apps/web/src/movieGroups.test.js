@@ -62,3 +62,13 @@ test("movie groups can be sorted by gross, tickets, earliest show, or name", () 
   assert.equal(sortMovieGroups(groups, "earliest")[0].movieTitle, "Alpha");
   assert.equal(sortMovieGroups(groups, "name")[0].movieTitle, "Alpha");
 });
+
+test("movie groups retain release-day terminology supplied by the dashboard", () => {
+  const movieRun = { dayLabel: "Premieres", weekLabel: "1st Week", dayOneDate: "2026-09-24" };
+  const [group] = groupShowsByMovie([
+    show({ id: "show-1", movieTitle: "The Paradise", movieRun }),
+    show({ id: "show-2", movieTitle: "The Paradise", movieRun: null })
+  ]);
+
+  assert.deepEqual(group.movieRun, movieRun);
+});

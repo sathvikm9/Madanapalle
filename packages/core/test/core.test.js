@@ -7,6 +7,8 @@ import {
   captureAtFromCutoff,
   classifyScheduleChanges,
   extractAssignedJson,
+  movieReleaseSchedule,
+  movieRunForDate,
   parseVenueShowsFromHtml,
   reconcileHistoricalScheduleChanges
 } from "../src/index.js";
@@ -27,6 +29,42 @@ test("schedules capture one minute before the BookMyShow cutoff", () => {
 
 test("schedules an early backup from the show start", () => {
   assert.equal(captureAtFromStart("2026-08-20T05:30:00.000Z", 10), "2026-08-20T05:40:00.000Z");
+});
+
+test("treats a movie first tracked before 6 PM IST as Day 1", () => {
+  const release = movieReleaseSchedule("2026-08-21T05:30:00.000Z");
+  assert.deepEqual(release, {
+    firstShowAt: "2026-08-21T05:30:00.000Z",
+    firstTrackedDate: "2026-08-21",
+    firstShowHour: 11,
+    hasPremiere: false,
+    premiereDate: null,
+    dayOneDate: "2026-08-21"
+  });
+  assert.equal(movieRunForDate(release.firstShowAt, "2026-08-21").dayLabel, "Day 1");
+  assert.equal(movieRunForDate(release.firstShowAt, "2026-08-27").weekLabel, "1st Week");
+  assert.equal(movieRunForDate(release.firstShowAt, "2026-08-28").weekLabel, "2nd Week");
+});
+
+test("treats an evening first show as premieres and begins Day 1 the next date", () => {
+  const firstShowAt = "2026-09-23T16:15:00.000Z"; // 9:45 PM in India.
+  const premiere = movieRunForDate(firstShowAt, "2026-09-23");
+  const dayOne = movieRunForDate(firstShowAt, "2026-09-24");
+  const daySeven = movieRunForDate(firstShowAt, "2026-09-30");
+  const dayEight = movieRunForDate(firstShowAt, "2026-10-01");
+
+  assert.equal(premiere.dayLabel, "Premieres");
+  assert.equal(premiere.weekLabel, "1st Week");
+  assert.equal(dayOne.dayLabel, "Day 1");
+  assert.equal(daySeven.weekLabel, "1st Week");
+  assert.equal(dayEight.dayLabel, "Day 8");
+  assert.equal(dayEight.weekLabel, "2nd Week");
+});
+
+test("formats later movie weeks with stable ordinal labels", () => {
+  const firstShowAt = "2026-08-21T05:30:00.000Z";
+  assert.equal(movieRunForDate(firstShowAt, "2026-09-19").dayLabel, "Day 30");
+  assert.equal(movieRunForDate(firstShowAt, "2026-09-19").weekLabel, "5th Week");
 });
 
 test("extracts JSON without being confused by braces inside strings", () => {

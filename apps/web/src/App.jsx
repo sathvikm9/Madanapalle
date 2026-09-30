@@ -74,6 +74,19 @@ function CopyDataButton({ copyStatus, disabled, onCopy, placement }) {
   );
 }
 
+function MovieTitle({ title, run }) {
+  if (!run) return null;
+  return (
+    <h3 className="movie-title-line">
+      <span>{title}</span>
+      <span className="movie-title-line__separator" aria-hidden="true">-</span>
+      <strong className="movie-title-line__run" aria-label={`${run.dayLabel}, ${run.weekLabel}`}>
+        {run.dayLabel}<i aria-hidden="true">·</i><span>{run.weekLabel}</span>
+      </strong>
+    </h3>
+  );
+}
+
 function DashboardSkeleton() {
   return (
     <section className="dashboard-skeleton" aria-label="Loading daily theatre data" aria-live="polite">
@@ -185,7 +198,7 @@ function ShowCard({ show }) {
 
       <div className="show-card__content">
         <div className="show-card__movie">
-          <h3>{show.movieTitle}</h3>
+          {show.movieRun ? <MovieTitle title={show.movieTitle} run={show.movieRun} /> : <h3>{show.movieTitle}</h3>}
           <p>{[show.language, show.format].filter(Boolean).join(" · ") || "Details unavailable"}</p>
         </div>
 
@@ -246,7 +259,7 @@ function MovieCard({ movie }) {
             <span className={`movie-progress movie-progress--${progressTone}`}>{progressLabel}</span>
             <span className="movie-card__count">{movie.capturedShows} of {movie.shows.length} shows captured</span>
           </div>
-          <h3>{movie.movieTitle}</h3>
+          {movie.movieRun ? <MovieTitle title={movie.movieTitle} run={movie.movieRun} /> : <h3>{movie.movieTitle}</h3>}
           <p>{[movie.language, movie.format].filter(Boolean).join(" · ") || "Details unavailable"}</p>
           <div
             className={`movie-card__badges${movie.missedShows || movie.pendingShows ? " has-exceptions" : ""}`}

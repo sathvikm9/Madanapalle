@@ -276,6 +276,34 @@ test("understands first weekend and individual movie days", () => {
   assert.equal(dayThree.request.endDate, "2026-08-23");
 });
 
+test("uses premieres before Day 1 and includes premieres in the first week", () => {
+  const premiereCatalog = {
+    ...catalog,
+    movies: [{
+      title: "The Paradise",
+      firstTrackedDate: "2026-09-23",
+      premiereDate: "2026-09-23",
+      dayOneDate: "2026-09-24"
+    }]
+  };
+  const premiereNow = new Date("2026-10-10T10:00:00.000Z");
+
+  const dayOne = parseAnalyticsQuestion("Paradise Day 1 gross", premiereCatalog, premiereNow).request;
+  assert.equal(dayOne.startDate, "2026-09-24");
+  assert.equal(dayOne.endDate, "2026-09-24");
+
+  const firstWeek = parseAnalyticsQuestion("Paradise first week gross", premiereCatalog, premiereNow).request;
+  assert.equal(firstWeek.startDate, "2026-09-23");
+  assert.equal(firstWeek.endDate, "2026-09-30");
+
+  const secondWeek = parseAnalyticsQuestion("Paradise 2nd week gross", premiereCatalog, premiereNow).request;
+  assert.equal(secondWeek.startDate, "2026-10-01");
+  assert.equal(secondWeek.endDate, "2026-10-07");
+
+  const tillNow = parseAnalyticsQuestion("Paradise gross", premiereCatalog, premiereNow).request;
+  assert.equal(tillNow.startDate, "2026-09-23");
+});
+
 test("refuses all requests to mutate tracked data", () => {
   const result = parseAnalyticsQuestion("This show is wrong, update this gross", catalog, now);
   assert.equal(result.reply, READ_ONLY_REPLY);

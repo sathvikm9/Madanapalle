@@ -512,6 +512,29 @@ main { max-width: 1120px; margin: 0 auto; padding: 26px 24px 88px; }
   font-weight: 600;
 }
 
+.movie-title-line {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  column-gap: .28em;
+}
+.movie-title-line__separator { color: #aaa69d; font-weight: 400; }
+.movie-title-line__run {
+  color: var(--red);
+  display: inline-flex;
+  align-items: baseline;
+  gap: .42em;
+  font-family: Inter, system-ui, sans-serif;
+  font-size: .56em;
+  font-weight: 800;
+  letter-spacing: .055em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.movie-title-line__run > i { color: #aaa69d; font-style: normal; }
+.movie-title-line__run > span { color: var(--muted); }
+
 .show-list { display: grid; gap: 10px; }
 .show-card {
   border: 1px solid var(--line);
@@ -544,6 +567,7 @@ main { max-width: 1120px; margin: 0 auto; padding: 26px 24px 88px; }
 .show-card__content { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(320px, .7fr); }
 .show-card__movie { min-width: 0; display: flex; flex-direction: column; justify-content: center; padding: 18px 16px; }
 .show-card__movie h3 { margin: 0 0 5px; font-size: 19px; line-height: 1.25; letter-spacing: -.015em; }
+.show-card__movie .movie-title-line__run { font-size: 12px; }
 .show-card__movie p { margin: 0; color: var(--muted); font-size: 13px; }
 .show-card__result { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; border-left: 1px solid var(--line); background: var(--surface); }
 .show-card__result > div { min-width: 0; display: flex; flex-direction: column; justify-content: center; }
@@ -911,6 +935,7 @@ main { max-width: 1120px; margin: 0 auto; padding: 26px 24px 88px; }
   .show-card__content { grid-template-columns: minmax(0, 1fr); }
   .show-card__movie { padding: 13px 12px; }
   .show-card__movie h3 { margin-bottom: 3px; font-size: 17px; line-height: 1.2; }
+  .show-card__movie .movie-title-line__run { font-size: 12px; }
   .show-card__movie p { font-size: 11px; }
   .show-card__result { grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px; border-top: 1px solid var(--line); border-left: 0; }
   .show-card__result span { margin-bottom: 3px; font-size: 8px; }
@@ -954,6 +979,7 @@ main { max-width: 1120px; margin: 0 auto; padding: 26px 24px 88px; }
   .movie-card__count { padding-top: 0; font-size: 9px; text-align: right; }
   .movie-card__title h3 { font-size: 24px; }
   .movie-card__title > p { font-size: 11px; }
+  .movie-card__title .movie-title-line__run { font-size: 12px; }
   .movie-card__badges { margin-top: 11px; }
   .movie-card__badges span { min-height: 25px; display: inline-flex; align-items: center; padding: 0 8px; border-radius: 999px; font-size: 8px; }
   .movie-card__badges .is-final { display: none; }

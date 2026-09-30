@@ -9,6 +9,19 @@ const DAY_ONE_OVERRIDES = new Map([
   ["irumudi", "2026-08-21"]
 ]);
 
+const WEEK_WORDS = new Map([
+  ["first", 1], ["one", 1],
+  ["second", 2], ["two", 2],
+  ["third", 3], ["three", 3],
+  ["fourth", 4], ["four", 4],
+  ["fifth", 5], ["five", 5],
+  ["sixth", 6], ["six", 6],
+  ["seventh", 7], ["seven", 7],
+  ["eighth", 8], ["eight", 8],
+  ["ninth", 9], ["nine", 9],
+  ["tenth", 10], ["ten", 10]
+]);
+
 const MONTH_NUMBERS = new Map([
   ["jan", 1], ["january", 1],
   ["feb", 2], ["february", 2],
@@ -70,6 +83,8 @@ function expandShortcuts(value) {
     if (movieDay) return ["day", movieDay[1]];
     const firstDays = token.match(/^(\d{1,3})d$/);
     if (firstDays) return ["first", firstDays[1], "days"];
+    const movieWeek = token.match(/^(\d{1,2})w$/);
+    if (movieWeek) return ["week", movieWeek[1]];
     return [token];
   }).join(" ");
 }
@@ -138,6 +153,35 @@ function firstWeekend(dayOne) {
   const startWeekday = new Date(`${startDate}T00:00:00.000Z`).getUTCDay();
   const endDate = addDays(startDate, (7 - startWeekday) % 7);
   return { key: "first_weekend", label: "First weekend", startDate, endDate };
+}
+
+function movieDayOne(movie) {
+  return DAY_ONE_OVERRIDES.get(normalize(movie.title)) || movie.dayOneDate || movie.firstTrackedDate;
+}
+
+function movieTrackingStart(movie) {
+  return movie.premiereDate || movieDayOne(movie);
+}
+
+function ordinal(value) {
+  const number = Math.max(1, Math.trunc(Number(value) || 1));
+  if (number % 100 >= 11 && number % 100 <= 13) return `${number}th`;
+  if (number % 10 === 1) return `${number}st`;
+  if (number % 10 === 2) return `${number}nd`;
+  if (number % 10 === 3) return `${number}rd`;
+  return `${number}th`;
+}
+
+function requestedWeek(question) {
+  const value = normalize(question);
+  if (/\bopening\s+week\b/.test(value)) return 1;
+  const numeric = value.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+week\b/)
+    || value.match(/\bweek\s+(\d{1,2})\b/);
+  if (numeric) return Math.max(1, Math.min(Number(numeric[1]), 52));
+  for (const [word, number] of WEEK_WORDS) {
+    if (new RegExp(`\\b${word}\\s+week\\b|\\bweek\\s+${word}\\b`).test(value)) return number;
+  }
+  return null;
 }
 
 export function indiaDate(now = new Date()) {
@@ -275,7 +319,7 @@ function findTheatre(question) {
 
 function periodForQuestion(question, movie, today) {
   const normalized = normalize(question);
-  const dayOne = DAY_ONE_OVERRIDES.get(normalize(movie.title)) || movie.firstTrackedDate;
+  const dayOne = movieDayOne(movie);
   if (/\b(today|current day|this day)\b/.test(normalized)) {
     return { key: "today", label: "Today", startDate: today, endDate: today };
   }
@@ -286,8 +330,15 @@ function periodForQuestion(question, movie, today) {
   const selectedCalendarPeriod = calendarPeriod(question, today);
   if (selectedCalendarPeriod) return selectedCalendarPeriod;
   if (/\b(first|1st|opening) weekend\b/.test(normalized) || /\bweekend (?:one|1)\b/.test(normalized)) return firstWeekend(dayOne);
-  if (/\b(first|1st|opening) week\b/.test(normalized) || /\bweek (?:one|1)\b/.test(normalized)) {
-    return { key: "first_week", label: "First week", startDate: dayOne, endDate: addDays(dayOne, 6) };
+  const week = requestedWeek(question);
+  if (week) {
+    const startDate = week === 1 ? movieTrackingStart(movie) : addDays(dayOne, (week - 1) * 7);
+    return {
+      key: week === 1 ? "first_week" : "movie_week",
+      label: week === 1 ? "First week" : `${ordinal(week)} week`,
+      startDate,
+      endDate: addDays(dayOne, (week * 7) - 1)
+    };
   }
   const movieDayMatch = normalized.match(/\bday\s*(\d{1,3})\b/) || normalized.match(/\b(\d{1,3})(?:st|nd|rd|th) day\b/);
   if (movieDayMatch) {
@@ -346,8 +397,7 @@ function asksForTheatreBreakdown(question) {
 }
 
 function defaultPeriod(movie, today) {
-  const dayOne = DAY_ONE_OVERRIDES.get(normalize(movie.title)) || movie.firstTrackedDate;
-  return { key: "till_now", label: "Till now", startDate: dayOne, endDate: today };
+  return { key: "till_now", label: "Till now", startDate: movieTrackingStart(movie), endDate: today };
 }
 
 function inheritedPeriod(context, movie, today) {

@@ -1,4 +1,4 @@
-import { classifyScheduleChanges, reconcileHistoricalScheduleChanges } from "@skct/core";
+import { classifyScheduleChanges, movieRunForDate, reconcileHistoricalScheduleChanges } from "@skct/core";
 import { parseJson, RequestError, resolveInternalMovieCodes } from "./logic.js";
 import { dashboardVenueForCode, publicVenues, venueForCode } from "./venues.js";
 
@@ -69,6 +69,28 @@ function coreShow(row) {
     movieTitle: row.movie_title,
     isCurrent: Boolean(row.is_current)
   };
+}
+
+function normalizedMovieTitle(value) {
+  return String(value || "").trim().toLocaleLowerCase("en-IN");
+}
+
+async function firstTrackedStartByMovie(db, shows) {
+  const titles = Array.from(new Set(shows.map((show) => String(show.movieTitle || "").trim()).filter(Boolean)));
+  if (!titles.length) return new Map();
+
+  const results = await db.batch(titles.map((title) => db.prepare(
+    `SELECT start_at
+     FROM shows
+     WHERE movie_title=? COLLATE NOCASE
+     ORDER BY start_at ASC
+     LIMIT 1`
+  ).bind(title)));
+
+  return new Map(titles.map((title, index) => [
+    normalizedMovieTitle(title),
+    results[index]?.results?.[0]?.start_at || null
+  ]));
 }
 
 function replacementDetails(change) {
@@ -488,7 +510,7 @@ export async function dashboardData(db, date, venueCode, now = new Date()) {
     ? await changesStatement.bind(date).all()
     : await changesStatement.bind(venueCode, date).all();
 
-  const shows = resolveInternalMovieCodes((showResult.results || []).map((row) => ({
+  const resolvedShows = resolveInternalMovieCodes((showResult.results || []).map((row) => ({
     id: String(row.id),
     venueCode: row.venue_code,
     venueName: row.venue_name,
@@ -524,6 +546,11 @@ export async function dashboardData(db, date, venueCode, now = new Date()) {
       categories: parseJson(row.categories_json, [])
     } : null
   })));
+  const firstStartByMovie = await firstTrackedStartByMovie(db, resolvedShows);
+  const shows = resolvedShows.map((show) => ({
+    ...show,
+    movieRun: movieRunForDate(firstStartByMovie.get(normalizedMovieTitle(show.movieTitle)), date)
+  }));
 
   const currentShows = shows.filter((show) => show.isCurrent);
   const finalized = currentShows.filter((show) => show.status === "completed" && show.snapshot);
