@@ -534,6 +534,13 @@ main { max-width: 1120px; margin: 0 auto; padding: 26px 24px 88px; }
 }
 .movie-title-line__run > i { color: #aaa69d; font-style: normal; }
 .movie-title-line__run > span { color: var(--muted); }
+.movie-title-line__run sup {
+  margin-left: .03em;
+  font-size: .62em;
+  line-height: 0;
+  text-transform: lowercase;
+  vertical-align: super;
+}
 
 .show-list { display: grid; gap: 10px; }
 .show-card {

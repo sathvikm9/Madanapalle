@@ -74,6 +74,12 @@ function CopyDataButton({ copyStatus, disabled, onCopy, placement }) {
   );
 }
 
+function WeekLabel({ label }) {
+  const match = String(label || "").match(/^(\d+)(st|nd|rd|th)\s+(.+)$/i);
+  if (!match) return <span>{label}</span>;
+  return <span>{match[1]}<sup>{match[2]}</sup> {match[3]}</span>;
+}
+
 function MovieTitle({ title, run }) {
   if (!run) return null;
   return (
@@ -81,7 +87,7 @@ function MovieTitle({ title, run }) {
       <span>{title}</span>
       <span className="movie-title-line__separator" aria-hidden="true">-</span>
       <strong className="movie-title-line__run" aria-label={`${run.dayLabel}, ${run.weekLabel}`}>
-        {run.dayLabel}<i aria-hidden="true">·</i><span>{run.weekLabel}</span>
+        {run.dayLabel}<i aria-hidden="true">·</i><WeekLabel label={run.weekLabel} />
       </strong>
     </h3>
   );

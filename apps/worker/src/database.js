@@ -1,4 +1,4 @@
-import { classifyScheduleChanges, movieRunForDate, reconcileHistoricalScheduleChanges } from "@skct/core";
+import { classifyScheduleChanges, movieRunForDate, movieRunIsAvailable, reconcileHistoricalScheduleChanges } from "@skct/core";
 import { parseJson, RequestError, resolveInternalMovieCodes } from "./logic.js";
 import { dashboardVenueForCode, publicVenues, venueForCode } from "./venues.js";
 
@@ -549,7 +549,9 @@ export async function dashboardData(db, date, venueCode, now = new Date()) {
   const firstStartByMovie = await firstTrackedStartByMovie(db, resolvedShows);
   const shows = resolvedShows.map((show) => ({
     ...show,
-    movieRun: movieRunForDate(firstStartByMovie.get(normalizedMovieTitle(show.movieTitle)), date)
+    movieRun: movieRunIsAvailable(show.movieTitle)
+      ? movieRunForDate(firstStartByMovie.get(normalizedMovieTitle(show.movieTitle)), date)
+      : null
   }));
 
   const currentShows = shows.filter((show) => show.isCurrent);

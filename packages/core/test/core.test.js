@@ -8,6 +8,7 @@ import {
   classifyScheduleChanges,
   extractAssignedJson,
   movieReleaseSchedule,
+  movieRunIsAvailable,
   movieRunForDate,
   parseVenueShowsFromHtml,
   reconcileHistoricalScheduleChanges
@@ -65,6 +66,14 @@ test("formats later movie weeks with stable ordinal labels", () => {
   const firstShowAt = "2026-08-21T05:30:00.000Z";
   assert.equal(movieRunForDate(firstShowAt, "2026-09-19").dayLabel, "Day 30");
   assert.equal(movieRunForDate(firstShowAt, "2026-09-19").weekLabel, "5th Week");
+});
+
+test("hides movie-run labels for legacy titles whose release predates tracking", () => {
+  assert.equal(movieRunIsAvailable("Vishwanath and Sons"), false);
+  assert.equal(movieRunIsAvailable("Awarapan 2"), false);
+  assert.equal(movieRunIsAvailable("HUSHAR PITTALU"), false);
+  assert.equal(movieRunIsAvailable("The Paradise"), true);
+  assert.equal(movieRunIsAvailable("Irumudi"), true);
 });
 
 test("extracts JSON without being confused by braces inside strings", () => {

@@ -1,4 +1,4 @@
-import { addCalendarDays, movieRunForDate } from "@skct/core";
+import { addCalendarDays, movieRunForDate, movieRunIsAvailable } from "@skct/core";
 
 const today = new Intl.DateTimeFormat("en-CA", {
   timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit"
@@ -91,7 +91,7 @@ function makeShow(id, venueCode, venueName, time, startAt, movieTitle, firstMovi
     venueShortName: venueName,
     sessionId: `62${id}0`,
     movieTitle,
-    movieRun: movieRunForDate(firstMovieShowAt, selectedDate),
+    movieRun: movieRunIsAvailable(movieTitle) ? movieRunForDate(firstMovieShowAt, selectedDate) : null,
     language: "Telugu",
     format: "2D",
     showTime: time,

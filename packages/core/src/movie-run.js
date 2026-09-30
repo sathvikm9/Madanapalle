@@ -1,6 +1,12 @@
 const INDIA_TIME_ZONE = "Asia/Kolkata";
 export const PREMIERE_START_HOUR = 18;
 
+const MOVIE_RUN_EXCLUDED_TITLES = new Set([
+  "awarapan 2",
+  "hushar pittalu",
+  "vishwanath and sons"
+]);
+
 const indiaDateFormatter = new Intl.DateTimeFormat("en-CA", {
   timeZone: INDIA_TIME_ZONE,
   year: "numeric",
@@ -30,6 +36,17 @@ export function addCalendarDays(date, days) {
 function calendarDayDifference(startDate, endDate) {
   if (!validIsoDate(startDate) || !validIsoDate(endDate)) return null;
   return Math.round((new Date(`${endDate}T00:00:00.000Z`) - new Date(`${startDate}T00:00:00.000Z`)) / 86_400_000);
+}
+
+function normalizedMovieTitle(value) {
+  return String(value || "")
+    .toLocaleLowerCase("en-IN")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+export function movieRunIsAvailable(movieTitle) {
+  return !MOVIE_RUN_EXCLUDED_TITLES.has(normalizedMovieTitle(movieTitle));
 }
 
 export function ordinal(value) {
@@ -93,4 +110,3 @@ export function movieRunForDate(firstShowAt, selectedDate) {
     weekLabel: `${ordinal(weekNumber)} Week`
   };
 }
-
