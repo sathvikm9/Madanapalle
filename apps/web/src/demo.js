@@ -21,19 +21,23 @@ export function demoDashboard(date = today, venueCode = "ALL") {
     Irumudi: `${irumudiFirstDate}T11:00:00+05:30`,
     "The Paradise": `${date}T21:45:00+05:30`
   };
+  const releaseDates = {
+    Irumudi: irumudiFirstDate,
+    "The Paradise": addCalendarDays(date, 1)
+  };
   const allShows = [
     makeShow("1", "SKMD", "Sri Krishna", "11:00 AM", `${base}11:00:00+05:30`, "Vishwanath and Sons", firstShows["Vishwanath and Sons"], date, "completed", 15, 103, 657, 1000000),
     makeShow("2", "SKMD", "Sri Krishna", "02:10 PM", `${base}14:10:00+05:30`, "Vishwanath and Sons", firstShows["Vishwanath and Sons"], date, "completed", 15, 80, 657, 778500),
     makeShow("3", "SKMD", "Sri Krishna", "06:00 PM", `${base}18:00:00+05:30`, "Vishwanath and Sons", firstShows["Vishwanath and Sons"], date, "scheduled", 15),
     makeShow("4", "SKMD", "Sri Krishna", "09:10 PM", `${base}21:10:00+05:30`, "Vishwanath and Sons", firstShows["Vishwanath and Sons"], date, "scheduled", 15),
-    makeShow("9", "SCM", "Sai Chitra", "11:00 AM", `${base}11:00:00+05:30`, "Irumudi", firstShows.Irumudi, date, "completed", 15, 360, 424, 0),
-    makeShow("10", "SCM", "Sai Chitra", "02:15 PM", `${base}14:15:00+05:30`, "Irumudi", firstShows.Irumudi, date, "scheduled", 15),
+    makeShow("9", "SCM", "Sai Chitra", "11:00 AM", `${base}11:00:00+05:30`, "Irumudi", firstShows.Irumudi, date, "completed", 15, 360, 424, 0, releaseDates.Irumudi),
+    makeShow("10", "SCM", "Sai Chitra", "02:15 PM", `${base}14:15:00+05:30`, "Irumudi", firstShows.Irumudi, date, "scheduled", 15, 0, 0, 0, releaseDates.Irumudi),
     makeShow("5", "RTDM", "Ravi", "11:00 AM", `${base}11:00:00+05:30`, "Vishwanath and Sons", firstShows["Vishwanath and Sons"], date, "completed", 20, 126, 720, 1215800),
     makeShow("6", "RTDM", "Ravi", "02:20 PM", `${base}14:20:00+05:30`, "Vishwanath and Sons", firstShows["Vishwanath and Sons"], date, "scheduled", 20),
     makeShow("7", "RTDM", "Ravi", "06:00 PM", `${base}18:00:00+05:30`, "Vishwanath and Sons", firstShows["Vishwanath and Sons"], date, "scheduled", 20),
     makeShow("8", "RTDM", "Ravi", "09:20 PM", `${base}21:20:00+05:30`, "Vishwanath and Sons", firstShows["Vishwanath and Sons"], date, "scheduled", 20),
     makeShow("11", "ASRM", "ASR", "11:00 AM", `${base}11:00:00+05:30`, "Vishwanath and Sons", firstShows["Vishwanath and Sons"], date, "completed", 15, 94, 600, 0),
-    makeShow("12", "ASRM", "ASR", "09:45 PM", `${base}21:45:00+05:30`, "The Paradise", firstShows["The Paradise"], date, "scheduled", 15)
+    makeShow("12", "ASRM", "ASR", "09:45 PM", `${base}21:45:00+05:30`, "The Paradise", firstShows["The Paradise"], date, "scheduled", 15, 0, 0, 0, releaseDates["The Paradise"])
   ];
   const shows = venueCode === "ALL" ? allShows : allShows.filter((show) => show.venueCode === venueCode);
   const allScheduleChanges = [{
@@ -77,7 +81,7 @@ export function demoDashboard(date = today, venueCode = "ALL") {
   };
 }
 
-function makeShow(id, venueCode, venueName, time, startAt, movieTitle, firstMovieShowAt, selectedDate, status, cutoffMinutes, sold = 0, capacity = 0, collectionPaise = 0) {
+function makeShow(id, venueCode, venueName, time, startAt, movieTitle, firstMovieShowAt, selectedDate, status, cutoffMinutes, sold = 0, capacity = 0, collectionPaise = 0, releaseDate = null) {
   const start = new Date(startAt);
   const cutoff = new Date(start.getTime() + cutoffMinutes * 60_000);
   const captured = new Date(cutoff.getTime() - 22_000);
@@ -91,7 +95,7 @@ function makeShow(id, venueCode, venueName, time, startAt, movieTitle, firstMovi
     venueShortName: venueName,
     sessionId: `62${id}0`,
     movieTitle,
-    movieRun: movieRunIsAvailable(movieTitle) ? movieRunForDate(firstMovieShowAt, selectedDate) : null,
+    movieRun: movieRunIsAvailable(movieTitle) ? movieRunForDate(firstMovieShowAt, selectedDate, { releaseDate }) : null,
     language: "Telugu",
     format: "2D",
     showTime: time,

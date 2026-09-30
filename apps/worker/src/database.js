@@ -75,6 +75,20 @@ function normalizedMovieTitle(value) {
   return String(value || "").trim().toLocaleLowerCase("en-IN");
 }
 
+function bmsEventCode(value) {
+  const code = String(value || "").trim().toUpperCase();
+  return /^ET\d+$/.test(code) ? code : null;
+}
+
+function movieMetadataIsEligible(show) {
+  const title = String(show.movieTitle || "").trim();
+  return Boolean(
+    title &&
+    movieRunIsAvailable(title) &&
+    normalizedMovieTitle(title) !== normalizedMovieTitle(show.eventCode)
+  );
+}
+
 async function firstTrackedStartByMovie(db, shows) {
   const titles = Array.from(new Set(shows.map((show) => String(show.movieTitle || "").trim()).filter(Boolean)));
   if (!titles.length) return new Map();
@@ -91,6 +105,63 @@ async function firstTrackedStartByMovie(db, shows) {
     normalizedMovieTitle(title),
     results[index]?.results?.[0]?.start_at || null
   ]));
+}
+
+async function releaseDateByMovie(db, shows) {
+  const titles = Array.from(new Set(shows.map((show) => String(show.movieTitle || "").trim()).filter(Boolean)));
+  if (!titles.length) return new Map();
+  const results = await db.batch(titles.map((title) => db.prepare(
+    `SELECT release_date, status, source
+     FROM movie_releases
+     WHERE movie_key=?
+     LIMIT 1`
+  ).bind(normalizedMovieTitle(title))));
+  return new Map(titles.map((title, index) => {
+    const row = results[index]?.results?.[0];
+    return [normalizedMovieTitle(title), row?.status === "verified" ? row.release_date : null];
+  }));
+}
+
+function movieMetadataUpsert(db, show, observedAt) {
+  const eventCode = bmsEventCode(show.eventCode);
+  return db.prepare(
+    `INSERT INTO movie_releases (
+       movie_key, movie_title, bms_event_code, first_tracked_at, first_tracked_date,
+       status, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
+     ON CONFLICT(movie_key) DO UPDATE SET
+       movie_title=CASE WHEN excluded.bms_event_code IS NOT NULL THEN excluded.movie_title ELSE movie_releases.movie_title END,
+       bms_event_code=COALESCE(movie_releases.bms_event_code, excluded.bms_event_code),
+       first_tracked_at=MIN(movie_releases.first_tracked_at, excluded.first_tracked_at),
+       first_tracked_date=MIN(movie_releases.first_tracked_date, excluded.first_tracked_date),
+       updated_at=excluded.updated_at`
+  ).bind(
+    normalizedMovieTitle(show.movieTitle),
+    show.movieTitle,
+    eventCode,
+    show.startAt,
+    show.showDate,
+    observedAt,
+    observedAt
+  );
+}
+
+async function nextMovieMetadataRequest(db, observedAt) {
+  const row = await db.prepare(
+    `SELECT movie_key, movie_title, bms_event_code, attempts
+     FROM movie_releases
+     WHERE status IN ('pending','failed')
+       AND bms_event_code IS NOT NULL
+       AND (next_retry_at IS NULL OR next_retry_at<=?)
+     ORDER BY first_tracked_at DESC
+     LIMIT 1`
+  ).bind(observedAt).first();
+  return row ? {
+    movieKey: row.movie_key,
+    movieTitle: row.movie_title,
+    eventCode: row.bms_event_code,
+    attempts: Number(row.attempts || 0)
+  } : null;
 }
 
 function replacementDetails(change) {
@@ -150,6 +221,9 @@ export async function reconcileDiscovery(db, discovery, now = new Date()) {
     })
   };
   const statements = discovery.shows.map((show) => db.prepare(UPSERT_SHOW).bind(...showValues(show, observedAt)));
+  for (const show of discovery.shows) {
+    if (movieMetadataIsEligible(show)) statements.push(movieMetadataUpsert(db, show, observedAt));
+  }
 
   for (const change of changes.replaced) {
     const notificationPayload = {
@@ -252,12 +326,54 @@ export async function reconcileDiscovery(db, discovery, now = new Date()) {
   );
 
   await db.batch(statements);
+  const movieMetadataRequest = await nextMovieMetadataRequest(db, observedAt);
   return {
     shows: discovery.shows.length,
     added: changes.added.length,
     replaced: changes.replaced.length,
-    removed: changes.removed.length
+    removed: changes.removed.length,
+    movieMetadataRequests: movieMetadataRequest ? [movieMetadataRequest] : []
   };
+}
+
+export async function recordMovieReleaseMetadata(db, metadata, now = new Date()) {
+  const observedAt = now.toISOString();
+  const movieKey = normalizedMovieTitle(metadata.movieKey);
+  const row = await db.prepare(
+    `SELECT movie_key, bms_event_code, status FROM movie_releases WHERE movie_key=?`
+  ).bind(movieKey).first();
+  if (!row) throw new RequestError("The movie metadata request is no longer current", 409, "stale_movie_metadata");
+  if (String(row.bms_event_code || "").toUpperCase() !== String(metadata.eventCode || "").toUpperCase()) {
+    throw new RequestError("The BookMyShow event does not match this movie", 409, "movie_event_mismatch");
+  }
+
+  if (metadata.releaseDate) {
+    await db.prepare(
+      `UPDATE movie_releases SET
+         movie_title=COALESCE(?, movie_title), bms_movie_url=?, release_date=?,
+         source='bookmyshow', status='verified', attempts=attempts+1,
+         last_attempt_at=?, next_retry_at=NULL, last_error=NULL, verified_at=?, updated_at=?
+       WHERE movie_key=?`
+    ).bind(
+      metadata.canonicalTitle || null,
+      metadata.movieUrl,
+      metadata.releaseDate,
+      observedAt,
+      observedAt,
+      observedAt,
+      movieKey
+    ).run();
+    return { movieKey, status: "verified", releaseDate: metadata.releaseDate };
+  }
+
+  const nextRetryAt = new Date(now.getTime() + 6 * 60 * 60_000).toISOString();
+  await db.prepare(
+    `UPDATE movie_releases SET
+       status='failed', attempts=attempts+1, last_attempt_at=?, next_retry_at=?,
+       last_error=?, updated_at=?
+     WHERE movie_key=? AND status!='verified'`
+  ).bind(observedAt, nextRetryAt, String(metadata.error || "BookMyShow release date was unavailable").slice(0, 500), observedAt, movieKey).run();
+  return { movieKey, status: "failed", nextRetryAt };
 }
 
 export async function currentShow(db, naturalKey) {
@@ -547,10 +663,13 @@ export async function dashboardData(db, date, venueCode, now = new Date()) {
     } : null
   })));
   const firstStartByMovie = await firstTrackedStartByMovie(db, resolvedShows);
+  const releaseDateByTitle = await releaseDateByMovie(db, resolvedShows);
   const shows = resolvedShows.map((show) => ({
     ...show,
     movieRun: movieRunIsAvailable(show.movieTitle)
-      ? movieRunForDate(firstStartByMovie.get(normalizedMovieTitle(show.movieTitle)), date)
+      ? movieRunForDate(firstStartByMovie.get(normalizedMovieTitle(show.movieTitle)), date, {
+        releaseDate: releaseDateByTitle.get(normalizedMovieTitle(show.movieTitle))
+      })
       : null
   }));
 

@@ -183,6 +183,12 @@ export async function analyticsCatalog(db, now = new Date()) {
      WHERE shows.is_current=1
      ORDER BY snapshots.captured_at DESC`
   ).all();
+  const releaseResult = await db.prepare(
+    `SELECT movie_key, release_date
+     FROM movie_releases
+     WHERE status='verified' AND release_date IS NOT NULL`
+  ).all();
+  const releaseDates = new Map((releaseResult.results || []).map((row) => [row.movie_key, row.release_date]));
 
   const movies = new Map();
   for (const show of canonicalShows(result.results || [])) {
@@ -208,7 +214,10 @@ export async function analyticsCatalog(db, now = new Date()) {
     venues: publicVenues(),
     capacityProfiles: buildCapacityProfiles(capacityResult.results || []),
     movies: Array.from(movies.values())
-      .map((movie) => ({ ...movie, ...movieReleaseSchedule(movie.firstTrackedStartAt) }))
+      .map((movie) => ({
+        ...movie,
+        ...movieReleaseSchedule(movie.firstTrackedStartAt, releaseDates.get(normalizedTitle(movie.title)))
+      }))
       .sort((left, right) => left.title.localeCompare(right.title))
   };
 }

@@ -82,12 +82,14 @@ function WeekLabel({ label }) {
 
 function MovieTitle({ title, run }) {
   if (!run) return null;
+  const runLabel = run.weekLabel ? `${run.dayLabel}, ${run.weekLabel}` : run.dayLabel;
   return (
     <h3 className="movie-title-line">
       <span>{title}</span>
       <span className="movie-title-line__separator" aria-hidden="true">-</span>
-      <strong className="movie-title-line__run" aria-label={`${run.dayLabel}, ${run.weekLabel}`}>
-        {run.dayLabel}<i aria-hidden="true">·</i><WeekLabel label={run.weekLabel} />
+      <strong className="movie-title-line__run" aria-label={runLabel}>
+        {run.dayLabel}
+        {run.weekLabel ? <><i aria-hidden="true">·</i><WeekLabel label={run.weekLabel} /></> : null}
       </strong>
     </h3>
   );

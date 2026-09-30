@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Madanapalle Theatre Capture Agent",
-  "version": "1.13.0",
-  "description": "Uses your normal Chrome session for early backup and final seat captures at four Madanapalle theatres.",
+  "version": "1.14.0",
+  "description": "Uses your normal Chrome session for show discovery, verified movie release dates, and protected seat captures.",
   "permissions": ["alarms", "notifications", "storage", "tabs"],
   "host_permissions": [
     "https://in.bookmyshow.com/*",
@@ -18,7 +18,7 @@
   "content_scripts": [
     {
       "matches": ["https://in.bookmyshow.com/*", "https://ticketnew.com/*", "https://www.district.in/*"],
-      "js": ["ticketnew.js", "bookmyshow.js", "content.js"],
+      "js": ["ticketnew.js", "bookmyshow.js", "movie-metadata.js", "content.js"],
       "run_at": "document_idle"
     }
   ],

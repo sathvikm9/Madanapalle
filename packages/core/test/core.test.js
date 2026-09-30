@@ -38,6 +38,9 @@ test("treats a movie first tracked before 6 PM IST as Day 1", () => {
     firstShowAt: "2026-08-21T05:30:00.000Z",
     firstTrackedDate: "2026-08-21",
     firstShowHour: 11,
+    officialReleaseDate: null,
+    releaseDateSource: "first-show-fallback",
+    isReRelease: false,
     hasPremiere: false,
     premiereDate: null,
     dayOneDate: "2026-08-21"
@@ -45,6 +48,35 @@ test("treats a movie first tracked before 6 PM IST as Day 1", () => {
   assert.equal(movieRunForDate(release.firstShowAt, "2026-08-21").dayLabel, "Day 1");
   assert.equal(movieRunForDate(release.firstShowAt, "2026-08-27").weekLabel, "1st Week");
   assert.equal(movieRunForDate(release.firstShowAt, "2026-08-28").weekLabel, "2nd Week");
+});
+
+test("uses BookMyShow release date instead of treating a release-day evening show as premieres", () => {
+  const firstShowAt = "2026-09-25T12:30:00.000Z"; // 6 PM in India.
+  const run = movieRunForDate(firstShowAt, "2026-09-25", { releaseDate: "2026-09-25" });
+  assert.equal(run.dayLabel, "Day 1");
+  assert.equal(run.weekLabel, "1st Week");
+  assert.equal(run.hasPremiere, false);
+  assert.equal(run.releaseDateSource, "bookmyshow");
+});
+
+test("uses the pre-release show date as premieres and the official date as Day 1", () => {
+  const firstShowAt = "2026-09-23T16:15:00.000Z";
+  assert.equal(
+    movieRunForDate(firstShowAt, "2026-09-23", { releaseDate: "2026-09-24" }).dayLabel,
+    "Premieres"
+  );
+  assert.equal(
+    movieRunForDate(firstShowAt, "2026-09-24", { releaseDate: "2026-09-24" }).dayLabel,
+    "Day 1"
+  );
+});
+
+test("labels a newly tracked film with an older BookMyShow release date as a re-release", () => {
+  const firstShowAt = "2026-09-27T05:30:00.000Z";
+  const run = movieRunForDate(firstShowAt, "2026-09-27", { releaseDate: "2024-09-27" });
+  assert.equal(run.dayLabel, "Re-Release");
+  assert.equal(run.weekLabel, null);
+  assert.equal(run.isReRelease, true);
 });
 
 test("treats an evening first show as premieres and begins Day 1 the next date", () => {

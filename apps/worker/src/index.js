@@ -4,6 +4,7 @@ import {
   dashboardData,
   finalizeExpiredShows,
   recordCaptureEvent,
+  recordMovieReleaseMetadata,
   reconcileDiscovery,
   saveCapture,
   showForCapture
@@ -224,6 +225,41 @@ async function route(request, env, origin, context) {
       "Schedule notification dispatch failed"
     );
     return json(result, 200, origin);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/agent/movie-release") {
+    requireAgent(request, env);
+    const body = await bodyJson(request);
+    const movieKey = requiredString(body?.movieKey, "movieKey", 300);
+    const eventCode = requiredString(body?.eventCode, "eventCode", 50).toUpperCase();
+    if (!/^ET\d+$/.test(eventCode)) throw new RequestError("eventCode must be a BookMyShow movie code");
+
+    if (body?.releaseDate != null) {
+      if (!validDate(body.releaseDate)) throw new RequestError("releaseDate must be a real YYYY-MM-DD date");
+      const movieUrl = requiredString(body?.movieUrl, "movieUrl", 1_000);
+      let parsedUrl;
+      try {
+        parsedUrl = new URL(movieUrl);
+      } catch {
+        throw new RequestError("movieUrl is invalid");
+      }
+      if (parsedUrl.protocol !== "https:" || parsedUrl.hostname !== "in.bookmyshow.com" || !parsedUrl.pathname.includes(`/${eventCode}`)) {
+        throw new RequestError("movieUrl must be the matching BookMyShow movie page");
+      }
+      return json(await recordMovieReleaseMetadata(env.DB, {
+        movieKey,
+        eventCode,
+        releaseDate: body.releaseDate,
+        movieUrl: parsedUrl.toString(),
+        canonicalTitle: body?.canonicalTitle ? requiredString(body.canonicalTitle, "canonicalTitle", 300) : null
+      }), 200, origin);
+    }
+
+    return json(await recordMovieReleaseMetadata(env.DB, {
+      movieKey,
+      eventCode,
+      error: requiredString(body?.error, "error", 500)
+    }), 200, origin);
   }
 
   if (request.method === "POST" && url.pathname === "/api/agent/capture") {

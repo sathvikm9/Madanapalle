@@ -6,6 +6,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 resumePendingCapture().catch(() => {});
 
 async function handleMessage(message) {
+  if (message.type === "READ_BMS_MOVIE_METADATA") {
+    if (location.hostname !== "in.bookmyshow.com") throw new Error("Movie metadata opened on an unexpected host");
+    return { ok: true, result: globalThis.SKCTMovieMetadata.readPage(document, location) };
+  }
   if (message.type === "CAPTURE_TICKETNEW_SUMMARY") {
     if (!(location.hostname === "ticketnew.com" || location.hostname.endsWith(".ticketnew.com"))) {
       throw new Error("TicketNew summary capture opened on an unexpected host");

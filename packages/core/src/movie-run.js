@@ -59,29 +59,55 @@ export function ordinal(value) {
   return `${number}th`;
 }
 
-export function movieReleaseSchedule(firstShowAt) {
+export function movieReleaseSchedule(firstShowAt, officialReleaseDate = null) {
   const firstShow = new Date(firstShowAt);
   if (!Number.isFinite(firstShow.getTime())) return null;
 
   const firstTrackedDate = indiaDateFormatter.format(firstShow);
   const firstShowHour = Number(indiaHourFormatter.format(firstShow));
-  const hasPremiere = firstShowHour >= PREMIERE_START_HOUR;
+  const hasOfficialReleaseDate = validIsoDate(officialReleaseDate);
+  const isReRelease = hasOfficialReleaseDate && firstTrackedDate > officialReleaseDate;
+  const hasPremiere = hasOfficialReleaseDate
+    ? firstTrackedDate < officialReleaseDate
+    : firstShowHour >= PREMIERE_START_HOUR;
   const premiereDate = hasPremiere ? firstTrackedDate : null;
-  const dayOneDate = hasPremiere ? addCalendarDays(firstTrackedDate, 1) : firstTrackedDate;
+  const dayOneDate = isReRelease
+    ? firstTrackedDate
+    : hasOfficialReleaseDate
+      ? officialReleaseDate
+      : hasPremiere
+        ? addCalendarDays(firstTrackedDate, 1)
+        : firstTrackedDate;
 
   return {
     firstShowAt: firstShow.toISOString(),
     firstTrackedDate,
     firstShowHour,
+    officialReleaseDate: hasOfficialReleaseDate ? officialReleaseDate : null,
+    releaseDateSource: hasOfficialReleaseDate ? "bookmyshow" : "first-show-fallback",
+    isReRelease,
     hasPremiere,
     premiereDate,
     dayOneDate
   };
 }
 
-export function movieRunForDate(firstShowAt, selectedDate) {
-  const release = movieReleaseSchedule(firstShowAt);
+export function movieRunForDate(firstShowAt, selectedDate, { releaseDate = null } = {}) {
+  const release = movieReleaseSchedule(firstShowAt, releaseDate);
   if (!release || !validIsoDate(selectedDate)) return null;
+
+  if (release.isReRelease) {
+    if (calendarDayDifference(release.firstTrackedDate, selectedDate) < 0) return null;
+    return {
+      ...release,
+      selectedDate,
+      phase: "re-release",
+      dayNumber: null,
+      dayLabel: "Re-Release",
+      weekNumber: null,
+      weekLabel: null
+    };
+  }
 
   if (release.premiereDate === selectedDate) {
     return {

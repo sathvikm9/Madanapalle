@@ -31,6 +31,7 @@ import {
   TICKETNEW_SUMMARY_METHOD
 } from "./ticketnew-summary.js";
 import "./bookmyshow.js";
+import "./movie-metadata.js";
 import "./ticketnew.js";
 
 const VENUES = [
@@ -71,6 +72,7 @@ const LEGACY_DISCOVERY_TOMORROW = "discovery:tomorrow";
 const INDIA_DAY_ROLLOVER = "discovery:india-day-rollover";
 const DISCOVERY_RETRY_PREFIX = "discovery-retry:";
 const FINAL_SUMMARY_PREFIX = "ticketnew-final-summary:";
+const MOVIE_METADATA_ALARM = "movie-metadata:sync";
 const BOOKMYSHOW_FINAL_RECOVERY_TIMEOUT_MS = 18_000;
 let pendingMutation = Promise.resolve();
 let captureStateMutation = Promise.resolve();
@@ -92,6 +94,10 @@ async function initializeAgent() {
   await flushCaptureOutbox().catch(() => {});
   const settings = await chrome.storage.sync.get({ enabled: false });
   if (!settings.enabled) return;
+  const { movieMetadataQueue = {} } = await chrome.storage.local.get({ movieMetadataQueue: {} });
+  if (Object.keys(movieMetadataQueue).length) {
+    await chrome.alarms.create(MOVIE_METADATA_ALARM, { delayInMinutes: 0.1 });
+  }
   const { knownShows = {} } = await chrome.storage.local.get({ knownShows: {} });
   const today = indiaDateCode(0);
   await clearShowAlarmsOutsideDate(today);
@@ -112,7 +118,8 @@ async function migrateSingleTheatreStorage() {
     captureStates: {},
     recoveryTabIds: {},
     ticketNewLiveUrls: {},
-    captureOutbox: {}
+    captureOutbox: {},
+    movieMetadataQueue: {}
   });
   const agentTabIds = { ...local.agentTabIds };
   const pendingCaptures = { ...local.pendingCaptures };
@@ -134,7 +141,8 @@ async function migrateSingleTheatreStorage() {
     captureStates: local.captureStates,
     recoveryTabIds: local.recoveryTabIds,
     ticketNewLiveUrls: local.ticketNewLiveUrls,
-    captureOutbox: local.captureOutbox
+    captureOutbox: local.captureOutbox,
+    movieMetadataQueue: local.movieMetadataQueue
   });
   await chrome.storage.local.remove(["agentTabId", "pendingCapture"]);
 }
@@ -177,6 +185,10 @@ async function handleAlarm(alarm) {
     return;
   }
   if (!settings.enabled) return;
+  if (alarm.name === MOVIE_METADATA_ALARM) {
+    await syncNextMovieMetadata();
+    return;
+  }
   if (alarm.name.startsWith(DISCOVERY_RETRY_PREFIX)) {
     const { venueCode, dateCode } = discoveryRetryDetails(alarm.name);
     if (!VENUE_BY_CODE[venueCode] || dateCode !== indiaDateCode(0)) {
@@ -434,7 +446,101 @@ async function discoverVenueUnlocked(venueCode, dateCode, { allowImminent = fals
   const result = await apiPost("/api/agent/discovery", data);
   await saveKnownShows(venueCode, dateCode, data.shows);
   await scheduleShows(data.shows);
+  await queueMovieMetadataRequests(result.movieMetadataRequests);
   return { venueCode, venueName: venue.shortName, ...result };
+}
+
+async function queueMovieMetadataRequests(requests) {
+  if (!Array.isArray(requests) || !requests.length) return;
+  const { movieMetadataQueue = {} } = await chrome.storage.local.get({ movieMetadataQueue: {} });
+  const next = { ...movieMetadataQueue };
+  for (const request of requests) {
+    if (!request?.movieKey || !/^ET\d+$/i.test(String(request.eventCode || ""))) continue;
+    next[request.movieKey] = {
+      movieKey: String(request.movieKey),
+      movieTitle: String(request.movieTitle || ""),
+      eventCode: String(request.eventCode).toUpperCase(),
+      queuedAt: new Date().toISOString()
+    };
+  }
+  await chrome.storage.local.set({ movieMetadataQueue: next });
+  if (Object.keys(next).length) await chrome.alarms.create(MOVIE_METADATA_ALARM, { delayInMinutes: 0.1 });
+}
+
+async function syncNextMovieMetadata() {
+  const local = await chrome.storage.local.get({ movieMetadataQueue: {}, pendingCaptures: {} });
+  const queue = { ...local.movieMetadataQueue };
+  const request = Object.values(queue).sort((left, right) => String(right.queuedAt).localeCompare(String(left.queuedAt)))[0];
+  if (!request) return;
+  if (Object.keys(local.pendingCaptures).length) {
+    await chrome.alarms.create(MOVIE_METADATA_ALARM, { delayInMinutes: 1 });
+    return;
+  }
+
+  let tab = null;
+  let acknowledged = false;
+  try {
+    const url = globalThis.SKCTMovieMetadata.movieUrl(request.movieTitle, request.eventCode);
+    tab = await chrome.tabs.create({ url, active: false, pinned: false });
+    await waitForComplete(tab.id, 30_000);
+    const response = await readMovieMetadataFromTab(tab.id);
+    if (!response?.ok || !response?.result?.releaseDate) {
+      throw new Error(response?.error || "BookMyShow movie metadata returned an invalid result");
+    }
+    await apiPost("/api/agent/movie-release", {
+      movieKey: request.movieKey,
+      eventCode: request.eventCode,
+      ...response.result
+    });
+    acknowledged = true;
+    await appendAgentDiagnostic({
+      type: "movie_release_verified",
+      movieTitle: request.movieTitle,
+      eventCode: request.eventCode,
+      releaseDate: response.result.releaseDate
+    });
+  } catch (error) {
+    try {
+      await apiPost("/api/agent/movie-release", {
+        movieKey: request.movieKey,
+        eventCode: request.eventCode,
+        error: String(error?.message || error).slice(0, 500)
+      });
+      acknowledged = true;
+    } catch {
+      // Keep the local job until the Worker acknowledges either success or failure.
+    }
+    await appendAgentDiagnostic({
+      type: "movie_release_lookup_failed",
+      movieTitle: request.movieTitle,
+      eventCode: request.eventCode,
+      error: String(error?.message || error).slice(0, 500)
+    });
+  } finally {
+    if (tab?.id) await chrome.tabs.remove(tab.id).catch(() => {});
+  }
+
+  if (acknowledged) {
+    delete queue[request.movieKey];
+    await chrome.storage.local.set({ movieMetadataQueue: queue });
+  }
+  if (Object.keys(queue).length) {
+    await chrome.alarms.create(MOVIE_METADATA_ALARM, { delayInMinutes: acknowledged ? 0.25 : 1 });
+  }
+}
+
+async function readMovieMetadataFromTab(tabId) {
+  let lastError = "BookMyShow movie details did not render";
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const response = await sendToTab(tabId, { type: "READ_BMS_MOVIE_METADATA" }).catch((error) => ({
+      ok: false,
+      error: String(error?.message || error)
+    }));
+    if (response?.ok && response?.result?.releaseDate) return response;
+    lastError = response?.error || lastError;
+    if (attempt < 9) await delay(1_000);
+  }
+  throw new Error(lastError);
 }
 
 async function readVenuePage(venue, dateCode) {
