@@ -46,6 +46,8 @@ test("treats a movie first tracked before 6 PM IST as Day 1", () => {
     dayOneDate: "2026-08-21"
   });
   assert.equal(movieRunForDate(release.firstShowAt, "2026-08-21").dayLabel, "Day 1");
+  assert.equal(movieRunForDate(release.firstShowAt, "2026-08-21").weekLabel, null);
+  assert.equal(movieRunForDate(release.firstShowAt, "2026-08-26").weekLabel, null);
   assert.equal(movieRunForDate(release.firstShowAt, "2026-08-27").weekLabel, "1st Week");
   assert.equal(movieRunForDate(release.firstShowAt, "2026-08-28").weekLabel, "2nd Week");
 });
@@ -54,7 +56,7 @@ test("uses BookMyShow release date instead of treating a release-day evening sho
   const firstShowAt = "2026-09-25T12:30:00.000Z"; // 6 PM in India.
   const run = movieRunForDate(firstShowAt, "2026-09-25", { releaseDate: "2026-09-25" });
   assert.equal(run.dayLabel, "Day 1");
-  assert.equal(run.weekLabel, "1st Week");
+  assert.equal(run.weekLabel, null);
   assert.equal(run.hasPremiere, false);
   assert.equal(run.releaseDateSource, "bookmyshow");
 });
@@ -87,8 +89,9 @@ test("treats an evening first show as premieres and begins Day 1 the next date",
   const dayEight = movieRunForDate(firstShowAt, "2026-10-01");
 
   assert.equal(premiere.dayLabel, "Premieres");
-  assert.equal(premiere.weekLabel, "1st Week");
+  assert.equal(premiere.weekLabel, null);
   assert.equal(dayOne.dayLabel, "Day 1");
+  assert.equal(dayOne.weekLabel, null);
   assert.equal(daySeven.weekLabel, "1st Week");
   assert.equal(dayEight.dayLabel, "Day 8");
   assert.equal(dayEight.weekLabel, "2nd Week");

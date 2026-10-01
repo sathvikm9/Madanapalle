@@ -116,8 +116,8 @@ export function movieRunForDate(firstShowAt, selectedDate, { releaseDate = null 
       phase: "premiere",
       dayNumber: null,
       dayLabel: "Premieres",
-      weekNumber: 1,
-      weekLabel: "1st Week"
+      weekNumber: null,
+      weekLabel: null
     };
   }
 
@@ -133,6 +133,6 @@ export function movieRunForDate(firstShowAt, selectedDate, { releaseDate = null 
     dayNumber,
     dayLabel: `Day ${dayNumber}`,
     weekNumber,
-    weekLabel: `${ordinal(weekNumber)} Week`
+    weekLabel: dayNumber >= 7 ? `${ordinal(weekNumber)} Week` : null
   };
 }
