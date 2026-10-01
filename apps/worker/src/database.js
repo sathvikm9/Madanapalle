@@ -118,7 +118,10 @@ async function releaseDateByMovie(db, shows) {
   ).bind(normalizedMovieTitle(title))));
   return new Map(titles.map((title, index) => {
     const row = results[index]?.results?.[0];
-    return [normalizedMovieTitle(title), row?.status === "verified" ? row.release_date : null];
+    return [normalizedMovieTitle(title), row?.status === "verified" ? {
+      releaseDate: row.release_date,
+      source: row.source || "verified"
+    } : null];
   }));
 }
 
@@ -700,14 +703,18 @@ export async function dashboardData(db, date, venueCode, now = new Date()) {
   })));
   const firstStartByMovie = await firstTrackedStartByMovie(db, resolvedShows);
   const releaseDateByTitle = await releaseDateByMovie(db, resolvedShows);
-  const shows = resolvedShows.map((show) => ({
-    ...show,
-    movieRun: movieRunIsAvailable(show.movieTitle)
-      ? movieRunForDate(firstStartByMovie.get(normalizedMovieTitle(show.movieTitle)), date, {
-        releaseDate: releaseDateByTitle.get(normalizedMovieTitle(show.movieTitle))
-      })
-      : null
-  }));
+  const shows = resolvedShows.map((show) => {
+    const release = releaseDateByTitle.get(normalizedMovieTitle(show.movieTitle));
+    return {
+      ...show,
+      movieRun: movieRunIsAvailable(show.movieTitle)
+        ? movieRunForDate(firstStartByMovie.get(normalizedMovieTitle(show.movieTitle)), date, {
+          releaseDate: release?.releaseDate || null,
+          releaseDateSource: release?.source || "first-show-fallback"
+        })
+        : null
+    };
+  });
 
   const currentShows = shows.filter((show) => show.isCurrent);
   const finalized = currentShows.filter((show) => show.status === "completed" && show.snapshot);

@@ -59,7 +59,7 @@ export function ordinal(value) {
   return `${number}th`;
 }
 
-export function movieReleaseSchedule(firstShowAt, officialReleaseDate = null) {
+export function movieReleaseSchedule(firstShowAt, officialReleaseDate = null, officialReleaseSource = "bookmyshow") {
   const firstShow = new Date(firstShowAt);
   if (!Number.isFinite(firstShow.getTime())) return null;
 
@@ -84,7 +84,7 @@ export function movieReleaseSchedule(firstShowAt, officialReleaseDate = null) {
     firstTrackedDate,
     firstShowHour,
     officialReleaseDate: hasOfficialReleaseDate ? officialReleaseDate : null,
-    releaseDateSource: hasOfficialReleaseDate ? "bookmyshow" : "first-show-fallback",
+    releaseDateSource: hasOfficialReleaseDate ? String(officialReleaseSource || "verified") : "first-show-fallback",
     isReRelease,
     hasPremiere,
     premiereDate,
@@ -92,8 +92,8 @@ export function movieReleaseSchedule(firstShowAt, officialReleaseDate = null) {
   };
 }
 
-export function movieRunForDate(firstShowAt, selectedDate, { releaseDate = null } = {}) {
-  const release = movieReleaseSchedule(firstShowAt, releaseDate);
+export function movieRunForDate(firstShowAt, selectedDate, { releaseDate = null, releaseDateSource = "bookmyshow" } = {}) {
+  const release = movieReleaseSchedule(firstShowAt, releaseDate, releaseDateSource);
   if (!release || !validIsoDate(selectedDate)) return null;
 
   if (release.isReRelease) {

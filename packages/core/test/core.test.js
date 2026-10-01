@@ -61,6 +61,15 @@ test("uses BookMyShow release date instead of treating a release-day evening sho
   assert.equal(run.releaseDateSource, "bookmyshow");
 });
 
+test("preserves District as the source of an official India release date", () => {
+  const run = movieRunForDate("2026-10-02T08:30:00.000Z", "2026-10-02", {
+    releaseDate: "2026-10-02",
+    releaseDateSource: "district"
+  });
+  assert.equal(run.dayLabel, "Day 1");
+  assert.equal(run.releaseDateSource, "district");
+});
+
 test("uses the pre-release show date as premieres and the official date as Day 1", () => {
   const firstShowAt = "2026-09-23T16:15:00.000Z";
   assert.equal(
