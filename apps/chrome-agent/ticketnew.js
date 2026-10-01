@@ -29,6 +29,7 @@
       }
       const showTimeCode = `${local.hour}${local.minute}`;
       const naturalKey = [venue.venueCode, dateCode, showTimeCode, sessionId, eventCode].join(":");
+      const movieMetadata = districtMovieMetadata(metadata);
 
       shows.push({
         naturalKey,
@@ -46,6 +47,7 @@
         showTimeLabel: indiaTimeLabel(start),
         movieTitle: metadata.movieTitle,
         movieVariant: metadata.movieVariant || metadata.movieTitle,
+        ...movieMetadata,
         language: session.lang || metadata.language || "",
         format: session.scrnFmt || "",
         attributes: (session.gnrs || []).join(", "),
@@ -62,6 +64,19 @@
     }
 
     return { venueCode: venue.venueCode, dateCode, shows };
+  }
+
+  function districtMovieMetadata(metadata) {
+    const contentId = String(metadata?.contentId || "").trim();
+    if (!/^\d+$/.test(contentId) || !metadata?.movieTitle) return {};
+    const eventCode = `MV${contentId}`;
+    const movieUrl = root.SKCTMovieMetadata?.districtMovieUrl?.(metadata.movieTitle, eventCode);
+    if (!movieUrl) return {};
+    return {
+      movieMetadataProvider: "district",
+      movieMetadataEventCode: eventCode,
+      movieMetadataUrl: movieUrl
+    };
   }
 
   function capture(state, show, capturedAt = new Date()) {

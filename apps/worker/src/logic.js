@@ -70,6 +70,48 @@ function bookingUrl(rawUrl, venue, eventCode, sessionId, dateCode) {
   return url.toString();
 }
 
+function movieMetadataIdentity(raw, eventCode) {
+  const bmsCode = String(eventCode || "").trim().toUpperCase();
+  if (/^ET\d+$/.test(bmsCode)) {
+    return {
+      movieMetadataProvider: "bookmyshow",
+      movieMetadataEventCode: bmsCode,
+      movieMetadataUrl: null
+    };
+  }
+
+  const provider = String(raw?.movieMetadataProvider || "").trim().toLowerCase();
+  if (!provider) return {
+    movieMetadataProvider: null,
+    movieMetadataEventCode: null,
+    movieMetadataUrl: null
+  };
+  if (provider !== "district") throw new RequestError("movieMetadataProvider is not supported");
+
+  const metadataEventCode = requiredString(raw?.movieMetadataEventCode, "movieMetadataEventCode", 50).toUpperCase();
+  if (!/^MV\d+$/.test(metadataEventCode)) {
+    throw new RequestError("movieMetadataEventCode must be a District MV code");
+  }
+  const rawUrl = requiredString(raw?.movieMetadataUrl, "movieMetadataUrl", 1_000);
+  let url;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new RequestError("movieMetadataUrl is invalid");
+  }
+  const districtHost = url.hostname === "district.in" || url.hostname === "www.district.in" ||
+    url.hostname.endsWith(".district.in");
+  if (url.protocol !== "https:" || !districtHost || !url.pathname.startsWith("/movies/") ||
+      !url.pathname.toUpperCase().includes(`-${metadataEventCode}`)) {
+    throw new RequestError("movieMetadataUrl must be the matching District movie page");
+  }
+  return {
+    movieMetadataProvider: "district",
+    movieMetadataEventCode: metadataEventCode,
+    movieMetadataUrl: url.toString()
+  };
+}
+
 export function resolveInternalMovieCodes(shows = []) {
   const knownTitles = new Map();
   const keyFor = (show) => `${String(show.venueCode || "").toUpperCase()}|${String(show.eventCode || "").toUpperCase()}`;
@@ -134,6 +176,7 @@ export function normalizeDiscovery(body) {
     if (slotKeys.has(slotKey)) throw new RequestError(`Duplicate showtime slot ${slotKey}`);
     naturalKeys.add(naturalKey);
     slotKeys.add(slotKey);
+    const metadataIdentity = movieMetadataIdentity(raw, eventCode);
 
     return {
       naturalKey,
@@ -149,6 +192,7 @@ export function normalizeDiscovery(body) {
       captureAt: captureAtFromStart(startAt, venue.captureStartAfterShowMinutes),
       sessionId,
       eventCode,
+      ...metadataIdentity,
       movieTitle: requiredString(raw?.movieTitle, `shows[${index}].movieTitle`, 300),
       movieVariant: String(raw?.movieVariant || raw?.movieTitle).slice(0, 300),
       language: String(raw?.language || "").slice(0, 100),

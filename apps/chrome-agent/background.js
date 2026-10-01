@@ -455,11 +455,16 @@ async function queueMovieMetadataRequests(requests) {
   const { movieMetadataQueue = {} } = await chrome.storage.local.get({ movieMetadataQueue: {} });
   const next = { ...movieMetadataQueue };
   for (const request of requests) {
-    if (!request?.movieKey || !/^ET\d+$/i.test(String(request.eventCode || ""))) continue;
+    const provider = String(request?.provider || "bookmyshow").toLowerCase();
+    const eventCode = String(request?.eventCode || "").toUpperCase();
+    const validEvent = provider === "bookmyshow" ? /^ET\d+$/.test(eventCode) : /^MV\d+$/.test(eventCode);
+    if (!request?.movieKey || !new Set(["bookmyshow", "district"]).has(provider) || !validEvent) continue;
     next[request.movieKey] = {
       movieKey: String(request.movieKey),
       movieTitle: String(request.movieTitle || ""),
-      eventCode: String(request.eventCode).toUpperCase(),
+      provider,
+      eventCode,
+      movieUrl: request.movieUrl ? String(request.movieUrl) : null,
       queuedAt: new Date().toISOString()
     };
   }
@@ -480,15 +485,18 @@ async function syncNextMovieMetadata() {
   let tab = null;
   let acknowledged = false;
   try {
-    const url = globalThis.SKCTMovieMetadata.movieUrl(request.movieTitle, request.eventCode);
+    const url = request.provider === "district"
+      ? String(request.movieUrl || globalThis.SKCTMovieMetadata.districtMovieUrl(request.movieTitle, request.eventCode))
+      : globalThis.SKCTMovieMetadata.movieUrl(request.movieTitle, request.eventCode);
     tab = await chrome.tabs.create({ url, active: false, pinned: false });
     await waitForComplete(tab.id, 30_000);
-    const response = await readMovieMetadataFromTab(tab.id);
+    const response = await readMovieMetadataFromTab(tab.id, request);
     if (!response?.ok || !response?.result?.releaseDate) {
-      throw new Error(response?.error || "BookMyShow movie metadata returned an invalid result");
+      throw new Error(response?.error || `${request.provider === "district" ? "District" : "BookMyShow"} movie metadata returned an invalid result`);
     }
     await apiPost("/api/agent/movie-release", {
       movieKey: request.movieKey,
+      provider: request.provider,
       eventCode: request.eventCode,
       ...response.result
     });
@@ -496,6 +504,7 @@ async function syncNextMovieMetadata() {
     await appendAgentDiagnostic({
       type: "movie_release_verified",
       movieTitle: request.movieTitle,
+      provider: request.provider,
       eventCode: request.eventCode,
       releaseDate: response.result.releaseDate
     });
@@ -503,6 +512,7 @@ async function syncNextMovieMetadata() {
     try {
       await apiPost("/api/agent/movie-release", {
         movieKey: request.movieKey,
+        provider: request.provider,
         eventCode: request.eventCode,
         error: String(error?.message || error).slice(0, 500)
       });
@@ -513,6 +523,7 @@ async function syncNextMovieMetadata() {
     await appendAgentDiagnostic({
       type: "movie_release_lookup_failed",
       movieTitle: request.movieTitle,
+      provider: request.provider,
       eventCode: request.eventCode,
       error: String(error?.message || error).slice(0, 500)
     });
@@ -529,10 +540,14 @@ async function syncNextMovieMetadata() {
   }
 }
 
-async function readMovieMetadataFromTab(tabId) {
-  let lastError = "BookMyShow movie details did not render";
+async function readMovieMetadataFromTab(tabId, request) {
+  const district = request.provider === "district";
+  let lastError = `${district ? "District" : "BookMyShow"} movie details did not render`;
   for (let attempt = 0; attempt < 10; attempt += 1) {
-    const response = await sendToTab(tabId, { type: "READ_BMS_MOVIE_METADATA" }).catch((error) => ({
+    const response = await sendToTab(tabId, {
+      type: district ? "READ_DISTRICT_MOVIE_METADATA" : "READ_BMS_MOVIE_METADATA",
+      request
+    }).catch((error) => ({
       ok: false,
       error: String(error?.message || error)
     }));

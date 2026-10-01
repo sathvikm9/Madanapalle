@@ -69,18 +69,35 @@ test("normalizes Sai Chitra TicketNew discovery and validates its cinema URL", (
     shows: [{
       ...discoveryBody.shows[0],
       eventCode: "OBAV6L",
+      movieMetadataProvider: "district",
+      movieMetadataEventCode: "MV214275",
+      movieMetadataUrl: "https://www.district.in/movies/irumudi-movie-tickets-MV214275",
       sessionId: "34956__1787301900__753__1867461",
       seatLayoutUrl: "https://ticketnew.com/movies/madanapalle/sai-chitra-theatre-a-c-4k-dolby-surround-7-1-madanapalle-c/4903?fromdate=2026-08-20"
     }]
   });
   assert.equal(result.shows[0].venueName, "Sai Chitra Theatre A/C 4K Laser Dolby Surround 7.1: Madanapalle");
   assert.equal(result.shows[0].captureAt, "2026-08-20T05:40:00.000Z");
+  assert.equal(result.shows[0].movieMetadataProvider, "district");
+  assert.equal(result.shows[0].movieMetadataEventCode, "MV214275");
   assert.match(result.shows[0].seatLayoutUrl, /^https:\/\/ticketnew\.com\/.*\/4903\?/);
   assert.throws(() => normalizeDiscovery({
     ...discoveryBody,
     venueCode: "SCM",
     shows: [{ ...discoveryBody.shows[0], seatLayoutUrl: "https://example.com/4903" }]
   }), /configured TicketNew cinema/);
+  assert.throws(() => normalizeDiscovery({
+    ...discoveryBody,
+    venueCode: "SCM",
+    shows: [{
+      ...discoveryBody.shows[0],
+      eventCode: "OBAV6L",
+      movieMetadataProvider: "district",
+      movieMetadataEventCode: "MV214275",
+      movieMetadataUrl: "https://example.com/movies/irumudi-MV214275",
+      seatLayoutUrl: "https://ticketnew.com/movies/madanapalle/sai-chitra/4903?fromdate=2026-08-20"
+    }]
+  }), /matching District movie page/);
 });
 
 test("replaces a TicketNew event code title from matching movie sessions", () => {

@@ -58,3 +58,18 @@ test("the Worker finalizes shows before dispatching grouped notifications", () =
   assert.match(source, /\/api\/installations/);
   assert.match(source, /\/api\/adoption/);
 });
+
+test("movie release metadata supports exact BookMyShow and District provider identities", () => {
+  const source = fs.readFileSync(databaseUrl, "utf8");
+  const migration = fs.readFileSync(
+    new URL("../migrations/0009_provider_movie_release_metadata.sql", import.meta.url),
+    "utf8"
+  );
+
+  assert.match(migration, /ADD COLUMN metadata_provider TEXT/);
+  assert.match(migration, /ADD COLUMN metadata_event_code TEXT/);
+  assert.match(migration, /ADD COLUMN metadata_movie_url TEXT/);
+  assert.match(source, /COALESCE\(metadata_event_code, bms_event_code\)/);
+  assert.match(source, /source=\?, status='verified'/);
+  assert.match(source, /metadata provider event does not match this movie/);
+});

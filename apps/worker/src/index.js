@@ -231,8 +231,17 @@ async function route(request, env, origin, context) {
     requireAgent(request, env);
     const body = await bodyJson(request);
     const movieKey = requiredString(body?.movieKey, "movieKey", 300);
+    const provider = String(body?.provider || "bookmyshow").trim().toLowerCase();
+    if (!new Set(["bookmyshow", "district"]).has(provider)) {
+      throw new RequestError("provider must be bookmyshow or district");
+    }
     const eventCode = requiredString(body?.eventCode, "eventCode", 50).toUpperCase();
-    if (!/^ET\d+$/.test(eventCode)) throw new RequestError("eventCode must be a BookMyShow movie code");
+    if (provider === "bookmyshow" && !/^ET\d+$/.test(eventCode)) {
+      throw new RequestError("eventCode must be a BookMyShow movie code");
+    }
+    if (provider === "district" && !/^MV\d+$/.test(eventCode)) {
+      throw new RequestError("eventCode must be a District movie code");
+    }
 
     if (body?.releaseDate != null) {
       if (!validDate(body.releaseDate)) throw new RequestError("releaseDate must be a real YYYY-MM-DD date");
@@ -243,11 +252,17 @@ async function route(request, env, origin, context) {
       } catch {
         throw new RequestError("movieUrl is invalid");
       }
-      if (parsedUrl.protocol !== "https:" || parsedUrl.hostname !== "in.bookmyshow.com" || !parsedUrl.pathname.includes(`/${eventCode}`)) {
-        throw new RequestError("movieUrl must be the matching BookMyShow movie page");
+      const isBookMyShow = parsedUrl.hostname === "in.bookmyshow.com" && parsedUrl.pathname.includes(`/${eventCode}`);
+      const districtHost = parsedUrl.hostname === "district.in" || parsedUrl.hostname === "www.district.in" ||
+        parsedUrl.hostname.endsWith(".district.in");
+      const isDistrict = districtHost && parsedUrl.pathname.startsWith("/movies/") &&
+        parsedUrl.pathname.toUpperCase().includes(`-${eventCode}`);
+      if (parsedUrl.protocol !== "https:" || (provider === "bookmyshow" ? !isBookMyShow : !isDistrict)) {
+        throw new RequestError(`movieUrl must be the matching ${provider === "bookmyshow" ? "BookMyShow" : "District"} movie page`);
       }
       return json(await recordMovieReleaseMetadata(env.DB, {
         movieKey,
+        provider,
         eventCode,
         releaseDate: body.releaseDate,
         movieUrl: parsedUrl.toString(),
@@ -257,6 +272,7 @@ async function route(request, env, origin, context) {
 
     return json(await recordMovieReleaseMetadata(env.DB, {
       movieKey,
+      provider,
       eventCode,
       error: requiredString(body?.error, "error", 500)
     }), 200, origin);

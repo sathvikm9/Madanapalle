@@ -124,14 +124,34 @@ async function releaseDateByMovie(db, shows) {
 
 function movieMetadataUpsert(db, show, observedAt) {
   const eventCode = bmsEventCode(show.eventCode);
+  const metadataProvider = eventCode ? "bookmyshow" : show.movieMetadataProvider;
+  const metadataEventCode = eventCode || show.movieMetadataEventCode;
+  const metadataMovieUrl = eventCode ? null : show.movieMetadataUrl;
   return db.prepare(
     `INSERT INTO movie_releases (
-       movie_key, movie_title, bms_event_code, first_tracked_at, first_tracked_date,
-       status, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
+       movie_key, movie_title, bms_event_code,
+       metadata_provider, metadata_event_code, metadata_movie_url,
+       first_tracked_at, first_tracked_date, status, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
      ON CONFLICT(movie_key) DO UPDATE SET
-       movie_title=CASE WHEN excluded.bms_event_code IS NOT NULL THEN excluded.movie_title ELSE movie_releases.movie_title END,
+       movie_title=CASE WHEN excluded.metadata_event_code IS NOT NULL THEN excluded.movie_title ELSE movie_releases.movie_title END,
        bms_event_code=COALESCE(movie_releases.bms_event_code, excluded.bms_event_code),
+       metadata_provider=CASE
+         WHEN movie_releases.status='verified' THEN movie_releases.metadata_provider
+         WHEN movie_releases.bms_event_code IS NOT NULL OR excluded.bms_event_code IS NOT NULL THEN 'bookmyshow'
+         ELSE COALESCE(movie_releases.metadata_provider, excluded.metadata_provider)
+       END,
+       metadata_event_code=CASE
+         WHEN movie_releases.status='verified' THEN movie_releases.metadata_event_code
+         WHEN movie_releases.bms_event_code IS NOT NULL THEN movie_releases.bms_event_code
+         WHEN excluded.bms_event_code IS NOT NULL THEN excluded.bms_event_code
+         ELSE COALESCE(movie_releases.metadata_event_code, excluded.metadata_event_code)
+       END,
+       metadata_movie_url=CASE
+         WHEN movie_releases.status='verified' THEN movie_releases.metadata_movie_url
+         WHEN movie_releases.bms_event_code IS NOT NULL OR excluded.bms_event_code IS NOT NULL THEN movie_releases.metadata_movie_url
+         ELSE COALESCE(movie_releases.metadata_movie_url, excluded.metadata_movie_url)
+       END,
        first_tracked_at=MIN(movie_releases.first_tracked_at, excluded.first_tracked_at),
        first_tracked_date=MIN(movie_releases.first_tracked_date, excluded.first_tracked_date),
        updated_at=excluded.updated_at`
@@ -139,6 +159,9 @@ function movieMetadataUpsert(db, show, observedAt) {
     normalizedMovieTitle(show.movieTitle),
     show.movieTitle,
     eventCode,
+    metadataProvider || null,
+    metadataEventCode || null,
+    metadataMovieUrl || null,
     show.startAt,
     show.showDate,
     observedAt,
@@ -148,10 +171,13 @@ function movieMetadataUpsert(db, show, observedAt) {
 
 async function nextMovieMetadataRequest(db, observedAt) {
   const row = await db.prepare(
-    `SELECT movie_key, movie_title, bms_event_code, attempts
+    `SELECT movie_key, movie_title,
+            COALESCE(metadata_provider, CASE WHEN bms_event_code IS NOT NULL THEN 'bookmyshow' END) AS metadata_provider,
+            COALESCE(metadata_event_code, bms_event_code) AS metadata_event_code,
+            metadata_movie_url, attempts
      FROM movie_releases
      WHERE status IN ('pending','failed')
-       AND bms_event_code IS NOT NULL
+       AND COALESCE(metadata_event_code, bms_event_code) IS NOT NULL
        AND (next_retry_at IS NULL OR next_retry_at<=?)
      ORDER BY first_tracked_at DESC
      LIMIT 1`
@@ -159,7 +185,9 @@ async function nextMovieMetadataRequest(db, observedAt) {
   return row ? {
     movieKey: row.movie_key,
     movieTitle: row.movie_title,
-    eventCode: row.bms_event_code,
+    provider: row.metadata_provider,
+    eventCode: row.metadata_event_code,
+    movieUrl: row.metadata_movie_url,
     attempts: Number(row.attempts || 0)
   } : null;
 }
@@ -340,24 +368,32 @@ export async function recordMovieReleaseMetadata(db, metadata, now = new Date())
   const observedAt = now.toISOString();
   const movieKey = normalizedMovieTitle(metadata.movieKey);
   const row = await db.prepare(
-    `SELECT movie_key, bms_event_code, status FROM movie_releases WHERE movie_key=?`
+    `SELECT movie_key, bms_event_code, metadata_provider, metadata_event_code, status
+     FROM movie_releases WHERE movie_key=?`
   ).bind(movieKey).first();
   if (!row) throw new RequestError("The movie metadata request is no longer current", 409, "stale_movie_metadata");
-  if (String(row.bms_event_code || "").toUpperCase() !== String(metadata.eventCode || "").toUpperCase()) {
-    throw new RequestError("The BookMyShow event does not match this movie", 409, "movie_event_mismatch");
+  const expectedProvider = String(row.metadata_provider || (row.bms_event_code ? "bookmyshow" : "")).toLowerCase();
+  const expectedEventCode = String(row.metadata_event_code || row.bms_event_code || "").toUpperCase();
+  if (expectedProvider !== String(metadata.provider || "").toLowerCase() ||
+      expectedEventCode !== String(metadata.eventCode || "").toUpperCase()) {
+    throw new RequestError("The metadata provider event does not match this movie", 409, "movie_event_mismatch");
   }
 
   if (metadata.releaseDate) {
     await db.prepare(
       `UPDATE movie_releases SET
-         movie_title=COALESCE(?, movie_title), bms_movie_url=?, release_date=?,
-         source='bookmyshow', status='verified', attempts=attempts+1,
+         movie_title=COALESCE(?, movie_title),
+         bms_movie_url=CASE WHEN ?='bookmyshow' THEN ? ELSE bms_movie_url END,
+         metadata_movie_url=?, release_date=?, source=?, status='verified', attempts=attempts+1,
          last_attempt_at=?, next_retry_at=NULL, last_error=NULL, verified_at=?, updated_at=?
        WHERE movie_key=?`
     ).bind(
       metadata.canonicalTitle || null,
+      expectedProvider,
+      metadata.movieUrl,
       metadata.movieUrl,
       metadata.releaseDate,
+      expectedProvider,
       observedAt,
       observedAt,
       observedAt,
@@ -372,7 +408,7 @@ export async function recordMovieReleaseMetadata(db, metadata, now = new Date())
        status='failed', attempts=attempts+1, last_attempt_at=?, next_retry_at=?,
        last_error=?, updated_at=?
      WHERE movie_key=? AND status!='verified'`
-  ).bind(observedAt, nextRetryAt, String(metadata.error || "BookMyShow release date was unavailable").slice(0, 500), observedAt, movieKey).run();
+  ).bind(observedAt, nextRetryAt, String(metadata.error || "Movie release date was unavailable").slice(0, 500), observedAt, movieKey).run();
   return { movieKey, status: "failed", nextRetryAt };
 }
 

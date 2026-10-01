@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+await import("./movie-metadata.js");
 await import("./ticketnew.js");
 const {
   capture,
@@ -177,6 +178,12 @@ test("discovers an exact District seat route from District metadata", () => {
   assert.match(irumudi.seatLayoutUrl, /^https:\/\/ticketnew\.com\/movies\/madanapalle\/.+\/4903\?fromdate=2026-09-09$/);
   assert.match(irumudi.directSeatLayoutUrl, /^https:\/\/www\.district\.in\/movies\/seat-layout\//);
   assert.equal(irumudi.liveSeatLayoutProvider, "district");
+  assert.equal(irumudi.movieMetadataProvider, "district");
+  assert.equal(irumudi.movieMetadataEventCode, "MV214275");
+  assert.equal(
+    irumudi.movieMetadataUrl,
+    "https://www.district.in/movies/irumudi-movie-tickets-MV214275"
+  );
   assert.match(irumudi.directSeatLayoutUrl, new RegExp(`encsessionid=4903-${sessionId}-obav6l-b0meltruw2`));
   assert.match(irumudi.directSeatLayoutUrl, /contentid=214275/);
   assert.equal(isLiveSeatLayout({ href: irumudi.directSeatLayoutUrl }, irumudi), true);

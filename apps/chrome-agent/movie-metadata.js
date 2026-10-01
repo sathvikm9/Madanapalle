@@ -29,6 +29,51 @@
       .replace(/^-+|-+$/g, "");
   }
 
+  function districtMovieSlug(title) {
+    return String(title || "")
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+  }
+
+  function districtMovieCode(value) {
+    const match = String(value || "").trim().toUpperCase().match(/^(?:MV)?(\d+)$/);
+    if (!match) throw new Error("A valid District movie code is required");
+    return `MV${match[1]}`;
+  }
+
+  function districtMovieUrl(title, value) {
+    const code = districtMovieCode(value);
+    const slug = districtMovieSlug(title);
+    if (!slug) throw new Error("A movie title is required");
+    return `https://www.district.in/movies/${slug}-movie-tickets-${code}`;
+  }
+
+  function normalizedTitle(value) {
+    return String(value || "")
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLocaleLowerCase("en-IN")
+      .replace(/&/g, " and ")
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim()
+      .replace(/\s+/g, " ");
+  }
+
+  function titlesMatch(left, right) {
+    const normalizedLeft = normalizedTitle(left);
+    const normalizedRight = normalizedTitle(right);
+    return normalizedLeft === normalizedRight ||
+      normalizedLeft.replaceAll(" ", "") === normalizedRight.replaceAll(" ", "");
+  }
+
+  function validRawDate(value) {
+    const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return match ? isoDate(Number(match[1]), Number(match[2]), Number(match[3])) : null;
+  }
+
   function movieUrl(title, eventCode) {
     const code = String(eventCode || "").trim().toUpperCase();
     if (!/^ET\d+$/.test(code)) throw new Error("A valid BookMyShow event code is required");
@@ -60,5 +105,82 @@
     };
   }
 
-  global.SKCTMovieMetadata = { movieSlug, movieUrl, parseReleaseDateText, readPage };
+  function readDistrictPage(document, location, expected = {}) {
+    const href = String(location?.href || "");
+    let url;
+    try {
+      url = new URL(href);
+    } catch {
+      throw new Error("District movie URL is invalid");
+    }
+    if (url.protocol !== "https:" || !(
+      url.hostname === "district.in" ||
+      url.hostname === "www.district.in" ||
+      url.hostname.endsWith(".district.in")
+    )) {
+      throw new Error("District movie metadata opened on an unexpected host");
+    }
+
+    const expectedCode = districtMovieCode(expected.eventCode);
+    const urlCode = url.pathname.match(/-MV(\d+)(?:$|[/?#])/i);
+    if (!urlCode || districtMovieCode(urlCode[1]) !== expectedCode) {
+      throw new Error("District movie page did not match the requested movie code");
+    }
+
+    let movie = null;
+    const nextData = document?.querySelector?.('script#__NEXT_DATA__[type="application/json"]');
+    if (nextData?.textContent) {
+      try {
+        movie = JSON.parse(nextData.textContent)?.props?.pageProps?.data?.movieData?.meta?.movie || null;
+      } catch {
+        throw new Error("District movie metadata was invalid");
+      }
+    }
+
+    let canonicalTitle = String(movie?.name || "").trim();
+    let releaseDate = validRawDate(movie?.release_date);
+    const contentId = String(movie?.content_id ?? movie?.contentId ?? "").trim();
+
+    if (!canonicalTitle || !releaseDate || !contentId) {
+      for (const script of document?.querySelectorAll?.('script[type="application/ld+json"]') || []) {
+        try {
+          const structured = JSON.parse(script.textContent || "null");
+          const entries = Array.isArray(structured) ? structured : [structured];
+          const candidate = entries.find((entry) => entry?.["@type"] === "Movie");
+          if (!candidate) continue;
+          canonicalTitle ||= String(candidate.name || "").trim();
+          releaseDate ||= validRawDate(candidate.datePublished);
+        } catch {
+          // Ignore unrelated or malformed structured-data blocks.
+        }
+      }
+    }
+
+    if (contentId && districtMovieCode(contentId) !== expectedCode) {
+      throw new Error("District movie content ID did not match the requested movie code");
+    }
+    if (!canonicalTitle) throw new Error("District movie title was not found");
+    if (!releaseDate) throw new Error("District raw release date was not found");
+    if (expected.movieTitle && !titlesMatch(canonicalTitle, expected.movieTitle)) {
+      throw new Error("District movie title did not match the discovered show");
+    }
+
+    return {
+      canonicalTitle,
+      releaseDate,
+      movieUrl: url.toString(),
+      eventCode: expectedCode
+    };
+  }
+
+  global.SKCTMovieMetadata = {
+    districtMovieCode,
+    districtMovieSlug,
+    districtMovieUrl,
+    movieSlug,
+    movieUrl,
+    parseReleaseDateText,
+    readDistrictPage,
+    readPage
+  };
 })(globalThis);
