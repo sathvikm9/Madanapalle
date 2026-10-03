@@ -115,10 +115,9 @@ test("BookMyShow final failure primes and repeatedly schedules bounded recovery 
   const openRecovery = source.slice(recoveryStart, recoveryEnd);
 
   assert.match(beginCapture, /finalRecoveryAttemptCount/);
-  assert.match(beginCapture, /primaryFinalTimeoutMs[\s\S]*?20_000/);
-  assert.match(beginCapture, /BOOKMYSHOW_FINAL_RECOVERY_TIMEOUT_MS/);
+  assert.match(beginCapture, /captureAttemptTimeouts/);
   assert.match(beginCapture, /isFinalRecovery[\s\S]*?captureDeadlineAt/);
-  assert.match(failCapture, /recoveryJustActivated && !bookMyShowFinalWindow/);
+  assert.match(failCapture, /recoveryJustActivated && !protectedFinalWindow/);
   assert.ok(
     failCapture.indexOf("prepareRecoverySeatLayout") < failCapture.indexOf("scheduleShow"),
     "the fresh recovery tab must be primed before its immediate alarm is scheduled"
@@ -137,4 +136,27 @@ test("BookMyShow final preflight prepares an inactive standby recovery tab", () 
   assert.match(preflight, /isFinalPreflight/);
   assert.match(preflight, /show\.platform === "bookmyshow"/);
   assert.match(preflight, /prepareRecoverySeatLayout\(preparedShow, \{ active: false, replace: true \}\)/);
+});
+
+test("Sai Chitra final failure uses a bounded fresh District recovery with diagnostics", () => {
+  const source = fs.readFileSync(backgroundUrl, "utf8");
+  const beginStart = source.indexOf("async function beginCapture");
+  const beginEnd = source.indexOf("function discoveryHousefullResult", beginStart);
+  const beginCapture = source.slice(beginStart, beginEnd);
+  const failureStart = source.indexOf("async function failCapture");
+  const failureEnd = source.indexOf("async function captureSaiChitraSummaryEstimate", failureStart);
+  const failCapture = source.slice(failureStart, failureEnd);
+  const diagnosticsStart = source.indexOf("async function captureAttemptDiagnostics");
+  const diagnosticsEnd = source.indexOf("async function failCapture", diagnosticsStart);
+  const diagnostics = source.slice(diagnosticsStart, diagnosticsEnd);
+
+  assert.match(beginCapture, /captureAttemptTimeouts/);
+  assert.match(beginCapture, /supportsFinalCaptureRecovery/);
+  assert.match(failCapture, /protectedFinalWindow/);
+  assert.match(failCapture, /prepareRecoverySeatLayout/);
+  assert.match(failCapture, /show\.venueCode === "SCM"/);
+  assert.match(diagnostics, /tabUrl/);
+  assert.match(diagnostics, /tabStatus/);
+  assert.match(diagnostics, /capturePageKind/);
+  assert.match(diagnostics, /sessionId/);
 });

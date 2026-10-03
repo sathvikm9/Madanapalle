@@ -1,11 +1,24 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  capturePageKind,
   discoveryRetryDelay,
   discoveryTabError,
   isDiscoveryTabFailure,
   tabBelongsToVenue
 } from "./tab-health.js";
+
+test("identifies the failed booking page for capture diagnostics", () => {
+  assert.equal(capturePageKind(
+    "https://www.district.in/movies/seat-layout/session?encsessionid=4903-show"
+  ), "district_seat_layout");
+  assert.equal(capturePageKind(
+    "https://ticketnew.com/movies/seat-layout/session?encsessionid=4903-show"
+  ), "ticketnew_seat_layout");
+  assert.equal(capturePageKind(
+    "https://in.bookmyshow.com/movies/seat-layout/ET1/SKMD/session/20261003"
+  ), "bookmyshow_seat_layout");
+});
 
 test("uses bounded 2, 5, then 15 minute discovery retry backoff", () => {
   assert.equal(discoveryRetryDelay(1), 2 * 60_000);

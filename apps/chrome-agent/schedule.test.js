@@ -144,6 +144,27 @@ test("immediately schedules BookMyShow recovery after every failed final attempt
   );
 });
 
+test("schedules one fresh Sai Chitra recovery immediately after a failed final attempt", () => {
+  const state = {
+    recoveryMode: true,
+    lastAttemptAt: "2026-09-07T05:44:05.000Z",
+    lastSuccessAt: "2026-09-07T05:40:10.000Z",
+    finalRecoveryAttemptCount: 0
+  };
+  assert.equal(
+    nextCaptureWhen(saiChitra, state, new Date("2026-09-07T05:44:20.000Z").getTime()),
+    new Date("2026-09-07T05:44:21.000Z").getTime()
+  );
+  assert.equal(
+    nextCaptureWhen(saiChitra, {
+      ...state,
+      lastAttemptAt: "2026-09-07T05:44:21.000Z",
+      finalRecoveryAttemptCount: 1
+    }, new Date("2026-09-07T05:44:55.000Z").getTime()),
+    null
+  );
+});
+
 test("BookMyShow recovery keeps retrying until the grace deadline", () => {
   const recovery = {
     recoveryMode: true,

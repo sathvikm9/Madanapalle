@@ -3,8 +3,10 @@ import {
   captureDeadline,
   finalCaptureAt,
   nextCaptureWhen,
-  preflightTimes
+  preflightTimes,
+  supportsFinalCaptureRecovery
 } from "./schedule.js";
+import { captureAttemptTimeouts } from "./capture-timing.js";
 import {
   captureModeFor,
   recoveryChanges,
@@ -12,6 +14,7 @@ import {
   successfulAttemptAlreadyHandled
 } from "./recovery.js";
 import {
+  capturePageKind,
   discoveryRetryDelay,
   discoveryTabError,
   isDiscoveryTabFailure,
@@ -73,7 +76,6 @@ const INDIA_DAY_ROLLOVER = "discovery:india-day-rollover";
 const DISCOVERY_RETRY_PREFIX = "discovery-retry:";
 const FINAL_SUMMARY_PREFIX = "ticketnew-final-summary:";
 const MOVIE_METADATA_ALARM = "movie-metadata:sync";
-const BOOKMYSHOW_FINAL_RECOVERY_TIMEOUT_MS = 18_000;
 let pendingMutation = Promise.resolve();
 let captureStateMutation = Promise.resolve();
 let agentDiagnosticMutation = Promise.resolve();
@@ -375,7 +377,10 @@ async function handleMessage(message) {
     const pending = message.naturalKey ? await getPending(message.naturalKey) : null;
     const error = new Error(message.error || "The page capture failed");
     error.captureAttemptId = message.attemptId || null;
-    error.captureDiagnostics = message.diagnostics || null;
+    error.captureDiagnostics = pending ? {
+      ...await captureAttemptDiagnostics(pending),
+      ...(message.diagnostics || {})
+    } : (message.diagnostics || null);
     if (pending && (!message.attemptId || pending.attemptId === message.attemptId)) {
       await failCapture(pending, error, message.stage || "read_seat_map");
     } else {
@@ -775,7 +780,7 @@ async function beginCapture(show) {
     : show;
   const attemptStartedAt = new Date().toISOString();
   const attemptId = `${Date.now()}-${crypto.randomUUID()}`;
-  const isFinalRecovery = venue.platform === "bookmyshow" && captureMode === "recovery" &&
+  const isFinalRecovery = supportsFinalCaptureRecovery(show) && captureMode === "recovery" &&
     Date.now() >= finalCaptureAt(show);
   const pending = {
     ...captureShow,
@@ -783,6 +788,7 @@ async function beginCapture(show) {
     attemptStartedAt,
     captureMode,
     isFinalRecovery,
+    recoveryTabPrimedAt: state.recoveryTabPrimedAt || null,
     captureDeadlineAt: new Date(deadline).toISOString()
   };
   await updateCaptureState(show.naturalKey, {
@@ -800,23 +806,22 @@ async function beginCapture(show) {
     await handleMessage({ type: "CAPTURE_RESULT", result: discoveryHousefull });
     return;
   }
-  const deadlineRemainingMs = deadline - Date.now();
-  const extendedBookMyShowRecovery = venue.platform === "bookmyshow" && captureMode === "recovery";
-  const watchdogDelayMs = Math.max(1_000, extendedBookMyShowRecovery
-    ? Math.min(BOOKMYSHOW_FINAL_RECOVERY_TIMEOUT_MS, deadlineRemainingMs - 1_000)
-    : Math.min(50_000, deadlineRemainingMs - 1_000));
-  await chrome.alarms.create(`watchdog:${encodeURIComponent(show.naturalKey)}`, { when: Date.now() + watchdogDelayMs });
-  const primaryFinalTimeoutMs = venue.platform === "bookmyshow" && captureMode === "primary" &&
-    Date.now() >= finalCaptureAt(show) ? 20_000 : 30_000;
-  const pageLoadTimeoutMs = Math.max(1_000, extendedBookMyShowRecovery
-    ? Math.min(BOOKMYSHOW_FINAL_RECOVERY_TIMEOUT_MS, deadlineRemainingMs - 1_000)
-    : Math.min(primaryFinalTimeoutMs, deadlineRemainingMs - 1_000));
+  const timingNow = Date.now();
+  const { watchdogDelayMs, pageLoadTimeoutMs } = captureAttemptTimeouts(pending, {
+    captureMode,
+    deadline,
+    now: timingNow
+  });
+  await chrome.alarms.create(`watchdog:${encodeURIComponent(show.naturalKey)}`, {
+    when: timingNow + watchdogDelayMs
+  });
   try {
     if (captureMode === "recovery") await openRecoverySeatLayout(pending, pageLoadTimeoutMs);
     else await openSeatLayout(pending, pageLoadTimeoutMs);
   } catch (error) {
     const taggedError = new Error(String(error?.message || error), { cause: error });
     taggedError.captureAttemptId = attemptId;
+    taggedError.captureDiagnostics = await captureAttemptDiagnostics(pending, error);
     throw taggedError;
   }
   await recordSuccess(`Opening ${venue.shortName} ${show.showTimeLabel} ${captureMode} seat map`);
@@ -860,7 +865,28 @@ async function handleCaptureWatchdog(name) {
   await removePending(naturalKey);
   const venue = venueFor(pending.venueCode);
   const error = new Error(`${venue.shortName} ${pending.showTimeLabel} seat read did not finish in time`);
+  error.captureDiagnostics = await captureAttemptDiagnostics(pending);
   await failCapture(pending, error, "watchdog_timeout", { pendingAlreadyRemoved: true });
+}
+
+async function captureAttemptDiagnostics(show, error = {}) {
+  const stored = await chrome.storage.local.get({ agentTabIds: {}, recoveryTabIds: {} });
+  const expectedTabId = show.captureMode === "recovery"
+    ? stored.recoveryTabIds[show.venueCode]
+    : stored.agentTabIds[show.venueCode];
+  const tabId = error?.tabId || expectedTabId || null;
+  const tab = tabId ? await chrome.tabs.get(tabId).catch(() => null) : null;
+  const rawTabUrl = error?.tabUrl || tab?.pendingUrl || tab?.url ||
+    show.directSeatLayoutUrl || show.seatLayoutUrl || null;
+  const tabUrl = rawTabUrl ? String(rawTabUrl).slice(0, 500) : null;
+  return {
+    tabId,
+    tabUrl,
+    tabStatus: error?.tabStatus || tab?.status || (tabId ? "missing" : "unknown"),
+    pageKind: capturePageKind(tabUrl),
+    sessionId: show.sessionId ? String(show.sessionId).slice(0, 200) : null,
+    provider: show.liveSeatLayoutProvider || show.platform || null
+  };
 }
 
 async function failCapture(show, error, stage, { pendingAlreadyRemoved = false } = {}) {
@@ -875,7 +901,7 @@ async function failCapture(show, error, stage, { pendingAlreadyRemoved = false }
   });
   let recoveryShow = show;
   const recoveryJustActivated = Boolean(recovery) && !state.recoveryMode;
-  const bookMyShowFinalWindow = show.platform === "bookmyshow" && Date.now() >= finalCaptureAt(show);
+  const protectedFinalWindow = supportsFinalCaptureRecovery(show) && Date.now() >= finalCaptureAt(show);
   await updateCaptureState(show.naturalKey, { lastError: message, ...(recovery || {}) });
   await postCaptureEvent(show, "capture_failed", {
     stage,
@@ -899,12 +925,12 @@ async function failCapture(show, error, stage, { pendingAlreadyRemoved = false }
   }
   if (recovery) {
     try {
-      if (recoveryJustActivated && !bookMyShowFinalWindow) {
+      if (recoveryJustActivated && !protectedFinalWindow) {
         recoveryShow = await refreshRecoveryShow(show, recovery, state);
       }
       await prepareRecoverySeatLayout(recoveryShow, {
         active: true,
-        replace: show.captureMode === "recovery"
+        replace: show.venueCode === "SCM" || show.captureMode === "recovery"
       });
       await updateCaptureState(recoveryShow.naturalKey, { recoveryTabPrimedAt: new Date().toISOString() });
     } catch (recoveryError) {
@@ -1252,7 +1278,9 @@ async function openRecoverySeatLayout(show, timeoutMs = 30_000) {
     await chrome.storage.local.set({ recoveryTabIds });
   } else if (tab.url === targetUrl) {
     await chrome.tabs.update(tab.id, { active: true });
-    await chrome.tabs.reload(tab.id);
+    if (!show.recoveryTabPrimedAt || tab.status === "complete") {
+      await chrome.tabs.reload(tab.id);
+    }
   } else {
     tab = await chrome.tabs.update(tab.id, { url: targetUrl, active: true });
   }

@@ -21,6 +21,26 @@ export function isDiscoveryTabFailure(error) {
   return error?.discoveryTabFailure === true;
 }
 
+export function capturePageKind(value) {
+  try {
+    const url = new URL(value);
+    if (url.pathname.includes("/movies/seat-layout/")) {
+      if (url.hostname === "district.in" || url.hostname.endsWith(".district.in")) {
+        return "district_seat_layout";
+      }
+      if (url.hostname === "ticketnew.com" || url.hostname.endsWith(".ticketnew.com")) {
+        return "ticketnew_seat_layout";
+      }
+    }
+    if (url.hostname === "in.bookmyshow.com" && url.pathname.includes("/seat-layout/")) {
+      return "bookmyshow_seat_layout";
+    }
+    return "booking_page";
+  } catch {
+    return "unknown";
+  }
+}
+
 export function tabBelongsToVenue(tab, venue) {
   const candidates = [tab?.pendingUrl, tab?.url].filter(Boolean);
   return candidates.some((value) => {

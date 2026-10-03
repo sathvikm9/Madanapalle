@@ -18,6 +18,11 @@ export function finalCaptureAt(show) {
   return explicit ?? (cutoff == null ? null : cutoff - 60_000);
 }
 
+export function supportsFinalCaptureRecovery(show) {
+  return show?.platform === "bookmyshow" ||
+    (show?.venueCode === "SCM" && show?.platform === "ticketnew");
+}
+
 export function attemptSecondOffset(show) {
   return DEFAULT_ATTEMPT_SECOND_OFFSET_MS;
 }
@@ -42,7 +47,10 @@ export function nextCaptureWhen(show, state = {}, now = Date.now()) {
   const finalAttempt = finalStart + attemptOffset;
   const lastAttempt = timestamp(state.lastAttemptAt);
   const lastSuccess = protectedCaptureAt(state);
-  const needsFinalRecovery = show.platform === "bookmyshow" && state.recoveryMode &&
+  const saiChitraFinalRecoveryAvailable = show.venueCode !== "SCM" ||
+    Number(state.finalRecoveryAttemptCount || 0) < 1;
+  const needsFinalRecovery = supportsFinalCaptureRecovery(show) && state.recoveryMode &&
+    saiChitraFinalRecoveryAvailable &&
     lastAttempt != null && lastAttempt >= finalStart &&
     (lastSuccess == null || lastSuccess < finalStart);
 
