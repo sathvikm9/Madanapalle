@@ -403,13 +403,7 @@ export default function ReportsView({ apiBase, demo, initialDate, initialVenue, 
   }
 
   return (
-    <section className="reports" aria-labelledby="reports-title">
-      <header className="reports__intro">
-        <div>
-          <h1 id="reports-title">Movie reports</h1>
-        </div>
-      </header>
-
+    <section className="reports" aria-label="Movie reports">
       <form className={`report-filters${reportType === "movie" ? " report-filters--movie" : ""}`} onSubmit={(event) => { event.preventDefault(); void runReport(); }}>
         <div className="report-kind" aria-label="Report type">
           <button type="button" className={reportType === "movie" ? "is-active" : ""} aria-pressed={reportType === "movie"} onClick={() => changeReportType("movie")}>
