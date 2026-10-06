@@ -7,6 +7,7 @@ import {
   movieReportStartDate,
   reportCsv,
   reportText,
+  sortMoviesByGross,
   trackedReportDays
 } from "./reports.js";
 
@@ -68,6 +69,20 @@ test("builds opening, first-week and full-run movie ranges", () => {
 test("counts unique screened dates across theatre summaries", () => {
   assert.equal(trackedReportDays([summary, summary]), 2);
   assert.equal(trackedReportDays([{ days: [{ date: "2026-10-03", screenedShows: 0 }] }]), 0);
+});
+
+test("orders movie choices by full-run gross with tickets as the tie-breaker", () => {
+  const movies = sortMoviesByGross([
+    { title: "Lower", collectionPaise: 2_000_000, ticketsSold: 400 },
+    { title: "Highest", collectionPaise: 5_000_000, ticketsSold: 300 },
+    { title: "Same gross, more tickets", collectionPaise: 2_000_000, ticketsSold: 500 }
+  ]);
+
+  assert.deepEqual(movies.map((movie) => movie.title), [
+    "Highest",
+    "Same gross, more tickets",
+    "Lower"
+  ]);
 });
 
 test("groups reports by theatre and exposes movie details", () => {

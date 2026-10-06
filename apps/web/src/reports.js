@@ -27,6 +27,15 @@ function normalizedLabel(value) {
   return String(value || "").trim().toLocaleLowerCase("en-IN");
 }
 
+export function sortMoviesByGross(movies) {
+  return [...(Array.isArray(movies) ? movies : [])].sort((left, right) =>
+    Number(right?.collectionPaise || 0) - Number(left?.collectionPaise || 0)
+    || Number(right?.ticketsSold || 0) - Number(left?.ticketsSold || 0)
+    || String(right?.lastTrackedDate || right?.firstTrackedDate || "").localeCompare(String(left?.lastTrackedDate || left?.firstTrackedDate || ""))
+    || String(left?.title || "").localeCompare(String(right?.title || ""))
+  );
+}
+
 export function defaultReportStartDate(endDate, firstDate, days = 30) {
   const date = new Date(`${endDate}T12:00:00Z`);
   date.setUTCDate(date.getUTCDate() - Math.max(0, days - 1));

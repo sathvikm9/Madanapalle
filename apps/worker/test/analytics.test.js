@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildCapacityProfiles, summarizeAnalyticsRows } from "../src/analytics.js";
+import { buildAnalyticsCatalogMovies, buildCapacityProfiles, summarizeAnalyticsRows } from "../src/analytics.js";
 
 function row(overrides = {}) {
   return {
@@ -43,6 +43,20 @@ test("summarizes captured, housefull, gross and theatre coverage", () => {
   assert.equal(summary.venues[2].capturedShows, 0);
   assert.deepEqual(summary.days.map((day) => day.date), ["2026-08-21"]);
   assert.equal(summary.days[0].collectionPaise, 8_015_300);
+});
+
+test("builds the movie catalogue in highest-gross-first order", () => {
+  const movies = buildAnalyticsCatalogMovies([
+    row({ movie_title: "Lower", movie_variant: "Lower", event_code: "LOW", sold: 500, collection_paise: 2_000_000 }),
+    row({ movie_title: "Highest", movie_variant: "Highest", event_code: "HIGH", sold: 300, collection_paise: 5_000_000 }),
+    row({ movie_title: "Lower", movie_variant: "Lower", event_code: "LOW", show_date: "2026-08-22", start_at: "2026-08-22T02:00:00.000Z", sold: 100, collection_paise: 1_000_000 }),
+    row({ movie_title: "Incomplete", movie_variant: "Incomplete", event_code: "MISS", status: "missed", snapshot_id: null, sold: null, collection_paise: null })
+  ]);
+
+  assert.deepEqual(movies.map((movie) => movie.title), ["Highest", "Lower", "Incomplete"]);
+  assert.equal(movies[1].capturedShows, 2);
+  assert.equal(movies[1].ticketsSold, 600);
+  assert.equal(movies[1].collectionPaise, 3_000_000);
 });
 
 test("returns day-wise totals across a selected range", () => {

@@ -67,6 +67,45 @@ export function buildCapacityProfiles(rows) {
   );
 }
 
+export function buildAnalyticsCatalogMovies(rows, releaseDates = new Map()) {
+  const movies = new Map();
+  for (const show of canonicalShows(rows || [])) {
+    const key = normalizedTitle(show.movieTitle);
+    if (!key) continue;
+    const movie = movies.get(key) || {
+      title: show.movieTitle,
+      firstTrackedDate: show.show_date,
+      firstTrackedStartAt: show.start_at,
+      lastTrackedDate: show.show_date,
+      capturedShows: 0,
+      ticketsSold: 0,
+      collectionPaise: 0
+    };
+    if (show.start_at < movie.firstTrackedStartAt) {
+      movie.firstTrackedDate = show.show_date;
+      movie.firstTrackedStartAt = show.start_at;
+    }
+    if (show.show_date > movie.lastTrackedDate) movie.lastTrackedDate = show.show_date;
+    if (show.status === "completed" && show.snapshot_id) {
+      movie.capturedShows += 1;
+      movie.ticketsSold += Number(show.sold || 0);
+      movie.collectionPaise += Number(show.collection_paise || 0);
+    }
+    movies.set(key, movie);
+  }
+
+  return Array.from(movies.values())
+    .map((movie) => ({
+      ...movie,
+      ...movieReleaseSchedule(movie.firstTrackedStartAt, releaseDates.get(normalizedTitle(movie.title)))
+    }))
+    .sort((left, right) =>
+      right.collectionPaise - left.collectionPaise
+      || right.ticketsSold - left.ticketsSold
+      || left.title.localeCompare(right.title)
+    );
+}
+
 function addShow(totals, show) {
   totals.screenedShows += 1;
   if (!show.snapshot_id || show.status !== "completed") return;
@@ -171,8 +210,28 @@ export function summarizeAnalyticsRows(rows, {
 
 export async function analyticsCatalog(db, now = new Date()) {
   const result = await db.prepare(
-    `SELECT venue_code, event_code, movie_title, movie_variant, show_date, start_at
+    `SELECT
+       shows.venue_code,
+       shows.event_code,
+       shows.movie_title,
+       shows.movie_variant,
+       shows.show_date,
+       shows.start_at,
+       shows.status,
+       snapshots.id AS snapshot_id,
+       snapshots.sold,
+       snapshots.collection_paise
      FROM shows
+     LEFT JOIN snapshots ON snapshots.id=(
+       SELECT latest.id FROM snapshots latest
+       JOIN shows latest_show ON latest_show.id=latest.show_id
+       WHERE latest.show_id=shows.id
+       ORDER BY
+         (CASE WHEN julianday(latest.captured_at) >= julianday(latest_show.cutoff_at, '-1 minute') THEN 2 ELSE 0 END) +
+         (CASE WHEN latest.source LIKE '%summary-estimate%' THEN 0 ELSE 1 END) DESC,
+         latest.captured_at DESC
+       LIMIT 1
+     )
      WHERE is_current=1 AND show_date>=? AND start_at<=?
      ORDER BY show_date ASC, start_at ASC`
   ).bind(ANALYTICS_FIRST_DATE, now.toISOString()).all();
@@ -190,35 +249,12 @@ export async function analyticsCatalog(db, now = new Date()) {
   ).all();
   const releaseDates = new Map((releaseResult.results || []).map((row) => [row.movie_key, row.release_date]));
 
-  const movies = new Map();
-  for (const show of canonicalShows(result.results || [])) {
-    const key = normalizedTitle(show.movieTitle);
-    if (!key) continue;
-    const movie = movies.get(key) || {
-      title: show.movieTitle,
-      firstTrackedDate: show.show_date,
-      firstTrackedStartAt: show.start_at,
-      lastTrackedDate: show.show_date
-    };
-    if (show.start_at < movie.firstTrackedStartAt) {
-      movie.firstTrackedDate = show.show_date;
-      movie.firstTrackedStartAt = show.start_at;
-    }
-    if (show.show_date > movie.lastTrackedDate) movie.lastTrackedDate = show.show_date;
-    movies.set(key, movie);
-  }
-
   return {
     firstLiveDate: ANALYTICS_FIRST_DATE,
     generatedAt: now.toISOString(),
     venues: publicVenues(),
     capacityProfiles: buildCapacityProfiles(capacityResult.results || []),
-    movies: Array.from(movies.values())
-      .map((movie) => ({
-        ...movie,
-        ...movieReleaseSchedule(movie.firstTrackedStartAt, releaseDates.get(normalizedTitle(movie.title)))
-      }))
-      .sort((left, right) => left.title.localeCompare(right.title))
+    movies: buildAnalyticsCatalogMovies(result.results || [], releaseDates)
   };
 }
 

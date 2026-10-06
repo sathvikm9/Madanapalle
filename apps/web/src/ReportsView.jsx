@@ -3,6 +3,7 @@ import {
   buildReportModel,
   defaultReportStartDate,
   movieReportRange,
+  sortMoviesByGross,
   trackedReportDays
 } from "./reports.js";
 
@@ -23,7 +24,9 @@ const DEMO_MOVIES = [
     premiereDate: "2026-09-23",
     dayOneDate: "2026-09-24",
     officialReleaseDate: "2026-09-24",
-    releaseDateSource: "bookmyshow"
+    releaseDateSource: "bookmyshow",
+    ticketsSold: 57_476,
+    collectionPaise: 66_599_109
   },
   {
     title: "Irumudi",
@@ -33,21 +36,15 @@ const DEMO_MOVIES = [
     premiereDate: null,
     dayOneDate: "2026-08-21",
     officialReleaseDate: "2026-08-21",
-    releaseDateSource: "bookmyshow"
+    releaseDateSource: "bookmyshow",
+    ticketsSold: 48_768,
+    collectionPaise: 46_309_530
   },
-  { title: "Mandaadi", firstTrackedDate: "2026-09-18", firstTrackedStartAt: "2026-09-18T05:30:00.000Z", lastTrackedDate: "2026-10-05", dayOneDate: "2026-09-18" },
-  { title: "Avengers Endgame: Encore", firstTrackedDate: "2026-09-25", firstTrackedStartAt: "2026-09-25T12:30:00.000Z", lastTrackedDate: "2026-10-04", dayOneDate: "2026-09-25", officialReleaseDate: "2026-09-25", releaseDateSource: "bookmyshow" },
-  { title: "Don't Trouble the Trouble", firstTrackedDate: "2026-10-02", firstTrackedStartAt: "2026-10-02T05:30:00.000Z", lastTrackedDate: "2026-10-05", dayOneDate: "2026-10-02", officialReleaseDate: "2026-10-02", releaseDateSource: "district" },
-  { title: "Vishwanath and Sons", firstTrackedDate: "2026-09-02", firstTrackedStartAt: "2026-09-02T05:30:00.000Z", lastTrackedDate: "2026-10-01", dayOneDate: "2026-09-02" }
+  { title: "Mandaadi", firstTrackedDate: "2026-09-18", firstTrackedStartAt: "2026-09-18T05:30:00.000Z", lastTrackedDate: "2026-10-05", dayOneDate: "2026-09-18", ticketsSold: 20_075, collectionPaise: 24_127_044 },
+  { title: "Avengers Endgame: Encore", firstTrackedDate: "2026-09-25", firstTrackedStartAt: "2026-09-25T12:30:00.000Z", lastTrackedDate: "2026-10-04", dayOneDate: "2026-09-25", officialReleaseDate: "2026-09-25", releaseDateSource: "bookmyshow", ticketsSold: 10_288, collectionPaise: 12_437_081 },
+  { title: "Don't Trouble the Trouble", firstTrackedDate: "2026-10-02", firstTrackedStartAt: "2026-10-02T05:30:00.000Z", lastTrackedDate: "2026-10-05", dayOneDate: "2026-10-02", officialReleaseDate: "2026-10-02", releaseDateSource: "district", ticketsSold: 6_049, collectionPaise: 7_071_310 },
+  { title: "Vishwanath and Sons", firstTrackedDate: "2026-09-02", firstTrackedStartAt: "2026-09-02T05:30:00.000Z", lastTrackedDate: "2026-10-01", dayOneDate: "2026-09-02", ticketsSold: 4_720, collectionPaise: 5_114_208 }
 ];
-
-function sortedMovies(movies) {
-  return [...movies].sort((left, right) =>
-    String(right.lastTrackedDate || right.firstTrackedDate || "").localeCompare(String(left.lastTrackedDate || left.firstTrackedDate || ""))
-    || String(right.firstTrackedDate || "").localeCompare(String(left.firstTrackedDate || ""))
-    || left.title.localeCompare(right.title)
-  );
-}
 
 function displayReportDate(value) {
   return reportDate.format(new Date(`${value}T12:00:00+05:30`));
@@ -152,13 +149,17 @@ function demoSummaries(startDate, endDate, selectedCodes, theatres, movieTitle =
 function MoviePicker({ loading, movies, selectedMovie, onSelect }) {
   const [query, setQuery] = useState(selectedMovie?.title || "");
   const [open, setOpen] = useState(false);
+  const [filterActive, setFilterActive] = useState(false);
   const pickerRef = useRef(null);
   const filteredMovies = useMemo(() => {
-    const wanted = query.trim().toLocaleLowerCase("en-IN");
+    const wanted = filterActive ? query.trim().toLocaleLowerCase("en-IN") : "";
     return movies.filter((movie) => !wanted || movie.title.toLocaleLowerCase("en-IN").includes(wanted));
-  }, [movies, query]);
+  }, [filterActive, movies, query]);
 
-  useEffect(() => setQuery(selectedMovie?.title || ""), [selectedMovie]);
+  useEffect(() => {
+    setQuery(selectedMovie?.title || "");
+    setFilterActive(false);
+  }, [selectedMovie]);
   useEffect(() => {
     if (!open) return undefined;
     function closeOutside(event) {
@@ -170,6 +171,7 @@ function MoviePicker({ loading, movies, selectedMovie, onSelect }) {
 
   function choose(movie) {
     setQuery(movie.title);
+    setFilterActive(false);
     onSelect(movie);
     setOpen(false);
   }
@@ -189,21 +191,25 @@ function MoviePicker({ loading, movies, selectedMovie, onSelect }) {
           autoComplete="off"
           placeholder={loading ? "Loading movies…" : "Search and select a movie"}
           value={query}
-          onFocus={() => setOpen(true)}
+          onFocus={(event) => {
+            setFilterActive(false);
+            setOpen(true);
+            event.currentTarget.select();
+          }}
           onChange={(event) => {
             setQuery(event.target.value);
-            if (event.target.value !== selectedMovie?.title) onSelect(null);
+            setFilterActive(true);
             setOpen(true);
           }}
         />
         <button type="button" aria-label="Show all movies" onClick={() => setOpen((current) => {
-          if (!current) setQuery("");
+          if (!current) setFilterActive(false);
           return !current;
         })}>⌄</button>
       </div>
       {open && (
         <div className="movie-picker__menu" id="report-movie-options" role="listbox" aria-label="Tracked movies">
-          <p>{movies.length} tracked movies</p>
+          <p>{movies.length} tracked movies · Highest gross first</p>
           {filteredMovies.length ? filteredMovies.map((movie) => (
             <button
               type="button"
@@ -257,7 +263,7 @@ function ReportRow({ row, groupBy, allowDetails = true }) {
 export default function ReportsView({ apiBase, demo, initialDate, initialVenue, maxDate, theatres }) {
   const reportTheatres = useMemo(() => theatres.filter((theatre) => theatre.code !== "ALL"), [theatres]);
   const allCodes = useMemo(() => reportTheatres.map((theatre) => theatre.code), [reportTheatres]);
-  const demoMovies = useMemo(() => sortedMovies(DEMO_MOVIES), []);
+  const demoMovies = useMemo(() => sortMoviesByGross(DEMO_MOVIES), []);
   const initialDemoMovie = demo ? demoMovies.find((movie) => movie.title === "The Paradise") || demoMovies[0] : null;
   const [startDate, setStartDate] = useState(() => defaultReportStartDate(initialDate, "2026-08-21"));
   const [endDate, setEndDate] = useState(initialDate);
@@ -285,10 +291,10 @@ export default function ReportsView({ apiBase, demo, initialDate, initialVenue, 
       })
       .then((catalog) => {
         if (cancelled) return;
-        const movies = sortedMovies((catalog.movies || []).filter((movie) => movie?.title));
-        const latestMovie = movies[0] || null;
+        const movies = sortMoviesByGross((catalog.movies || []).filter((movie) => movie?.title));
+        const highestGrossingMovie = movies[0] || null;
         setMovieOptions(movies);
-        setSelectedMovie(latestMovie);
+        setSelectedMovie(highestGrossingMovie);
         setMovieCatalogError("");
       })
       .catch(() => {
