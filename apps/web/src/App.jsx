@@ -4,6 +4,7 @@ import { groupShowsByMovie, sortMovieGroups } from "./movieGroups.js";
 import { buildMoviesCopyText, buildShowsCopyText } from "./copyData.js";
 import AnalyticsAssistant from "./AnalyticsAssistant.jsx";
 import NotificationSettings from "./NotificationSettings.jsx";
+import ReportsView from "./ReportsView.jsx";
 import { reportPwaInstallation } from "./notifications.js";
 import {
   clampDashboardDate,
@@ -25,7 +26,6 @@ const inDemoMode = pageParams.get("demo") === "1";
 const installRequested = pageParams.get("install") === "1";
 const installPreview = import.meta.env.DEV ? pageParams.get("installPreview") : "";
 const notificationsPreview = import.meta.env.DEV && pageParams.get("notificationsPreview") === "1";
-const notificationsEnabled = import.meta.env.VITE_NOTIFICATIONS_ENABLED === "true";
 const INSTALL_DISMISSED_KEY = "mpltalkies-install-dismissed-at";
 const INSTALL_DISMISS_MS = 30 * 24 * 60 * 60 * 1000;
 const THEATRE_OPTIONS = [
@@ -330,7 +330,7 @@ export default function App() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [viewMode, setViewMode] = useState("shows");
+  const [viewMode, setViewMode] = useState(() => pageParams.get("view") === "reports" ? "reports" : "shows");
   const [movieSort, setMovieSort] = useState("gross");
   const [copyStatus, setCopyStatus] = useState("idle");
   const [installPrompt, setInstallPrompt] = useState(null);
@@ -344,6 +344,18 @@ export default function App() {
   const dateTransitionRef = useRef(false);
   const activeLoadingRequestsRef = useRef(0);
   const autoRefreshInFlightRef = useRef(false);
+  const lastDailyViewRef = useRef("shows");
+
+  function openDailyView(nextView) {
+    const dailyView = nextView === "movies" ? "movies" : "shows";
+    lastDailyViewRef.current = dailyView;
+    setViewMode(dailyView);
+  }
+
+  function openReports() {
+    if (viewMode !== "reports") lastDailyViewRef.current = viewMode;
+    setViewMode("reports");
+  }
 
   const load = useCallback(async ({ silent = false } = {}) => {
     const requestId = ++latestRequestRef.current;
@@ -577,9 +589,7 @@ export default function App() {
               <span className="live-indicator__updated">Updated {dateTime.format(new Date(data.generatedAt))}</span>
             )}
           </div>
-          {(notificationsEnabled || notificationsPreview) && (
-            <NotificationSettings apiBase={API_BASE} preview={notificationsPreview} />
-          )}
+          <NotificationSettings apiBase={API_BASE} preview={notificationsPreview} />
         </div>
       </header>
 
@@ -593,7 +603,26 @@ export default function App() {
           />
         )}
 
-        <section className="date-control" aria-label="Dashboard filters">
+        <nav className="primary-view-switch" aria-label="Main views">
+          <button
+            type="button"
+            className={viewMode !== "reports" ? "is-active" : ""}
+            aria-pressed={viewMode !== "reports"}
+            onClick={() => openDailyView(lastDailyViewRef.current)}
+          >
+            Daily Dashboard
+          </button>
+          <button
+            type="button"
+            className={viewMode === "reports" ? "is-active" : ""}
+            aria-pressed={viewMode === "reports"}
+            onClick={openReports}
+          >
+            Movie Reports
+          </button>
+        </nav>
+
+        {viewMode !== "reports" && <section className="date-control" aria-label="Dashboard filters">
           <div className="control-field">
             <label htmlFor="theatre">Theatre</label>
             <select id="theatre" value={selectedVenue} onChange={(event) => setSelectedVenue(event.target.value)}>
@@ -637,7 +666,7 @@ export default function App() {
               Next <span aria-hidden="true">→</span>
             </button>
           </nav>
-        </section>
+        </section>}
 
         {showInstallCard && !installRequested && (
           <InstallCard installPrompt={installPrompt} onInstalled={closeInstallCard} previewPlatform={installPreview} />
@@ -649,27 +678,29 @@ export default function App() {
 
         {data && (
           <>
-            <section className="metrics" aria-label="Daily totals">
-              <Metric label="Final tickets" value={number.format(data.summary.ticketsSold)} note={`${data.summary.finalizedShows} of ${data.summary.totalShows} shows finalized`} tone="ink" />
-              <Metric label="Gross" value={money.format(data.summary.collectionPaise / 100)} note="₹5 MC adjusted per ticket" tone="red" />
-              <Metric label="Final occupancy" value={`${data.summary.occupancyPercent}%`} note={`${number.format(data.summary.capacity)} finalized seats`} />
-              <Metric label="Shows captured" value={capturedShows} note={missedNote} />
-            </section>
+            {viewMode !== "reports" && <>
+              <section className="metrics" aria-label="Daily totals">
+                <Metric label="Final tickets" value={number.format(data.summary.ticketsSold)} note={`${data.summary.finalizedShows} of ${data.summary.totalShows} shows finalized`} tone="ink" />
+                <Metric label="Gross" value={money.format(data.summary.collectionPaise / 100)} note="₹5 MC adjusted per ticket" tone="red" />
+                <Metric label="Final occupancy" value={`${data.summary.occupancyPercent}%`} note={`${number.format(data.summary.capacity)} finalized seats`} />
+                <Metric label="Shows captured" value={capturedShows} note={missedNote} />
+              </section>
 
-            <section className="section-heading">
-              <div><p className="eyebrow">{selectedVenueName}</p><h1>{displayDate.format(new Date(`${selectedDate}T12:00:00+05:30`))}</h1></div>
-              <div className="section-heading__actions">
-                <CopyDataButton copyStatus={copyStatus} disabled={!currentShows.length} onCopy={copyData} placement="mobile" />
-                <p className="section-heading__updated"><span className="updated-dot" />Updated {dateTime.format(new Date(data.generatedAt))}</p>
-              </div>
-            </section>
+              <section className="section-heading">
+                <div>{selectedVenue !== "ALL" && <p className="eyebrow">{selectedVenueName}</p>}<h1>{displayDate.format(new Date(`${selectedDate}T12:00:00+05:30`))}</h1></div>
+                <div className="section-heading__actions">
+                  <CopyDataButton copyStatus={copyStatus} disabled={!currentShows.length} onCopy={copyData} placement="mobile" />
+                  <p className="section-heading__updated"><span className="updated-dot" />Updated {dateTime.format(new Date(data.generatedAt))}</p>
+                </div>
+              </section>
+            </>}
 
-            <section className="view-toolbar" aria-label="Results view options">
+            {viewMode !== "reports" && <section className="view-toolbar" aria-label="Results view options">
               <div className="view-toolbar__primary">
                 <div className="view-switch" role="group" aria-label="View by">
                   <span>View by</span>
-                  <button type="button" className={viewMode === "shows" ? "is-active" : ""} aria-pressed={viewMode === "shows"} onClick={() => setViewMode("shows")}>Shows</button>
-                  <button type="button" className={viewMode === "movies" ? "is-active" : ""} aria-pressed={viewMode === "movies"} onClick={() => setViewMode("movies")}>Movies</button>
+                  <button type="button" className={viewMode === "shows" ? "is-active" : ""} aria-pressed={viewMode === "shows"} onClick={() => openDailyView("shows")}>Shows</button>
+                  <button type="button" className={viewMode === "movies" ? "is-active" : ""} aria-pressed={viewMode === "movies"} onClick={() => openDailyView("movies")}>Movies</button>
                 </div>
                 <CopyDataButton copyStatus={copyStatus} disabled={!currentShows.length} onCopy={copyData} placement="desktop" />
               </div>
@@ -684,19 +715,29 @@ export default function App() {
                   </select>
                 </label>
               )}
-            </section>
+            </section>}
 
-            <section className={viewMode === "movies" ? "movie-list" : "show-list"} aria-live="polite">
-              {currentShows.length ? (
-                viewMode === "movies"
-                  ? movieGroups.map((movie) => <MovieCard key={movie.key} movie={movie} />)
-                  : currentShows.map((show) => <ShowCard key={show.id} show={show} />)
-              ) : (
-                <div className="empty"><strong>No shows found for this date.</strong><span>Choose another date or refresh the dashboard.</span></div>
-              )}
-            </section>
+            {viewMode === "reports" ? (
+              <ReportsView
+                apiBase={API_BASE}
+                demo={inDemoMode}
+                initialDate={selectedDate}
+                initialVenue={selectedVenue}
+                maxDate={latestDate}
+                theatres={THEATRE_OPTIONS}
+              />
+            ) : <>
+              <section className={viewMode === "movies" ? "movie-list" : "show-list"} aria-live="polite">
+                {currentShows.length ? (
+                  viewMode === "movies"
+                    ? movieGroups.map((movie) => <MovieCard key={movie.key} movie={movie} />)
+                    : currentShows.map((show) => <ShowCard key={show.id} show={show} />)
+                ) : (
+                  <div className="empty"><strong>No shows found for this date.</strong><span>Choose another date or refresh the dashboard.</span></div>
+                )}
+              </section>
 
-            {data.scheduleChanges?.length > 0 && (
+              {data.scheduleChanges?.length > 0 && (
               <section className="changes">
                 <p className="eyebrow">Schedule audit</p>
                 <h2>Movie and show changes</h2>
@@ -722,7 +763,8 @@ export default function App() {
                   );
                 })}
               </section>
-            )}
+              )}
+            </>}
           </>
         )}
       </main>
