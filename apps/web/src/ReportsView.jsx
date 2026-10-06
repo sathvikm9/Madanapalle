@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   buildReportModel,
+  completedReportEndDate,
   defaultReportStartDate,
   movieReportRange,
+  reportSummaryQuery,
   sortMoviesByGross,
   trackedReportDays
 } from "./reports.js";
@@ -338,16 +340,25 @@ export default function ReportsView({ apiBase, demo, initialDate, initialVenue, 
       } else {
         const venueQueries = reportCodes.length === allCodes.length ? ["ALL"] : reportCodes;
         nextSummaries = await Promise.all(venueQueries.map(async (venueCode) => {
-          const query = new URLSearchParams({ movie: movieTitle, venueCode, startDate: reportStartDate, endDate: reportEndDate });
+          const query = reportSummaryQuery({
+            movieTitle,
+            venueCode,
+            startDate: reportStartDate,
+            endDate: reportEndDate,
+            completeDaysOnly: reportType === "movie"
+          });
           const response = await fetch(`${apiBase}/api/analytics/summary?${query}`, { cache: "no-store" });
           if (!response.ok) throw new Error(`Reports API returned ${response.status}`);
           return response.json();
         }));
       }
+      const includedEndDate = reportType === "movie"
+        ? completedReportEndDate(nextSummaries, reportEndDate)
+        : reportEndDate;
       setSummaries(nextSummaries);
       setAppliedReport({
         startDate: reportStartDate,
-        endDate: reportEndDate,
+        endDate: includedEndDate,
         reportType,
         movieTitle,
         movieView: reportType === "movie" ? movieView : null,

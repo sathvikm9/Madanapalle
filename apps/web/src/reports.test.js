@@ -2,10 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildReportModel,
+  completedReportEndDate,
   defaultReportStartDate,
   movieReportRange,
   movieReportStartDate,
   reportCsv,
+  reportSummaryQuery,
   reportText,
   sortMoviesByGross,
   trackedReportDays
@@ -64,6 +66,26 @@ test("builds opening, first-week and full-run movie ranges", () => {
     startDate: "2026-09-01", endDate: "2026-09-01", hasPremiere: false,
     fullRunStartDate: "2026-09-01", fullRunEndDate: "2026-09-10"
   });
+});
+
+test("movie reports request only fully completed days", () => {
+  const movieQuery = reportSummaryQuery({
+    movieTitle: "The Paradise",
+    venueCode: "ALL",
+    startDate: "2026-09-11",
+    endDate: "2026-10-01",
+    completeDaysOnly: true
+  });
+  const theatreQuery = reportSummaryQuery({
+    movieTitle: "ALL",
+    venueCode: "ALL",
+    startDate: "2026-09-11",
+    endDate: "2026-10-01"
+  });
+
+  assert.equal(movieQuery.get("completeDaysOnly"), "1");
+  assert.equal(theatreQuery.has("completeDaysOnly"), false);
+  assert.equal(completedReportEndDate([{ endDate: "2026-09-30" }], "2026-10-01"), "2026-09-30");
 });
 
 test("counts unique screened dates across theatre summaries", () => {

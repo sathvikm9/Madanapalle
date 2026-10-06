@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { formatAnalyticsAnswer, formatComparisonAnswer, formatMultiMovieAnswer, parseAnalyticsQuestion } from "./analyticsQuery.js";
 import { formatFullGrossAnswer, parseFullGrossQuestion } from "./fullGrossCalculator.js";
 
@@ -217,7 +218,7 @@ export default function AnalyticsAssistant({ apiBase }) {
     }
   }
 
-  return (
+  return createPortal(
     <>
       <button className="assistant-launcher" type="button" onClick={() => setOpen(true)} aria-haspopup="dialog">
         <span aria-hidden="true">✦</span> Ask MPLTalkies
@@ -295,6 +296,7 @@ export default function AnalyticsAssistant({ apiBase }) {
           <p className="analytics-assistant__note">Answers cannot edit the tracker database.</p>
         </aside>
       )}
-    </>
+    </>,
+    document.body
   );
 }

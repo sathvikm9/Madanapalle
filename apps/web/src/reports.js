@@ -77,6 +77,23 @@ export function movieReportRange(movie, view = "full", maxDate) {
   };
 }
 
+export function reportSummaryQuery({ movieTitle, venueCode, startDate, endDate, completeDaysOnly = false }) {
+  return new URLSearchParams({
+    movie: movieTitle,
+    venueCode,
+    startDate,
+    endDate,
+    ...(completeDaysOnly ? { completeDaysOnly: "1" } : {})
+  });
+}
+
+export function completedReportEndDate(summaries, requestedEndDate) {
+  return (Array.isArray(summaries) ? summaries : [])
+    .map((summary) => summary?.endDate)
+    .filter(Boolean)
+    .sort()[0] || requestedEndDate;
+}
+
 export function trackedReportDays(summaries) {
   const dates = new Set();
   for (const summary of Array.isArray(summaries) ? summaries : []) {
