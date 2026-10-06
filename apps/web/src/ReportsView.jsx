@@ -375,6 +375,7 @@ export default function ReportsView({ apiBase, demo, initialDate, initialVenue, 
 
   function chooseMovie(movie) {
     setSelectedMovie(movie);
+    setMovieView("full");
     autoMovieReportRef.current = "";
     setSummaries([]);
     setAppliedReport(null);
