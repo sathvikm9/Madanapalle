@@ -408,7 +408,6 @@ export default function ReportsView({ apiBase, demo, initialDate, initialVenue, 
         <div>
           <h1 id="reports-title">Movie reports</h1>
         </div>
-        <span className="status status--completed">Read-only</span>
       </header>
 
       <form className={`report-filters${reportType === "movie" ? " report-filters--movie" : ""}`} onSubmit={(event) => { event.preventDefault(); void runReport(); }}>

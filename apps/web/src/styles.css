@@ -1249,7 +1249,7 @@ main { max-width: 1120px; margin: 0 auto; padding: 26px 24px 88px; }
     padding: 3px;
   }
   .primary-view-switch button { min-width: 0; min-height: 33px; padding: 0 7px; font-size: 10px; }
-  .primary-view-switch ~ .reports .reports__intro { margin-top: 22px; }
+  .primary-view-switch ~ .reports .reports__intro { margin-top: 14px; }
 
   .date-control {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1326,19 +1326,22 @@ main { max-width: 1120px; margin: 0 auto; padding: 26px 24px 88px; }
   .movie-sort > span { display: none; }
   .movie-sort select { inline-size: 100%; min-width: 0; height: 42px; padding-left: 10px; border-radius: 10px; font-size: 11px; }
 
-  .reports { gap: 10px; }
-  .reports__intro { align-items: end; gap: 10px; margin: 28px 0 12px; }
+  .reports { gap: 8px; }
+  .reports__intro { align-items: center; gap: 8px; margin: 14px 0 6px; }
   .reports__intro h1 { font-size: clamp(25px, 7.1vw, 28px); }
   .reports__intro > div > p:last-child { margin-top: 7px; font-size: 10px; line-height: 1.45; }
   .reports__saved-badge { min-height: 25px; padding-inline: 8px; font-size: 8px; }
-  .report-filters { grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 12px; border-radius: 14px; }
+  .report-filters { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 10px; border-radius: 14px; }
   .report-kind { width: 100%; gap: 4px; padding: 3px; border-radius: 11px; }
-  .report-kind button { flex: 1 1 50%; min-width: 0; min-height: 36px; padding: 0 11px; border-radius: 8px; font-size: 11px; }
-  .report-filters__scope { grid-template-columns: minmax(0, 1fr); gap: 10px; padding-bottom: 12px; }
-  .movie-report-period > div { min-height: 42px; padding: 3px; }
-  .movie-report-period button { min-height: 36px; padding-inline: 6px; font-size: 11px; }
-  .movie-picker__control { height: 44px; }
-  .movie-picker__control input { height: 40px; font-size: 16px; }
+  .report-kind button { flex: 1 1 50%; min-width: 0; min-height: 34px; padding: 0 10px; border-radius: 8px; font-size: 10px; }
+  .report-filters__scope { grid-template-columns: minmax(0, 1fr); gap: 8px; padding-bottom: 10px; }
+  .report-filters--movie .report-filters__scope { padding-bottom: 0; border-bottom: 0; }
+  .movie-picker > label > span,
+  .movie-report-period legend { margin-bottom: 4px; font-size: 8px; }
+  .movie-report-period > div { min-height: 38px; padding: 3px; }
+  .movie-report-period button { min-height: 32px; padding-inline: 5px; font-size: 10px; }
+  .movie-picker__control { height: 40px; grid-template-columns: 15px minmax(0, 1fr) 32px; padding-left: 11px; }
+  .movie-picker__control input { height: 36px; font-size: 16px; }
   .movie-picker__menu { max-height: 245px; }
   .movie-picker__menu > button { min-height: 48px; font-size: 11px; }
   .movie-picker__menu > button strong { font-size: 11px; }
