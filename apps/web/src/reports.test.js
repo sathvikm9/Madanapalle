@@ -9,6 +9,7 @@ import {
   reportCsv,
   reportSummaryQuery,
   reportText,
+  screenedDaysLabel,
   sortMoviesByGross,
   trackedReportDays
 } from "./reports.js";
@@ -91,6 +92,14 @@ test("movie reports request only fully completed days", () => {
 test("counts unique screened dates across theatre summaries", () => {
   assert.equal(trackedReportDays([summary, summary]), 2);
   assert.equal(trackedReportDays([{ days: [{ date: "2026-10-03", screenedShows: 0 }] }]), 0);
+});
+
+test("formats premiere runs separately from Day 1 onward", () => {
+  assert.equal(screenedDaysLabel(2, true), "Prem + 1");
+  assert.equal(screenedDaysLabel(8, true), "Prem + 7");
+  assert.equal(screenedDaysLabel(13, true), "Prem + 12");
+  assert.equal(screenedDaysLabel(1, true), "Prem");
+  assert.equal(screenedDaysLabel(13, false), "13");
 });
 
 test("orders movie choices by full-run gross with tickets as the tie-breaker", () => {

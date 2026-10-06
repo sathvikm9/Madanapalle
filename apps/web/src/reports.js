@@ -104,6 +104,13 @@ export function trackedReportDays(summaries) {
   return dates.size;
 }
 
+export function screenedDaysLabel(screenedDays, hasPremiere = false) {
+  const days = Math.max(0, Number(screenedDays || 0));
+  if (!hasPremiere || days === 0) return whole.format(days);
+  if (days === 1) return "Prem";
+  return `Prem + ${whole.format(days - 1)}`;
+}
+
 export function buildReportModel(summaries, groupBy = "theatre", sortBy = "tickets") {
   const source = Array.isArray(summaries) ? summaries : [];
   const totals = source.reduce((result, summary) => addTotals(result, summary?.total), emptyTotals());

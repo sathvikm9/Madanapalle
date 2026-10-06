@@ -5,6 +5,7 @@ import {
   defaultReportStartDate,
   movieReportRange,
   reportSummaryQuery,
+  screenedDaysLabel,
   sortMoviesByGross,
   trackedReportDays
 } from "./reports.js";
@@ -382,6 +383,7 @@ export default function ReportsView({ apiBase, demo, initialDate, initialVenue, 
   const appliedSortBy = appliedReport?.reportType === "movie" ? "gross" : "tickets";
   const model = useMemo(() => buildReportModel(summaries, "theatre", appliedSortBy), [appliedSortBy, summaries]);
   const screenedDays = useMemo(() => trackedReportDays(summaries), [summaries]);
+  const screenedDaysDisplay = screenedDaysLabel(screenedDays, Boolean(appliedReport?.movie?.premiereDate));
   const allSelected = selectedCodes.length === allCodes.length;
 
   function chooseMovie(movie) {
@@ -495,7 +497,7 @@ export default function ReportsView({ apiBase, demo, initialDate, initialVenue, 
           {appliedReport?.reportType === "movie" ? (
             <section className="movie-report-overview" aria-label="Movie report totals">
               <div className="movie-report-overview__facts">
-                <div><span>Days screened</span><strong>{number.format(screenedDays)}</strong></div>
+                <div><span>Days screened</span><strong>{screenedDaysDisplay}</strong></div>
                 <i aria-hidden="true" />
                 <div><span>Shows screened</span><strong>{number.format(model.totals.screenedShows)}</strong><small>{number.format(model.totals.capturedShows)} captured</small></div>
               </div>
