@@ -308,6 +308,10 @@ async function route(request, env, origin, context) {
     if (!show) throw new RequestError("The show is no longer current", 409, "stale_show");
     const clientAt = new Date(requiredString(body?.clientAt, "clientAt", 50));
     if (!Number.isFinite(clientAt.getTime())) throw new RequestError("clientAt is invalid");
+    const alertPhase = body?.alertPhase == null ? null : requiredString(body.alertPhase, "alertPhase", 20);
+    if (alertPhase && (eventType !== "capture_failed" || !new Set(["initial", "final"]).has(alertPhase))) {
+      throw new RequestError("alertPhase must be initial or final for a failed capture");
+    }
     let diagnostics = null;
     if (body?.diagnostics != null) {
       if (typeof body.diagnostics !== "object" || Array.isArray(body.diagnostics)) {
@@ -323,9 +327,18 @@ async function route(request, env, origin, context) {
       attemptId: body?.attemptId ? String(body.attemptId).slice(0, 100) : null,
       stage: body?.stage ? String(body.stage).slice(0, 100) : null,
       error: body?.error ? String(body.error).slice(0, 500) : null,
+      alertPhase,
       diagnostics
     };
-    return json(await recordCaptureEvent(env.DB, show, event), 200, origin);
+    const result = await recordCaptureEvent(env.DB, show, event);
+    if (alertPhase) {
+      runInBackground(
+        context,
+        dispatchNotifications(env.DB, env),
+        "Capture failure notification dispatch failed"
+      );
+    }
+    return json(result, 200, origin);
   }
 
   throw new RequestError("Not found", 404, "not_found");

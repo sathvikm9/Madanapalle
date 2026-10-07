@@ -537,6 +537,7 @@ export async function recordCaptureEvent(db, show, event, now = new Date()) {
         attemptId: event.attemptId,
         clientAt: event.clientAt,
         stage: event.stage,
+        alertPhase: event.alertPhase || null,
         diagnostics: event.diagnostics || null
       })
     )
@@ -553,9 +554,31 @@ export async function recordCaptureEvent(db, show, event, now = new Date()) {
       db.prepare(`UPDATE shows SET last_error=?, updated_at=? WHERE id=?`)
         .bind(event.error || "Capture attempt failed", observedAt, show.id)
     );
+    if (event.alertPhase) {
+      statements.push(
+        db.prepare(
+          `INSERT OR IGNORE INTO notification_events (
+            event_key, event_type, show_date, venue_code, payload_json, due_at, status, created_at
+          ) VALUES (?, 'capture_alert', ?, ?, ?, ?, 'pending', ?)`
+        ).bind(
+          `capture-alert:${show.id}:${event.alertPhase}`,
+          show.show_date,
+          show.venue_code,
+          JSON.stringify({
+            showId: String(show.id),
+            venueCode: show.venue_code,
+            showTime: show.show_time_label,
+            movieTitle: show.movie_title,
+            alertPhase: event.alertPhase
+          }),
+          observedAt,
+          observedAt
+        )
+      );
+    }
   }
   await db.batch(statements);
-  return { ok: true, showId: String(show.id), status };
+  return { ok: true, showId: String(show.id), status, alertQueued: Boolean(event.alertPhase) };
 }
 
 export async function finalizeExpiredShows(db, now = new Date()) {

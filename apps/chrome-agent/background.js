@@ -27,6 +27,12 @@ import {
   orderedCaptureOutbox
 } from "./capture-outbox.js";
 import {
+  acceptedAlertStateField,
+  captureFailureAlertPhase,
+  captureFailureAlertTitle,
+  localAlertStateField
+} from "./capture-alert.js";
+import {
   finalSummaryWhen,
   hasAnyLiveCapture,
   isTicketNewSummary,
@@ -902,16 +908,34 @@ async function failCapture(show, error, stage, { pendingAlreadyRemoved = false }
   let recoveryShow = show;
   const recoveryJustActivated = Boolean(recovery) && !state.recoveryMode;
   const protectedFinalWindow = supportsFinalCaptureRecovery(show) && Date.now() >= finalCaptureAt(show);
-  await updateCaptureState(show.naturalKey, { lastError: message, ...(recovery || {}) });
-  await postCaptureEvent(show, "capture_failed", {
+  const alertPhase = captureFailureAlertPhase(
+    show,
+    state,
+    show.attemptStartedAt || state.lastAttemptAt || Date.now()
+  );
+  const localAlertField = alertPhase ? localAlertStateField(alertPhase) : null;
+  const localAlertNeeded = Boolean(alertPhase && !state[localAlertField]);
+  const failedAt = new Date().toISOString();
+  await updateCaptureState(show.naturalKey, {
+    lastError: message,
+    ...(recovery || {}),
+    ...(localAlertNeeded ? { [localAlertField]: failedAt } : {})
+  });
+  const eventAccepted = await postCaptureEvent(show, "capture_failed", {
     stage,
     error: message,
+    alertPhase,
     diagnostics: {
       ...(error?.captureDiagnostics || {}),
       captureMode: show.captureMode || "primary",
       recoveryActivated: Boolean(recovery)
     }
   });
+  if (alertPhase && eventAccepted) {
+    await updateCaptureState(show.naturalKey, {
+      [acceptedAlertStateField(alertPhase)]: new Date().toISOString()
+    });
+  }
   if (needsBackupSummary(show, state)) {
     await captureSaiChitraSummaryEstimate(show, "backup").catch(async (summaryError) => {
       await appendAgentDiagnostic({
@@ -940,7 +964,13 @@ async function failCapture(show, error, stage, { pendingAlreadyRemoved = false }
     }
   }
   await scheduleShow(recovery ? (recoveryShow || show) : show);
-  await recordFailure(error);
+  await recordFailure(error, localAlertNeeded ? {
+    notificationTitle: captureFailureAlertTitle(
+      venueFor(show.venueCode).shortName,
+      show.showTimeLabel,
+      alertPhase
+    )
+  } : { notifyUser: false });
 }
 
 async function captureSaiChitraSummaryEstimate(show, phase) {
@@ -1722,8 +1752,10 @@ async function postCaptureEvent(show, eventType, extra = {}) {
       clientAt: new Date().toISOString(),
       ...extra
     });
+    return true;
   } catch {
     // Telemetry must never prevent a seat capture or its retry.
+    return false;
   }
 }
 
@@ -1772,10 +1804,10 @@ async function recordSuccess(message, extra = {}) {
   await chrome.storage.local.set({ status: { ok: true, message, at: new Date().toISOString() }, ...extra });
 }
 
-async function recordFailure(error) {
+async function recordFailure(error, { notifyUser = true, notificationTitle = "Theatre capture needs attention" } = {}) {
   const message = String(error?.message || error);
   await chrome.storage.local.set({ status: { ok: false, message, at: new Date().toISOString() } });
-  await notify("Theatre capture needs attention", message);
+  if (notifyUser) await notify(notificationTitle, message);
 }
 
 async function notify(title, message) {

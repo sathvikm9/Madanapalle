@@ -26,6 +26,9 @@ The extension creates one pinned BookMyShow or TicketNew tab per theatre. Keep C
 - at cutoff −0:50, a fresh final TicketNew summary tab is cache-bypass refreshed immediately before reading; it is saved only when no District live result has been protected, and any successful District live result remains authoritative
 - Ravi backup capture starts shortly after showtime +15 minutes
 - ASR backup capture starts shortly after showtime +15 minutes
+- when an initial capture fails with no locally protected or uploaded fallback, one urgent PWA alert asks the selected theatre's subscribers to check immediately
+- automatic recovery failures remain silent; if the final attempt also fails with no fallback, one second urgent PWA alert is sent
+- successful recovery does not send a follow-up alert, and durable event keys prevent duplicate failure notifications
 - a second preflight refreshes the schedule and prepares an inactive exact-session standby tab before each BookMyShow final attempt
 - a successful backup waits until the final minute; a failed backup retries once per minute
 - a failed Sri Krishna, Ravi, or ASR final read skips another discovery, reloads its exact-session standby only after the pending capture is registered, and retries fresh recovery tabs in bounded 18-second attempts through the end of the cutoff minute

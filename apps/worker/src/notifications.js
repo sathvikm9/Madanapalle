@@ -395,6 +395,40 @@ function scheduleDeliveryStatements(db, subscriptions, event, now) {
   return statements;
 }
 
+function captureAlertDeliveryStatements(db, subscriptions, event, now) {
+  const payload = parseJson(event.payload_json, {});
+  const venueCode = event.venue_code || payload.venueCode;
+  const venue = venueForCode(venueCode)?.shortName || venueCode;
+  const finalFailure = payload.alertPhase === "final";
+  const showTime = String(payload.showTime || "").replace(/^0(?=\d:)/, "");
+  const title = finalFailure
+    ? `${venue} ${showTime} final capture failed`
+    : `${venue} ${showTime} capture failed - CHECK NOW`;
+  const body = finalFailure
+    ? `${payload.movieTitle || "Booking-site capture"}\nNo protected backup is available.`
+    : `${payload.movieTitle || "Booking-site capture"}\nAutomatic recovery is continuing.`;
+  const statements = [];
+  for (const subscription of subscriptions) {
+    const preferences = subscriptionPreferences(subscription);
+    if (!preferences.venues.includes(venueCode)) continue;
+    statements.push(deliveryStatement(
+      db,
+      subscription.id,
+      event.event_key,
+      "capture_alert",
+      {
+        title,
+        body,
+        tag: event.event_key,
+        url: deepLink(event.show_date, preferences.venues)
+      },
+      now.toISOString(),
+      now
+    ));
+  }
+  return statements;
+}
+
 export async function processNotificationEvents(db, env, now = new Date()) {
   if (!notificationConfig(env).available) return { processed: 0, queued: 0, available: false };
   const timestamp = now.toISOString();
@@ -421,6 +455,9 @@ export async function processNotificationEvents(db, env, now = new Date()) {
   }
   for (const event of events.filter((candidate) => candidate.event_type === "schedule_change")) {
     statements.push(...scheduleDeliveryStatements(db, subscriptions, event, now));
+  }
+  for (const event of events.filter((candidate) => candidate.event_type === "capture_alert")) {
+    statements.push(...captureAlertDeliveryStatements(db, subscriptions, event, now));
   }
   for (const event of events) {
     statements.push(
@@ -463,9 +500,11 @@ export async function sendPendingDeliveries(db, env, now = new Date()) {
     const attemptedAt = now.toISOString();
     try {
       const payload = JSON.parse(delivery.payload_json);
+      const urgent = delivery.notification_type === "schedule_changes" ||
+        delivery.notification_type === "capture_alert";
       const request = await buildPushPayload({
         data: payload,
-        options: { ttl: 60 * 60, urgency: delivery.notification_type === "schedule_changes" ? "high" : "normal" }
+        options: { ttl: urgent ? 15 * 60 : 60 * 60, urgency: urgent ? "high" : "normal" }
       }, {
         endpoint: delivery.endpoint,
         expirationTime: null,

@@ -122,3 +122,13 @@ test("daily summary is scheduled one minute after the selected day completes", (
   assert.match(source, /completedAt \+ DAILY_SUMMARY_GAP_MS/);
   assert.match(source, /const DAILY_SUMMARY_GAP_MS = 60_000/);
 });
+
+test("capture failure alerts are urgent, theatre-filtered, and use exact titles", () => {
+  const source = fs.readFileSync(new URL("../src/notifications.js", import.meta.url), "utf8");
+  assert.match(source, /event_type === "capture_alert"/);
+  assert.match(source, /preferences\.venues\.includes\(venueCode\)/);
+  assert.match(source, /capture failed - CHECK NOW/);
+  assert.match(source, /final capture failed/);
+  assert.match(source, /delivery\.notification_type === "capture_alert"/);
+  assert.match(source, /urgency: urgent \? "high" : "normal"/);
+});

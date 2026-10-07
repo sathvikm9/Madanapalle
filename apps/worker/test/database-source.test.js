@@ -59,6 +59,19 @@ test("the Worker finalizes shows before dispatching grouped notifications", () =
   assert.match(source, /\/api\/adoption/);
 });
 
+test("failed captures enqueue idempotent initial and final alert events", () => {
+  const database = fs.readFileSync(databaseUrl, "utf8");
+  const worker = fs.readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
+  const start = database.indexOf("export async function recordCaptureEvent");
+  const end = database.indexOf("export async function finalizeExpiredShows", start);
+  const captureEvents = database.slice(start, end);
+
+  assert.match(captureEvents, /capture-alert:\$\{show\.id\}:\$\{event\.alertPhase\}/);
+  assert.match(captureEvents, /'capture_alert'/);
+  assert.match(worker, /alertPhase must be initial or final for a failed capture/);
+  assert.match(worker, /Capture failure notification dispatch failed/);
+});
+
 test("movie release metadata supports exact BookMyShow and District provider identities", () => {
   const source = fs.readFileSync(databaseUrl, "utf8");
   const migration = fs.readFileSync(

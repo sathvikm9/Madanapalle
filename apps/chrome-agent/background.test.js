@@ -127,6 +127,19 @@ test("BookMyShow final failure primes and repeatedly schedules bounded recovery 
   assert.doesNotMatch(failCapture, /finalRecoveryExhausted/);
 });
 
+test("capture failure alerts are deduplicated while intermediate recovery stays silent", () => {
+  const source = fs.readFileSync(backgroundUrl, "utf8");
+  const failureStart = source.indexOf("async function failCapture");
+  const failureEnd = source.indexOf("async function captureSaiChitraSummaryEstimate", failureStart);
+  const failCapture = source.slice(failureStart, failureEnd);
+
+  assert.match(failCapture, /captureFailureAlertPhase/);
+  assert.match(failCapture, /alertPhase/);
+  assert.match(failCapture, /acceptedAlertStateField/);
+  assert.match(failCapture, /localAlertStateField/);
+  assert.match(failCapture, /notifyUser: false/);
+});
+
 test("BookMyShow final preflight prepares an inactive standby recovery tab", () => {
   const source = fs.readFileSync(backgroundUrl, "utf8");
   const start = source.indexOf('if (alarm.name.startsWith("preflight:")');
