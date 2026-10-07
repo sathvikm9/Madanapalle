@@ -721,7 +721,6 @@ export default function App() {
               <ReportsView
                 apiBase={API_BASE}
                 demo={inDemoMode}
-                initialDate={selectedDate}
                 initialVenue={selectedVenue}
                 maxDate={latestDate}
                 theatres={THEATRE_OPTIONS}

@@ -6,6 +6,7 @@ import {
   defaultReportStartDate,
   movieReportRange,
   movieReportStartDate,
+  previousReportDate,
   reportCsv,
   reportSummaryQuery,
   reportText,
@@ -40,6 +41,12 @@ const summary = {
 test("uses a bounded rolling 30-day report range", () => {
   assert.equal(defaultReportStartDate("2026-10-05", "2026-08-21"), "2026-09-06");
   assert.equal(defaultReportStartDate("2026-08-25", "2026-08-21"), "2026-08-21");
+});
+
+test("defaults theatre reports to the previous completed India date", () => {
+  assert.equal(previousReportDate("2026-10-07"), "2026-10-06");
+  assert.equal(previousReportDate("2026-08-21"), "2026-08-21");
+  assert.equal(previousReportDate("invalid"), "2026-08-21");
 });
 
 test("starts a movie report at its premiere or day-one date", () => {

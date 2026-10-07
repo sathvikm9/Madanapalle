@@ -43,6 +43,14 @@ export function defaultReportStartDate(endDate, firstDate, days = 30) {
   return startDate < firstDate ? firstDate : startDate;
 }
 
+export function previousReportDate(currentDate, firstDate = "2026-08-21") {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(currentDate || ""))) return firstDate;
+  const date = new Date(`${currentDate}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - 1);
+  const previousDate = date.toISOString().slice(0, 10);
+  return previousDate < firstDate ? firstDate : previousDate;
+}
+
 export function movieReportStartDate(movie, firstDate) {
   const candidates = [movie?.premiereDate, movie?.dayOneDate, movie?.firstTrackedDate];
   return candidates.find((date) => /^\d{4}-\d{2}-\d{2}$/.test(String(date || ""))) || firstDate;

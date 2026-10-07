@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   buildReportModel,
   completedReportEndDate,
-  defaultReportStartDate,
   movieReportRange,
+  previousReportDate,
   reportSummaryQuery,
   screenedDaysLabel,
   sortMoviesByGross,
@@ -263,13 +263,14 @@ function ReportRow({ row, groupBy, allowDetails = true }) {
   );
 }
 
-export default function ReportsView({ apiBase, demo, initialDate, initialVenue, maxDate, theatres }) {
+export default function ReportsView({ apiBase, demo, initialVenue, maxDate, theatres }) {
   const reportTheatres = useMemo(() => theatres.filter((theatre) => theatre.code !== "ALL"), [theatres]);
   const allCodes = useMemo(() => reportTheatres.map((theatre) => theatre.code), [reportTheatres]);
   const demoMovies = useMemo(() => sortMoviesByGross(DEMO_MOVIES), []);
   const initialDemoMovie = demo ? demoMovies.find((movie) => movie.title === "The Paradise") || demoMovies[0] : null;
-  const [startDate, setStartDate] = useState(() => defaultReportStartDate(initialDate, "2026-08-21"));
-  const [endDate, setEndDate] = useState(initialDate);
+  const theatreReportMaxDate = useMemo(() => previousReportDate(maxDate), [maxDate]);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState(() => previousReportDate(maxDate));
   const [selectedCodes, setSelectedCodes] = useState(() => initialVenue === "ALL" ? allCodes : [initialVenue]);
   const [reportType, setReportType] = useState("movie");
   const [movieOptions, setMovieOptions] = useState(() => demo ? demoMovies : []);
@@ -323,7 +324,7 @@ export default function ReportsView({ apiBase, demo, initialDate, initialVenue, 
       return;
     }
     if (!reportStartDate || !reportEndDate || reportStartDate > reportEndDate) {
-      setError("From date must be on or before To date.");
+      setError("Select a From date on or before the To date.");
       return;
     }
     if (reportType === "movie" && !selectedMovie?.title) {
@@ -403,8 +404,8 @@ export default function ReportsView({ apiBase, demo, initialDate, initialVenue, 
     if (nextType === "movie") {
       autoMovieReportRef.current = "";
     } else {
-      setStartDate(defaultReportStartDate(maxDate, "2026-08-21"));
-      setEndDate(maxDate);
+      setStartDate("");
+      setEndDate(theatreReportMaxDate);
     }
   }
 
@@ -423,7 +424,7 @@ export default function ReportsView({ apiBase, demo, initialDate, initialVenue, 
             Movie report
           </button>
           <button type="button" className={reportType === "all" ? "is-active" : ""} aria-pressed={reportType === "all"} onClick={() => changeReportType("all")}>
-            All-theatre report
+            Theatre Report
           </button>
         </div>
 
@@ -452,8 +453,8 @@ export default function ReportsView({ apiBase, demo, initialDate, initialVenue, 
         {reportType === "all" && (
           <>
             <div className="report-filters__dates">
-              <label><span>From</span><input type="date" min="2026-08-21" max={endDate} value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label>
-              <label><span>To</span><input type="date" min={startDate} max={maxDate} value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label>
+              <label><span>From</span><input type="date" min="2026-08-21" max={endDate || theatreReportMaxDate} value={startDate} onChange={(event) => setStartDate(event.target.value)} /></label>
+              <label><span>To</span><input type="date" min={startDate || "2026-08-21"} max={theatreReportMaxDate} value={endDate} onChange={(event) => setEndDate(event.target.value)} /></label>
             </div>
 
             <fieldset className="report-theatres">
@@ -473,7 +474,7 @@ export default function ReportsView({ apiBase, demo, initialDate, initialVenue, 
             </fieldset>
 
             <div className="report-filters__options">
-              <button type="submit" disabled={loading || !selectedCodes.length}>{loading ? "Generating…" : "Generate theatre report"}</button>
+              <button type="submit" disabled={loading || !selectedCodes.length || !startDate || !endDate}>{loading ? "Generating…" : "Generate theatre report"}</button>
             </div>
           </>
         )}
