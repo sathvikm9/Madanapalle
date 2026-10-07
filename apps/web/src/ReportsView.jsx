@@ -269,7 +269,7 @@ export default function ReportsView({ apiBase, demo, initialVenue, maxDate, thea
   const demoMovies = useMemo(() => sortMoviesByGross(DEMO_MOVIES), []);
   const initialDemoMovie = demo ? demoMovies.find((movie) => movie.title === "The Paradise") || demoMovies[0] : null;
   const theatreReportMaxDate = useMemo(() => previousReportDate(maxDate), [maxDate]);
-  const [startDate, setStartDate] = useState("");
+  const [startDate, setStartDate] = useState("2026-08-21");
   const [endDate, setEndDate] = useState(() => previousReportDate(maxDate));
   const [selectedCodes, setSelectedCodes] = useState(() => initialVenue === "ALL" ? allCodes : [initialVenue]);
   const [reportType, setReportType] = useState("movie");
@@ -404,7 +404,7 @@ export default function ReportsView({ apiBase, demo, initialVenue, maxDate, thea
     if (nextType === "movie") {
       autoMovieReportRef.current = "";
     } else {
-      setStartDate("");
+      setStartDate("2026-08-21");
       setEndDate(theatreReportMaxDate);
     }
   }
