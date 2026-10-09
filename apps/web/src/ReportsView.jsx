@@ -172,15 +172,6 @@ function demoSummaries(startDate, endDate, selectedCodes, theatres, movieTitle =
   });
 }
 
-function ordinal(value) {
-  const remainder = value % 100;
-  if (remainder >= 11 && remainder <= 13) return `${value}th`;
-  if (value % 10 === 1) return `${value}st`;
-  if (value % 10 === 2) return `${value}nd`;
-  if (value % 10 === 3) return `${value}rd`;
-  return `${value}th`;
-}
-
 function DisclosureHeading({ children }) {
   return (
     <summary className="report-disclosure__summary">
@@ -191,6 +182,8 @@ function DisclosureHeading({ children }) {
 }
 
 function MovieCollectionTimeline({ days, closingGrossPaise = null }) {
+  const finalDate = closingGrossPaise === null ? null : days.at(-1)?.date;
+
   return (
     <details className="report-disclosure movie-daily" aria-label="Day-wise movie collection">
       <DisclosureHeading>Day-wise collection</DisclosureHeading>
@@ -205,10 +198,10 @@ function MovieCollectionTimeline({ days, closingGrossPaise = null }) {
                 </span>
                 <b>{money.format(day.collectionPaise / 100)}</b>
               </div>
-              {day.weekNumber && (
+              {day.weekNumber && day.date !== finalDate && (
                 <div className="movie-daily__week">
-                  <span>{ordinal(day.weekNumber)} week gross</span>
-                  <strong>{money.format(day.weekCollectionPaise / 100)}</strong>
+                  <span>{day.weekNumber === 1 ? "1st week gross" : `${day.weekNumber} weeks gross`}</span>
+                  <strong>{money.format(day.cumulativeCollectionPaise / 100)}</strong>
                 </div>
               )}
             </li>

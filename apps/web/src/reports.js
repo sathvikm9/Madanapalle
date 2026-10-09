@@ -153,18 +153,17 @@ export function buildMovieDailyTrend(summaries, movie = {}, range = {}) {
       dayNumber,
       isPremiere: premiere,
       weekNumber: null,
-      weekCollectionPaise: null
+      cumulativeCollectionPaise: null
     };
   });
 
   for (const day of result) {
     if (!day.dayNumber || day.dayNumber % 7 !== 0) continue;
     const weekNumber = day.dayNumber / 7;
-    const firstDay = (weekNumber - 1) * 7 + 1;
     day.weekNumber = weekNumber;
-    day.weekCollectionPaise = result.reduce((total, candidate) => {
-      if (weekNumber === 1 && candidate.isPremiere) return total + candidate.collectionPaise;
-      if (!candidate.dayNumber || candidate.dayNumber < firstDay || candidate.dayNumber > day.dayNumber) return total;
+    day.cumulativeCollectionPaise = result.reduce((total, candidate) => {
+      if (candidate.isPremiere) return total + candidate.collectionPaise;
+      if (!candidate.dayNumber || candidate.dayNumber > day.dayNumber) return total;
       return total + candidate.collectionPaise;
     }, 0);
   }

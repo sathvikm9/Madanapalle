@@ -131,7 +131,7 @@ test("builds an aggregated movie collection trend with premiere and calendar run
   ]);
 });
 
-test("adds first and second-week gross at Day 7 boundaries", () => {
+test("adds cumulative run gross at each completed week boundary", () => {
   const days = [
     { date: "2026-09-23", screenedShows: 1, collectionPaise: 50_000 },
     ...Array.from({ length: 14 }, (_, index) => ({
@@ -148,9 +148,9 @@ test("adds first and second-week gross at Day 7 boundaries", () => {
   const day14 = trend.find((day) => day.dayNumber === 14);
 
   assert.equal(day7.weekNumber, 1);
-  assert.equal(day7.weekCollectionPaise, 330_000);
+  assert.equal(day7.cumulativeCollectionPaise, 330_000);
   assert.equal(day14.weekNumber, 2);
-  assert.equal(day14.weekCollectionPaise, 770_000);
+  assert.equal(day14.cumulativeCollectionPaise, 1_100_000);
 });
 
 test("labels a regular movie from Day 1 without a premiere", () => {
