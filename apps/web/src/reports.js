@@ -112,6 +112,66 @@ export function trackedReportDays(summaries) {
   return dates.size;
 }
 
+function isoDayDistance(startDate, endDate) {
+  const start = new Date(`${startDate}T12:00:00Z`).getTime();
+  const end = new Date(`${endDate}T12:00:00Z`).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  return Math.round((end - start) / 86_400_000);
+}
+
+export function buildMovieDailyTrend(summaries, movie = {}, range = {}) {
+  const days = new Map();
+  for (const summary of Array.isArray(summaries) ? summaries : []) {
+    for (const day of summary?.days || []) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(day?.date || ""))) continue;
+      const current = days.get(day.date) || { date: day.date, ...emptyTotals() };
+      addTotals(current, day);
+      days.set(day.date, current);
+    }
+  }
+
+  const availableDates = Array.from(days.keys()).sort();
+  const startDate = range.startDate || availableDates[0];
+  const endDate = range.endDate || availableDates.at(-1);
+  if (!startDate || !endDate || startDate > endDate) return [];
+
+  const ordered = [];
+  for (let date = startDate; date && date <= endDate; date = addIsoDays(date, 1)) {
+    ordered.push(days.get(date) || { date, ...emptyTotals() });
+  }
+
+  const dayOneDate = movie?.dayOneDate || movie?.firstTrackedDate || ordered[0]?.date;
+  const premiereDate = movie?.premiereDate;
+
+  const result = ordered.map((day) => {
+    const runDay = dayOneDate ? isoDayDistance(dayOneDate, day.date) : null;
+    const premiere = Boolean(premiereDate && day.date === premiereDate && day.date < dayOneDate);
+    const dayNumber = !premiere && Number.isInteger(runDay) && runDay >= 0 ? runDay + 1 : null;
+    return {
+      ...day,
+      label: premiere ? "Prem" : dayNumber ? `Day ${dayNumber}` : "Prem",
+      dayNumber,
+      isPremiere: premiere,
+      weekNumber: null,
+      weekCollectionPaise: null
+    };
+  });
+
+  for (const day of result) {
+    if (!day.dayNumber || day.dayNumber % 7 !== 0) continue;
+    const weekNumber = day.dayNumber / 7;
+    const firstDay = (weekNumber - 1) * 7 + 1;
+    day.weekNumber = weekNumber;
+    day.weekCollectionPaise = result.reduce((total, candidate) => {
+      if (weekNumber === 1 && candidate.isPremiere) return total + candidate.collectionPaise;
+      if (!candidate.dayNumber || candidate.dayNumber < firstDay || candidate.dayNumber > day.dayNumber) return total;
+      return total + candidate.collectionPaise;
+    }, 0);
+  }
+
+  return result;
+}
+
 export function screenedDaysLabel(screenedDays, hasPremiere = false) {
   const days = Math.max(0, Number(screenedDays || 0));
   if (!hasPremiere || days === 0) return whole.format(days);

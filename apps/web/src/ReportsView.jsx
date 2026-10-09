@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  buildMovieDailyTrend,
   buildReportModel,
   completedReportEndDate,
   movieReportRange,
@@ -64,9 +65,23 @@ function datesBetween(startDate, endDate) {
   return dates;
 }
 
-function distributedTotal(total, index, count) {
-  const wholeTotal = Math.max(0, Math.round(Number(total || 0)));
-  return Math.floor(wholeTotal / count) + (index < wholeTotal % count ? 1 : 0);
+function distributedTrend(total, count) {
+  if (!count) return [];
+  const target = Math.max(0, Math.round(Number(total || 0)));
+  const weights = Array.from({ length: count }, (_, index) => Math.pow(count - index, .72));
+  const weightTotal = weights.reduce((sum, weight) => sum + weight, 0);
+  const exact = weights.map((weight) => target * weight / weightTotal);
+  const result = exact.map(Math.floor);
+  let remaining = target - result.reduce((sum, value) => sum + value, 0);
+  exact
+    .map((value, index) => ({ index, fraction: value - result[index] }))
+    .sort((left, right) => right.fraction - left.fraction)
+    .forEach(({ index }) => {
+      if (remaining <= 0) return;
+      result[index] += 1;
+      remaining -= 1;
+    });
+  return result;
 }
 
 function scaledDemoMovie(movie, ratio) {
@@ -131,6 +146,14 @@ function demoSummaries(startDate, endDate, selectedCodes, theatres, movieTitle =
           collectionPaise: 0
         };
     const reportDates = datesBetween(startDate, endDate);
+    const dailyTotals = Object.fromEntries([
+      "screenedShows",
+      "capturedShows",
+      "housefullShows",
+      "ticketsSold",
+      "capacity",
+      "collectionPaise"
+    ].map((key) => [key, distributedTrend(totals[key], reportDates.length)]));
     return {
       startDate,
       endDate,
@@ -138,15 +161,68 @@ function demoSummaries(startDate, endDate, selectedCodes, theatres, movieTitle =
       venues: [{ code, name, movies: selectedMovies, ...totals }],
       days: reportDates.map((date, index) => ({
         date,
-        screenedShows: distributedTotal(totals.screenedShows, index, reportDates.length),
-        capturedShows: distributedTotal(totals.capturedShows, index, reportDates.length),
-        housefullShows: distributedTotal(totals.housefullShows, index, reportDates.length),
-        ticketsSold: distributedTotal(totals.ticketsSold, index, reportDates.length),
-        capacity: distributedTotal(totals.capacity, index, reportDates.length),
-        collectionPaise: distributedTotal(totals.collectionPaise, index, reportDates.length)
+        screenedShows: dailyTotals.screenedShows[index],
+        capturedShows: dailyTotals.capturedShows[index],
+        housefullShows: dailyTotals.housefullShows[index],
+        ticketsSold: dailyTotals.ticketsSold[index],
+        capacity: dailyTotals.capacity[index],
+        collectionPaise: dailyTotals.collectionPaise[index]
       }))
     };
   });
+}
+
+function ordinal(value) {
+  const remainder = value % 100;
+  if (remainder >= 11 && remainder <= 13) return `${value}th`;
+  if (value % 10 === 1) return `${value}st`;
+  if (value % 10 === 2) return `${value}nd`;
+  if (value % 10 === 3) return `${value}rd`;
+  return `${value}th`;
+}
+
+function DisclosureHeading({ children }) {
+  return (
+    <summary className="report-disclosure__summary">
+      <h2>{children}</h2>
+      <i aria-hidden="true">⌄</i>
+    </summary>
+  );
+}
+
+function MovieCollectionTimeline({ days, closingGrossPaise = null }) {
+  return (
+    <details className="report-disclosure movie-daily" aria-label="Day-wise movie collection">
+      <DisclosureHeading>Day-wise collection</DisclosureHeading>
+      <div className="movie-daily__body">
+        <ol className="movie-daily__list">
+          {days.map((day) => (
+            <li key={day.date}>
+              <div className="movie-daily__row">
+                <span>
+                  <strong>{day.label}</strong>
+                  <time dateTime={day.date}>{displayReportDate(day.date)}</time>
+                </span>
+                <b>{money.format(day.collectionPaise / 100)}</b>
+              </div>
+              {day.weekNumber && (
+                <div className="movie-daily__week">
+                  <span>{ordinal(day.weekNumber)} week gross</span>
+                  <strong>{money.format(day.weekCollectionPaise / 100)}</strong>
+                </div>
+              )}
+            </li>
+          ))}
+        </ol>
+        {closingGrossPaise !== null && (
+          <div className="movie-daily__closing">
+            <span>Closing gross</span>
+            <strong>{money.format(closingGrossPaise / 100)}</strong>
+          </div>
+        )}
+      </div>
+    </details>
+  );
 }
 
 function MoviePicker({ loading, movies, selectedMovie, onSelect }) {
@@ -385,6 +461,17 @@ export default function ReportsView({ apiBase, demo, initialVenue, maxDate, thea
   const model = useMemo(() => buildReportModel(summaries, "theatre", appliedSortBy), [appliedSortBy, summaries]);
   const screenedDays = useMemo(() => trackedReportDays(summaries), [summaries]);
   const screenedDaysDisplay = screenedDaysLabel(screenedDays, Boolean(appliedReport?.movie?.premiereDate));
+  const movieDailyTrend = useMemo(
+    () => appliedReport?.reportType === "movie" ? buildMovieDailyTrend(summaries, appliedReport.movie, {
+      startDate: appliedReport.startDate,
+      endDate: appliedReport.endDate
+    }) : [],
+    [appliedReport, summaries]
+  );
+  const showClosingGross = appliedReport?.reportType === "movie"
+    && appliedReport.movieView === "full"
+    && appliedReport.movie?.lastTrackedDate
+    && appliedReport.movie.lastTrackedDate < maxDate;
   const allSelected = selectedCodes.length === allCodes.length;
 
   function chooseMovie(movie) {
@@ -515,22 +602,35 @@ export default function ReportsView({ apiBase, demo, initialVenue, maxDate, thea
             </section>
           )}
 
-          <section className={`report-results${appliedReport?.reportType === "movie" ? " report-results--movie" : ""}`} aria-live="polite">
-            {appliedReport?.reportType === "movie" ? (
-              <header className="report-results__movie-header"><h2>Theatre-wise collection</h2></header>
-            ) : (
+          {appliedReport?.reportType === "movie" && movieDailyTrend.length > 0 && (
+            <MovieCollectionTimeline
+              days={movieDailyTrend}
+              closingGrossPaise={showClosingGross ? model.totals.collectionPaise : null}
+            />
+          )}
+
+          {appliedReport?.reportType === "movie" ? (
+            <details className="report-disclosure report-results report-results--movie" aria-live="polite">
+              <DisclosureHeading>Theatre-wise collection</DisclosureHeading>
+              <div className="report-result__head"><span>Theatre</span><span>Shows</span><span>Tickets</span><span>Gross</span></div>
+              <div className="report-result__body">
+                {model.rows.map((row) => <ReportRow key={row.key} row={row} groupBy="theatre" allowDetails={false} />)}
+              </div>
+            </details>
+          ) : (
+            <section className="report-results" aria-live="polite">
               <header>
                 <div>
                   <p className="eyebrow">{displayReportDate(appliedReport?.startDate || startDate)} — {displayReportDate(appliedReport?.endDate || endDate)}</p>
                   <h2>Theatre performance</h2>
                 </div>
               </header>
-            )}
-            <div className="report-result__head"><span>Theatre</span><span>Shows</span><span>Tickets</span><span>Gross</span></div>
-            <div className="report-result__body">
-              {model.rows.map((row) => <ReportRow key={row.key} row={row} groupBy="theatre" allowDetails={appliedReport?.reportType !== "movie"} />)}
-            </div>
-          </section>
+              <div className="report-result__head"><span>Theatre</span><span>Shows</span><span>Tickets</span><span>Gross</span></div>
+              <div className="report-result__body">
+                {model.rows.map((row) => <ReportRow key={row.key} row={row} groupBy="theatre" />)}
+              </div>
+            </section>
+          )}
         </>
       )}
     </section>

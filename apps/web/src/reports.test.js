@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildMovieDailyTrend,
   buildReportModel,
   completedReportEndDate,
   defaultReportStartDate,
@@ -99,6 +100,65 @@ test("movie reports request only fully completed days", () => {
 test("counts unique screened dates across theatre summaries", () => {
   assert.equal(trackedReportDays([summary, summary]), 2);
   assert.equal(trackedReportDays([{ days: [{ date: "2026-10-03", screenedShows: 0 }] }]), 0);
+});
+
+test("builds an aggregated movie collection trend with premiere and calendar run-day labels", () => {
+  const secondTheatre = {
+    days: [
+      { date: "2026-09-23", screenedShows: 1, capturedShows: 1, ticketsSold: 50, collectionPaise: 500_000 },
+      { date: "2026-09-24", screenedShows: 2, capturedShows: 2, ticketsSold: 80, collectionPaise: 800_000 },
+      { date: "2026-09-26", screenedShows: 1, capturedShows: 1, ticketsSold: 30, collectionPaise: 300_000 },
+      { date: "2026-09-25", screenedShows: 0, capturedShows: 0, ticketsSold: 0, collectionPaise: 0 }
+    ]
+  };
+  const firstTheatre = {
+    days: [
+      { date: "2026-09-23", screenedShows: 1, capturedShows: 1, ticketsSold: 40, collectionPaise: 400_000 },
+      { date: "2026-09-24", screenedShows: 1, capturedShows: 1, ticketsSold: 70, collectionPaise: 700_000 }
+    ]
+  };
+
+  const trend = buildMovieDailyTrend([secondTheatre, firstTheatre], {
+    premiereDate: "2026-09-23",
+    dayOneDate: "2026-09-24"
+  }, { startDate: "2026-09-23", endDate: "2026-09-26" });
+
+  assert.deepEqual(trend.map((day) => [day.date, day.label, day.screenedShows, day.ticketsSold, day.collectionPaise]), [
+    ["2026-09-23", "Prem", 2, 90, 900_000],
+    ["2026-09-24", "Day 1", 3, 150, 1_500_000],
+    ["2026-09-25", "Day 2", 0, 0, 0],
+    ["2026-09-26", "Day 3", 1, 30, 300_000]
+  ]);
+});
+
+test("adds first and second-week gross at Day 7 boundaries", () => {
+  const days = [
+    { date: "2026-09-23", screenedShows: 1, collectionPaise: 50_000 },
+    ...Array.from({ length: 14 }, (_, index) => ({
+      date: new Date(Date.UTC(2026, 8, 24 + index)).toISOString().slice(0, 10),
+      screenedShows: 1,
+      collectionPaise: (index + 1) * 10_000
+    }))
+  ];
+  const trend = buildMovieDailyTrend([{ days }], {
+    premiereDate: "2026-09-23",
+    dayOneDate: "2026-09-24"
+  }, { startDate: "2026-09-23", endDate: "2026-10-07" });
+  const day7 = trend.find((day) => day.dayNumber === 7);
+  const day14 = trend.find((day) => day.dayNumber === 14);
+
+  assert.equal(day7.weekNumber, 1);
+  assert.equal(day7.weekCollectionPaise, 330_000);
+  assert.equal(day14.weekNumber, 2);
+  assert.equal(day14.weekCollectionPaise, 770_000);
+});
+
+test("labels a regular movie from Day 1 without a premiere", () => {
+  const trend = buildMovieDailyTrend([{ days: summary.days }], {
+    firstTrackedDate: "2026-10-01",
+    dayOneDate: "2026-10-01"
+  });
+  assert.deepEqual(trend.map((day) => day.label), ["Day 1", "Day 2"]);
 });
 
 test("formats premiere runs separately from Day 1 onward", () => {
