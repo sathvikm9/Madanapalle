@@ -209,7 +209,7 @@ function MovieCollectionTimeline({ days, closingGrossPaise = null }) {
         </ol>
         {closingGrossPaise !== null && (
           <div className="movie-daily__closing">
-            <span>Closing gross</span>
+            <span>Total gross</span>
             <strong>{money.format(closingGrossPaise / 100)}</strong>
           </div>
         )}
