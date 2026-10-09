@@ -109,7 +109,8 @@ export function storeNotificationPreferences(preferences) {
 export async function registerMplServiceWorker() {
   if (!("serviceWorker" in window.navigator)) return null;
   return window.navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`, {
-    scope: import.meta.env.BASE_URL
+    scope: import.meta.env.BASE_URL,
+    updateViaCache: "none"
   });
 }
 
