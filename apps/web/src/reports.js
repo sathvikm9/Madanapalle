@@ -149,7 +149,7 @@ export function buildMovieDailyTrend(summaries, movie = {}, range = {}) {
     const dayNumber = !premiere && Number.isInteger(runDay) && runDay >= 0 ? runDay + 1 : null;
     return {
       ...day,
-      label: premiere ? "Prem" : dayNumber ? `Day ${dayNumber}` : "Prem",
+      label: premiere ? "Premiers" : dayNumber ? `Day ${dayNumber}` : "Premiers",
       dayNumber,
       isPremiere: premiere,
       weekNumber: null,

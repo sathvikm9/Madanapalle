@@ -124,7 +124,7 @@ test("builds an aggregated movie collection trend with premiere and calendar run
   }, { startDate: "2026-09-23", endDate: "2026-09-26" });
 
   assert.deepEqual(trend.map((day) => [day.date, day.label, day.screenedShows, day.ticketsSold, day.collectionPaise]), [
-    ["2026-09-23", "Prem", 2, 90, 900_000],
+    ["2026-09-23", "Premiers", 2, 90, 900_000],
     ["2026-09-24", "Day 1", 3, 150, 1_500_000],
     ["2026-09-25", "Day 2", 0, 0, 0],
     ["2026-09-26", "Day 3", 1, 30, 300_000]
