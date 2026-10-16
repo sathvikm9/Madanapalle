@@ -84,6 +84,43 @@ function distributedTrend(total, count) {
   return result;
 }
 
+function AnimatedDisclosure({ buttonClassName, children, contentClassName, contentLabel, label, openLabel }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className={`animated-disclosure${open ? " is-open" : ""}`}>
+      <button
+        type="button"
+        className={buttonClassName}
+        aria-expanded={open}
+        aria-label={open ? `Collapse ${openLabel || label}` : `Expand ${openLabel || label}`}
+        onClick={() => setOpen((current) => !current)}
+      >
+        {label}
+      </button>
+      <div className="animated-disclosure__content" aria-hidden={!open}>
+        <div className={`animated-disclosure__inner${contentClassName ? ` ${contentClassName}` : ""}`} aria-label={contentLabel}>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MovieReportSkeleton() {
+  return (
+    <section className="movie-report-skeleton" aria-label="Loading movie report" aria-live="polite">
+      <span className="sr-only">Loading movie report…</span>
+      <div className="movie-report-skeleton__identity" aria-hidden="true"><i /><i /></div>
+      <div className="movie-report-skeleton__totals" aria-hidden="true"><i /><i /></div>
+      <div className="movie-report-skeleton__days" aria-hidden="true">
+        <b />
+        {Array.from({ length: 5 }, (_, index) => <i key={index} />)}
+      </div>
+    </section>
+  );
+}
+
 function scaledDemoMovie(movie, ratio) {
   return {
     ...movie,
@@ -186,14 +223,18 @@ function MovieCollectionTimeline({ days, closingGrossPaise = null }) {
   const finalDate = closingGrossPaise === null ? null : days.at(-1)?.date;
 
   return (
-    <section className="report-panel movie-daily" id="movie-report-day-wise" aria-label="Day-wise movie collection">
+    <section className="report-panel report-panel--enter movie-daily" id="movie-report-day-wise" aria-label="Day-wise movie collection">
       <header className="report-panel__header"><h2>Day-wise collection</h2></header>
       <div className="movie-daily__body">
         <ol className="movie-daily__list">
           {days.map((day) => (
             <li key={day.date}>
-              <details className="movie-daily__expandable">
-                <summary className="movie-daily__row">
+              <AnimatedDisclosure
+                buttonClassName="movie-daily__row"
+                contentClassName="movie-daily__theatres"
+                contentLabel={`${day.label} theatre-wise collection`}
+                openLabel={`${day.label} theatre-wise collection`}
+                label={<>
                   <span>
                     <strong>{day.label}</strong>
                     <time dateTime={day.date}>{displayReportDate(day.date)}</time>
@@ -202,19 +243,18 @@ function MovieCollectionTimeline({ days, closingGrossPaise = null }) {
                     <b>{money.format(day.collectionPaise / 100)}</b>
                     <i aria-hidden="true">⌄</i>
                   </span>
-                </summary>
-                <div className="movie-daily__theatres" aria-label={`${day.label} theatre-wise collection`}>
-                  {day.theatres.length ? day.theatres.map((theatre) => (
-                    <div key={theatre.code}>
-                      <strong>{theatre.name}</strong>
-                      <span>{number.format(theatre.screenedShows)} {theatre.screenedShows === 1 ? "Show" : "Shows"}</span>
-                      <b>{money.format(theatre.collectionPaise / 100)}</b>
-                    </div>
-                  )) : (
-                    <p>No shows screened</p>
-                  )}
-                </div>
-              </details>
+                </>}
+              >
+                {day.theatres.length ? day.theatres.map((theatre) => (
+                  <div key={theatre.code}>
+                    <strong>{theatre.name}</strong>
+                    <span>{number.format(theatre.screenedShows)} {theatre.screenedShows === 1 ? "Show" : "Shows"}</span>
+                    <b>{money.format(theatre.collectionPaise / 100)}</b>
+                  </div>
+                )) : (
+                  <p>No shows screened</p>
+                )}
+              </AnimatedDisclosure>
               {day.weekNumber && day.date !== finalDate && (
                 <div className="movie-daily__week">
                   <span>{day.weekNumber === 1 ? "1st week gross" : `${day.weekNumber} weeks gross`}</span>
@@ -333,19 +373,21 @@ function ReportRow({ row, groupBy, allowDetails = true }) {
 
   if (!allowDetails || !row.details.length) return <div className="report-result__row">{content}</div>;
   return (
-    <details className="report-result__expandable">
-      <summary className="report-result__row">{content}<i aria-hidden="true">⌄</i></summary>
-      <div className="report-result__details">
-        {row.details.map((detail) => (
-          <div key={detail.key}>
-            <span>{detail.label}</span>
-            <span>{number.format(detail.screenedShows)} shows</span>
-            <span>{number.format(detail.ticketsSold)} tickets</span>
-            <strong>{money.format(detail.collectionPaise / 100)}</strong>
-          </div>
-        ))}
-      </div>
-    </details>
+    <AnimatedDisclosure
+      buttonClassName="report-result__row"
+      contentClassName="report-result__details"
+      openLabel={`${row.label} details`}
+      label={<>{content}<i aria-hidden="true">⌄</i></>}
+    >
+      {row.details.map((detail) => (
+        <div key={detail.key}>
+          <span>{detail.label}</span>
+          <span>{number.format(detail.screenedShows)} shows</span>
+          <span>{number.format(detail.ticketsSold)} tickets</span>
+          <strong>{money.format(detail.collectionPaise / 100)}</strong>
+        </div>
+      ))}
+    </AnimatedDisclosure>
   );
 }
 
@@ -368,7 +410,10 @@ export default function ReportsView({ apiBase, demo, initialVenue, maxDate, thea
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [appliedReport, setAppliedReport] = useState(null);
+  const [showStickySummary, setShowStickySummary] = useState(false);
   const autoMovieReportRef = useRef("");
+  const movieOverviewRef = useRef(null);
+  const reportRequestRef = useRef(0);
 
   useEffect(() => {
     if (demo || movieOptions.length) return undefined;
@@ -418,6 +463,7 @@ export default function ReportsView({ apiBase, demo, initialVenue, maxDate, thea
       return;
     }
 
+    const requestId = ++reportRequestRef.current;
     setLoading(true);
     setError("");
     try {
@@ -443,6 +489,7 @@ export default function ReportsView({ apiBase, demo, initialVenue, maxDate, thea
       const includedEndDate = reportType === "movie"
         ? completedReportEndDate(nextSummaries, reportEndDate)
         : reportEndDate;
+      if (requestId !== reportRequestRef.current) return;
       setSummaries(nextSummaries);
       setAppliedReport({
         startDate: reportStartDate,
@@ -453,9 +500,9 @@ export default function ReportsView({ apiBase, demo, initialVenue, maxDate, thea
         movie: reportType === "movie" ? selectedMovie : null
       });
     } catch (requestError) {
-      setError(requestError.message || "The report could not be generated.");
+      if (requestId === reportRequestRef.current) setError(requestError.message || "The report could not be generated.");
     } finally {
-      setLoading(false);
+      if (requestId === reportRequestRef.current) setLoading(false);
     }
   }, [allCodes, apiBase, demo, endDate, reportTheatres, reportType, selectedCodes, selectedMovie, selectedMovieRange, startDate]);
 
@@ -484,15 +531,42 @@ export default function ReportsView({ apiBase, demo, initialVenue, maxDate, thea
     && appliedReport.movie.lastTrackedDate < maxDate;
   const allSelected = selectedCodes.length === allCodes.length;
 
+  useEffect(() => {
+    const overview = movieOverviewRef.current;
+    const mobile = window.matchMedia("(max-width: 640px)");
+    if (!overview || appliedReport?.reportType !== "movie") {
+      setShowStickySummary(false);
+      return undefined;
+    }
+
+    let observer;
+    const observe = () => {
+      observer?.disconnect();
+      setShowStickySummary(false);
+      if (!mobile.matches) return;
+      observer = new IntersectionObserver(([entry]) => {
+        setShowStickySummary(!entry.isIntersecting && entry.boundingClientRect.bottom <= 64);
+      }, { rootMargin: "-64px 0px 0px 0px", threshold: 0 });
+      observer.observe(overview);
+    };
+    observe();
+    mobile.addEventListener?.("change", observe);
+    return () => {
+      observer?.disconnect();
+      mobile.removeEventListener?.("change", observe);
+    };
+  }, [appliedReport, summaries]);
+
   function chooseMovie(movie) {
+    reportRequestRef.current += 1;
     setSelectedMovie(movie);
     autoMovieReportRef.current = "";
-    setSummaries([]);
-    setAppliedReport(null);
+    setLoading(false);
     setError("");
   }
 
   function changeReportType(nextType) {
+    reportRequestRef.current += 1;
     setReportType(nextType);
     setSummaries([]);
     setAppliedReport(null);
@@ -503,6 +577,16 @@ export default function ReportsView({ apiBase, demo, initialVenue, maxDate, thea
       setStartDate("2026-08-21");
       setEndDate(theatreReportMaxDate);
     }
+  }
+
+  function changeMovieReportSection(nextSection, fromSticky = false) {
+    setMovieReportSection(nextSection);
+    if (!fromSticky) return;
+    window.requestAnimationFrame(() => {
+      const sectionSwitch = document.querySelector(".movie-report-sections:not(.movie-report-sticky__switch)");
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      sectionSwitch?.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
+    });
   }
 
   function toggleTheatre(code) {
@@ -562,13 +646,15 @@ export default function ReportsView({ apiBase, demo, initialVenue, maxDate, thea
             </div>
           </>
         )}
-        {reportType === "movie" && loading && <p className="report-auto-status" role="status">Updating movie report…</p>}
+        {reportType === "movie" && loading && summaries.length > 0 && <p className="report-auto-status" role="status"><i aria-hidden="true" />Updating…</p>}
       </form>
 
       {error && <div className="report-error" role="alert">{error}</div>}
 
+      {!error && reportType === "movie" && loading && summaries.length === 0 && <MovieReportSkeleton />}
+
       {!error && summaries.length > 0 && (
-        <>
+        <div className={`report-content${loading ? " is-updating" : ""}`} aria-busy={loading}>
           {appliedReport?.reportType === "movie" && (
             <section className="movie-report-identity" aria-label={`${appliedReport.movieTitle} run`}>
               <div>
@@ -580,7 +666,7 @@ export default function ReportsView({ apiBase, demo, initialVenue, maxDate, thea
           )}
 
           {appliedReport?.reportType === "movie" ? (
-            <section className="movie-report-overview" aria-label="Movie report totals">
+            <section className="movie-report-overview" aria-label="Movie report totals" ref={movieOverviewRef}>
               <div className="movie-report-overview__facts">
                 <div><span>Days screened</span><strong>{screenedDaysDisplay}</strong></div>
                 <i aria-hidden="true" />
@@ -606,7 +692,7 @@ export default function ReportsView({ apiBase, demo, initialVenue, maxDate, thea
                 className={movieReportSection === "day" ? "is-active" : ""}
                 aria-pressed={movieReportSection === "day"}
                 aria-controls="movie-report-day-wise"
-                onClick={() => setMovieReportSection("day")}
+                onClick={() => changeMovieReportSection("day")}
               >
                 Day Wise
               </button>
@@ -615,11 +701,24 @@ export default function ReportsView({ apiBase, demo, initialVenue, maxDate, thea
                 className={movieReportSection === "theatre" ? "is-active" : ""}
                 aria-pressed={movieReportSection === "theatre"}
                 aria-controls="movie-report-theatre-wise"
-                onClick={() => setMovieReportSection("theatre")}
+                onClick={() => changeMovieReportSection("theatre")}
               >
                 Theatre Wise
               </button>
             </div>
+          )}
+
+          {appliedReport?.reportType === "movie" && (
+            <aside className={`movie-report-sticky${showStickySummary ? " is-visible" : ""}`} aria-hidden={!showStickySummary}>
+              <div className="movie-report-sticky__summary">
+                <strong>{appliedReport.movieTitle}</strong>
+                <span>{number.format(model.totals.ticketsSold)} tickets <i>·</i> {money.format(model.totals.collectionPaise / 100)}</span>
+              </div>
+              <div className="movie-report-sections movie-report-sticky__switch" role="group" aria-label="Sticky movie report view">
+                <button type="button" disabled={!showStickySummary} className={movieReportSection === "day" ? "is-active" : ""} aria-pressed={movieReportSection === "day"} onClick={() => changeMovieReportSection("day", true)}>Day Wise</button>
+                <button type="button" disabled={!showStickySummary} className={movieReportSection === "theatre" ? "is-active" : ""} aria-pressed={movieReportSection === "theatre"} onClick={() => changeMovieReportSection("theatre", true)}>Theatre Wise</button>
+              </div>
+            </aside>
           )}
 
           {appliedReport?.reportType === "movie" && movieReportSection === "day" && movieDailyTrend.length > 0 && (
@@ -630,7 +729,7 @@ export default function ReportsView({ apiBase, demo, initialVenue, maxDate, thea
           )}
 
           {appliedReport?.reportType === "movie" && movieReportSection === "theatre" ? (
-            <section className="report-panel report-results report-results--movie" id="movie-report-theatre-wise" aria-live="polite">
+            <section className="report-panel report-panel--enter report-results report-results--movie" id="movie-report-theatre-wise" aria-live="polite">
               <header className="report-panel__header"><h2>Theatre-wise collection</h2></header>
               <div className="report-result__head"><span>Theatre</span><span>Shows</span><span>Tickets</span><span>Gross</span></div>
               <div className="report-result__body">
@@ -651,7 +750,7 @@ export default function ReportsView({ apiBase, demo, initialVenue, maxDate, thea
               </div>
             </section>
           ) : null}
-        </>
+        </div>
       )}
     </section>
   );
