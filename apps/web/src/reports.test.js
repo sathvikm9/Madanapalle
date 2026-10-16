@@ -6,6 +6,7 @@ import {
   completedReportEndDate,
   defaultReportStartDate,
   movieReportRange,
+  movieMatchesSearch,
   movieReportStartDate,
   previousReportDate,
   reportCsv,
@@ -209,6 +210,13 @@ test("orders movie choices by full-run gross with tickets as the tie-breaker", (
     "Same gross, more tickets",
     "Lower"
   ]);
+});
+
+test("movie picker search supports direct, punctuation-free and small typo matches", () => {
+  assert.equal(movieMatchesSearch("The Paradise", "parad"), true);
+  assert.equal(movieMatchesSearch("Don't Trouble the Trouble", "dont trouble"), true);
+  assert.equal(movieMatchesSearch("Irumudi", "Irumdi"), true);
+  assert.equal(movieMatchesSearch("The Paradise", "Irumdi"), false);
 });
 
 test("groups reports by theatre and exposes movie details", () => {

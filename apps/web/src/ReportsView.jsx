@@ -3,6 +3,7 @@ import {
   buildMovieDailyTrend,
   buildReportModel,
   completedReportEndDate,
+  movieMatchesSearch,
   movieReportRange,
   previousReportDate,
   reportSummaryQuery,
@@ -13,6 +14,8 @@ import {
 
 const number = new Intl.NumberFormat("en-IN");
 const money = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
+const MOVIE_REPORT_SELECTION_KEY = "mpltalkies-movie-report-selection";
+const MOVIE_REPORT_SECTION_KEY = "mpltalkies-movie-report-section";
 const reportDate = new Intl.DateTimeFormat("en-IN", {
   timeZone: "Asia/Kolkata",
   day: "2-digit",
@@ -52,6 +55,35 @@ const DEMO_MOVIES = [
 
 function displayReportDate(value) {
   return reportDate.format(new Date(`${value}T12:00:00+05:30`));
+}
+
+function storedPreference(key, fallback = "") {
+  try {
+    return window.localStorage.getItem(key) || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function savePreference(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Private browsing and storage restrictions should not block report viewing.
+  }
+}
+
+function moviePickerStatus(movie, maxDate) {
+  if (movie?.isReRelease) return "Re-release";
+  return movie?.lastTrackedDate && movie.lastTrackedDate >= maxDate ? "Running" : "Completed";
+}
+
+function HighlightedMovieTitle({ query, title }) {
+  const wanted = query.trim();
+  if (!wanted) return title;
+  const index = title.toLocaleLowerCase("en-IN").indexOf(wanted.toLocaleLowerCase("en-IN"));
+  if (index < 0) return title;
+  return <>{title.slice(0, index)}<mark>{title.slice(index, index + wanted.length)}</mark>{title.slice(index + wanted.length)}</>;
 }
 
 function datesBetween(startDate, endDate) {
@@ -275,35 +307,153 @@ function MovieCollectionTimeline({ days, closingGrossPaise = null }) {
   );
 }
 
-function MoviePicker({ loading, movies, selectedMovie, onSelect }) {
+function MoviePicker({ loading, maxDate, movies, selectedMovie, onSelect }) {
   const [query, setQuery] = useState(selectedMovie?.title || "");
   const [open, setOpen] = useState(false);
   const [filterActive, setFilterActive] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [mobile, setMobile] = useState(() => window.matchMedia("(max-width: 640px)").matches);
+  const [dragOffset, setDragOffset] = useState(0);
+  const [dragging, setDragging] = useState(false);
   const pickerRef = useRef(null);
+  const fieldRef = useRef(null);
+  const sheetSearchRef = useRef(null);
+  const dragStartRef = useRef(null);
   const filteredMovies = useMemo(() => {
-    const wanted = filterActive ? query.trim().toLocaleLowerCase("en-IN") : "";
-    return movies.filter((movie) => !wanted || movie.title.toLocaleLowerCase("en-IN").includes(wanted));
+    const wanted = filterActive ? query : "";
+    return movies.filter((movie) => movieMatchesSearch(movie.title, wanted));
   }, [filterActive, movies, query]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 640px)");
+    const update = () => setMobile(media.matches);
+    update();
+    media.addEventListener?.("change", update);
+    return () => media.removeEventListener?.("change", update);
+  }, []);
 
   useEffect(() => {
     setQuery(selectedMovie?.title || "");
     setFilterActive(false);
   }, [selectedMovie]);
+
+  useEffect(() => {
+    if (!open || filterActive) return;
+    const selectedIndex = filteredMovies.findIndex((movie) => movie.title === selectedMovie?.title);
+    setActiveIndex(selectedIndex >= 0 ? selectedIndex : 0);
+  }, [filterActive, filteredMovies, open, selectedMovie]);
+
   useEffect(() => {
     if (!open) return undefined;
     function closeOutside(event) {
       if (!pickerRef.current?.contains(event.target)) setOpen(false);
     }
+    function closeOnEscape(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setOpen(false);
+      }
+    }
     document.addEventListener("pointerdown", closeOutside);
-    return () => document.removeEventListener("pointerdown", closeOutside);
-  }, [open]);
+    document.addEventListener("keydown", closeOnEscape);
+    const previousOverflow = document.body.style.overflow;
+    if (mobile) {
+      document.body.style.overflow = "hidden";
+      window.requestAnimationFrame(() => {
+        sheetSearchRef.current?.focus({ preventScroll: true });
+        sheetSearchRef.current?.select();
+      });
+    }
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [mobile, open]);
+
+  function openPicker() {
+    setQuery(selectedMovie?.title || "");
+    setFilterActive(false);
+    setDragOffset(0);
+    setOpen(true);
+  }
+
+  function closePicker() {
+    setDragging(false);
+    setDragOffset(0);
+    setOpen(false);
+  }
 
   function choose(movie) {
     setQuery(movie.title);
     setFilterActive(false);
     onSelect(movie);
-    setOpen(false);
+    closePicker();
   }
+
+  function updateQuery(value) {
+    setQuery(value);
+    setFilterActive(true);
+    setActiveIndex(0);
+    setOpen(true);
+  }
+
+  function handleSearchKey(event) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closePicker();
+      return;
+    }
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp" && event.key !== "Enter") return;
+    event.preventDefault();
+    if (!open) {
+      openPicker();
+      return;
+    }
+    if (event.key === "Enter") {
+      if (filteredMovies[activeIndex]) choose(filteredMovies[activeIndex]);
+      return;
+    }
+    const direction = event.key === "ArrowDown" ? 1 : -1;
+    const nextIndex = (activeIndex + direction + filteredMovies.length) % Math.max(filteredMovies.length, 1);
+    setActiveIndex(nextIndex);
+    window.requestAnimationFrame(() => {
+      document.querySelector(`[data-movie-index="${nextIndex}"]`)?.scrollIntoView({ block: "nearest" });
+    });
+  }
+
+  function showAllMovies() {
+    setQuery("");
+    setFilterActive(false);
+    setActiveIndex(0);
+    window.requestAnimationFrame(() => {
+      const target = mobile ? sheetSearchRef.current : fieldRef.current;
+      target?.focus({ preventScroll: true });
+    });
+  }
+
+  function startSheetDrag(event) {
+    if (!mobile) return;
+    dragStartRef.current = { pointerId: event.pointerId, y: event.clientY };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setDragging(true);
+  }
+
+  function moveSheet(event) {
+    if (!dragStartRef.current || dragStartRef.current.pointerId !== event.pointerId) return;
+    setDragOffset(Math.max(0, event.clientY - dragStartRef.current.y));
+  }
+
+  function finishSheetDrag(event) {
+    if (!dragStartRef.current || dragStartRef.current.pointerId !== event.pointerId) return;
+    const shouldClose = dragOffset > 72;
+    dragStartRef.current = null;
+    setDragging(false);
+    if (shouldClose) closePicker();
+    else setDragOffset(0);
+  }
+
+  const activeDescendant = open && filteredMovies[activeIndex] ? `report-movie-option-${activeIndex}` : undefined;
 
   return (
     <div className="movie-picker" ref={pickerRef}>
@@ -311,47 +461,102 @@ function MoviePicker({ loading, movies, selectedMovie, onSelect }) {
       <div className={`movie-picker__control${open ? " is-open" : ""}`}>
         <span className="movie-picker__search" aria-hidden="true" />
         <input
+          ref={fieldRef}
           id="report-movie-search"
           type="search"
           role="combobox"
           aria-autocomplete="list"
           aria-controls="report-movie-options"
+          aria-activedescendant={activeDescendant}
           aria-expanded={open}
           autoComplete="off"
+          readOnly={mobile}
           placeholder={loading ? "Loading movies…" : "Search and select a movie"}
           value={query}
           onFocus={(event) => {
-            setFilterActive(false);
-            setOpen(true);
-            event.currentTarget.select();
+            openPicker();
+            if (!mobile) event.currentTarget.select();
           }}
-          onChange={(event) => {
-            setQuery(event.target.value);
-            setFilterActive(true);
-            setOpen(true);
-          }}
+          onChange={(event) => updateQuery(event.target.value)}
+          onKeyDown={handleSearchKey}
         />
-        <button type="button" aria-label="Show all movies" onClick={() => setOpen((current) => {
-          if (!current) setFilterActive(false);
-          return !current;
-        })}>⌄</button>
+        <button type="button" aria-label={open ? "Close movie list" : "Show all movies"} onClick={() => open ? closePicker() : openPicker()}>⌄</button>
       </div>
+      {open && <button className="movie-picker__backdrop" type="button" aria-label="Close movie picker" onClick={closePicker} />}
       {open && (
-        <div className="movie-picker__menu" id="report-movie-options" role="listbox" aria-label="Tracked movies">
-          <p>{movies.length} tracked movies · Highest gross first</p>
-          {filteredMovies.length ? filteredMovies.map((movie) => (
-            <button
-              type="button"
-              role="option"
-              aria-selected={movie.title === selectedMovie?.title}
-              className={movie.title === selectedMovie?.title ? "is-selected" : ""}
-              key={movie.title}
-              onClick={() => choose(movie)}
-            >
-              <span><strong>{movie.title}</strong><small>Tracked {displayReportDate(movie.firstTrackedDate)} — {displayReportDate(movie.lastTrackedDate)}</small></span>
-              <i aria-hidden="true">{movie.title === selectedMovie?.title ? "✓" : "→"}</i>
-            </button>
-          )) : <span className="movie-picker__empty">No matching movies</span>}
+        <div
+          className={`movie-picker__menu${dragging ? " is-dragging" : ""}`}
+          id="report-movie-options"
+          role={mobile ? "dialog" : undefined}
+          aria-modal={mobile ? "true" : undefined}
+          aria-label="Choose a tracked movie"
+          style={{ "--movie-sheet-drag": `${dragOffset}px` }}
+        >
+          <div
+            className="movie-picker__sheet-handle"
+            aria-hidden="true"
+            onPointerDown={startSheetDrag}
+            onPointerMove={moveSheet}
+            onPointerUp={finishSheetDrag}
+            onPointerCancel={finishSheetDrag}
+          ><i /></div>
+          <div className="movie-picker__sheet-header">
+            <strong>Select movie</strong>
+            <button type="button" aria-label="Close movie picker" onClick={closePicker}>×</button>
+          </div>
+          <div className="movie-picker__sheet-search">
+            <span className="movie-picker__search" aria-hidden="true" />
+            <input
+              ref={sheetSearchRef}
+              type="search"
+              role="combobox"
+              aria-label="Search tracked movies"
+              aria-autocomplete="list"
+              aria-controls="report-movie-list"
+              aria-activedescendant={activeDescendant}
+              aria-expanded="true"
+              autoComplete="off"
+              value={query}
+              onChange={(event) => updateQuery(event.target.value)}
+              onKeyDown={handleSearchKey}
+            />
+            {query && <button type="button" aria-label="Clear movie search" onClick={showAllMovies}>×</button>}
+          </div>
+          <p className="movie-picker__menu-note">{movies.length} tracked movies · Highest gross first</p>
+          <div className="movie-picker__options" id="report-movie-list" role="listbox" aria-label="Tracked movies">
+            {filteredMovies.length ? filteredMovies.map((movie, index) => {
+              const selected = movie.title === selectedMovie?.title;
+              const status = moviePickerStatus(movie, maxDate);
+              return (
+                <button
+                  type="button"
+                  role="option"
+                  id={`report-movie-option-${index}`}
+                  data-movie-index={index}
+                  aria-selected={selected}
+                  className={`${selected ? "is-selected" : ""}${index === activeIndex ? " is-active" : ""}`}
+                  key={movie.title}
+                  onPointerMove={() => setActiveIndex(index)}
+                  onClick={() => choose(movie)}
+                >
+                  <span>
+                    <strong><HighlightedMovieTitle title={movie.title} query={filterActive ? query : ""} /></strong>
+                    <small>{money.format(Number(movie.collectionPaise || 0) / 100)} · {displayReportDate(movie.firstTrackedDate)} — {displayReportDate(movie.lastTrackedDate)}</small>
+                  </span>
+                  <span className="movie-picker__option-end">
+                    <em className={`is-${status.toLocaleLowerCase("en-IN").replace(/[^a-z]+/g, "-")}`}>{status}</em>
+                    <i aria-hidden="true">{selected ? "✓" : "→"}</i>
+                  </span>
+                </button>
+              );
+            }) : (
+              <div className="movie-picker__empty">
+                <strong>No movies found</strong>
+                <span>Try another spelling or return to the complete collection list.</span>
+                <button type="button" onClick={showAllMovies}>Show all movies</button>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -395,7 +600,10 @@ export default function ReportsView({ apiBase, demo, initialVenue, maxDate, thea
   const reportTheatres = useMemo(() => theatres.filter((theatre) => theatre.code !== "ALL"), [theatres]);
   const allCodes = useMemo(() => reportTheatres.map((theatre) => theatre.code), [reportTheatres]);
   const demoMovies = useMemo(() => sortMoviesByGross(DEMO_MOVIES), []);
-  const initialDemoMovie = demo ? demoMovies.find((movie) => movie.title === "The Paradise") || demoMovies[0] : null;
+  const storedMovieTitle = useMemo(() => storedPreference(MOVIE_REPORT_SELECTION_KEY), []);
+  const initialDemoMovie = demo ? demoMovies.find((movie) => movie.title === storedMovieTitle)
+    || demoMovies.find((movie) => movie.title === "The Paradise")
+    || demoMovies[0] : null;
   const theatreReportMaxDate = useMemo(() => previousReportDate(maxDate), [maxDate]);
   const [startDate, setStartDate] = useState("2026-08-21");
   const [endDate, setEndDate] = useState(() => previousReportDate(maxDate));
@@ -405,7 +613,7 @@ export default function ReportsView({ apiBase, demo, initialVenue, maxDate, thea
   const [movieCatalogLoading, setMovieCatalogLoading] = useState(false);
   const [movieCatalogError, setMovieCatalogError] = useState("");
   const [selectedMovie, setSelectedMovie] = useState(initialDemoMovie);
-  const [movieReportSection, setMovieReportSection] = useState("day");
+  const [movieReportSection, setMovieReportSection] = useState(() => storedPreference(MOVIE_REPORT_SECTION_KEY) === "theatre" ? "theatre" : "day");
   const [summaries, setSummaries] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -427,7 +635,7 @@ export default function ReportsView({ apiBase, demo, initialVenue, maxDate, thea
       .then((catalog) => {
         if (cancelled) return;
         const movies = sortMoviesByGross((catalog.movies || []).filter((movie) => movie?.title));
-        const highestGrossingMovie = movies[0] || null;
+        const highestGrossingMovie = movies.find((movie) => movie.title === storedMovieTitle) || movies[0] || null;
         setMovieOptions(movies);
         setSelectedMovie(highestGrossingMovie);
         setMovieCatalogError("");
@@ -439,7 +647,7 @@ export default function ReportsView({ apiBase, demo, initialVenue, maxDate, thea
         if (!cancelled) setMovieCatalogLoading(false);
       });
     return () => { cancelled = true; };
-  }, [apiBase, demo, maxDate, movieOptions.length]);
+  }, [apiBase, demo, maxDate, movieOptions.length, storedMovieTitle]);
 
   const selectedMovieRange = useMemo(
     () => movieReportRange(selectedMovie, "full", maxDate),
@@ -559,6 +767,7 @@ export default function ReportsView({ apiBase, demo, initialVenue, maxDate, thea
 
   function chooseMovie(movie) {
     reportRequestRef.current += 1;
+    savePreference(MOVIE_REPORT_SELECTION_KEY, movie.title);
     setSelectedMovie(movie);
     autoMovieReportRef.current = "";
     setLoading(false);
@@ -580,6 +789,7 @@ export default function ReportsView({ apiBase, demo, initialVenue, maxDate, thea
   }
 
   function changeMovieReportSection(nextSection, fromSticky = false) {
+    savePreference(MOVIE_REPORT_SECTION_KEY, nextSection);
     setMovieReportSection(nextSection);
     if (!fromSticky) return;
     window.requestAnimationFrame(() => {
@@ -611,6 +821,7 @@ export default function ReportsView({ apiBase, demo, initialVenue, maxDate, thea
         {reportType === "movie" && <div className="report-filters__scope report-filters__scope--movie">
           <MoviePicker
             loading={movieCatalogLoading}
+            maxDate={maxDate}
             movies={movieOptions}
             selectedMovie={selectedMovie}
             onSelect={chooseMovie}

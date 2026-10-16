@@ -36,6 +36,48 @@ export function sortMoviesByGross(movies) {
   );
 }
 
+function normalizedSearch(value) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("en-IN")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function editDistance(left, right) {
+  if (left === right) return 0;
+  if (!left.length) return right.length;
+  if (!right.length) return left.length;
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 0; leftIndex < left.length; leftIndex += 1) {
+    const current = [leftIndex + 1];
+    for (let rightIndex = 0; rightIndex < right.length; rightIndex += 1) {
+      current.push(Math.min(
+        current[rightIndex] + 1,
+        previous[rightIndex + 1] + 1,
+        previous[rightIndex] + (left[leftIndex] === right[rightIndex] ? 0 : 1)
+      ));
+    }
+    previous = current;
+  }
+  return previous[right.length];
+}
+
+export function movieMatchesSearch(title, query) {
+  const wanted = normalizedSearch(query);
+  if (!wanted) return true;
+  const candidate = normalizedSearch(title);
+  if (candidate.includes(wanted)) return true;
+
+  const candidateWords = candidate.split(" ").filter(Boolean);
+  return wanted.split(" ").filter(Boolean).every((token) => candidateWords.some((word) => {
+    if (word.includes(token) || token.includes(word)) return true;
+    if (token.length < 4 || Math.abs(word.length - token.length) > 2) return false;
+    return editDistance(word, token) <= (token.length >= 7 ? 2 : 1);
+  }));
+}
+
 export function defaultReportStartDate(endDate, firstDate, days = 30) {
   const date = new Date(`${endDate}T12:00:00Z`);
   date.setUTCDate(date.getUTCDate() - Math.max(0, days - 1));
