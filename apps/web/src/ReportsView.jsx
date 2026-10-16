@@ -307,7 +307,7 @@ function MovieCollectionTimeline({ days, closingGrossPaise = null }) {
   );
 }
 
-function MoviePicker({ loading, maxDate, movies, selectedMovie, onSelect }) {
+function MoviePicker({ loading, movies, selectedMovie, onSelect }) {
   const [query, setQuery] = useState(selectedMovie?.title || "");
   const [open, setOpen] = useState(false);
   const [filterActive, setFilterActive] = useState(false);
@@ -323,6 +323,10 @@ function MoviePicker({ loading, maxDate, movies, selectedMovie, onSelect }) {
     const wanted = filterActive ? query : "";
     return movies.filter((movie) => movieMatchesSearch(movie.title, wanted));
   }, [filterActive, movies, query]);
+  const latestTrackedDate = useMemo(
+    () => movies.reduce((latest, movie) => movie.lastTrackedDate > latest ? movie.lastTrackedDate : latest, ""),
+    [movies]
+  );
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 640px)");
@@ -526,7 +530,7 @@ function MoviePicker({ loading, maxDate, movies, selectedMovie, onSelect }) {
           <div className="movie-picker__options" id="report-movie-list" role="listbox" aria-label="Tracked movies">
             {filteredMovies.length ? filteredMovies.map((movie, index) => {
               const selected = movie.title === selectedMovie?.title;
-              const status = moviePickerStatus(movie, maxDate);
+              const status = moviePickerStatus(movie, latestTrackedDate);
               return (
                 <button
                   type="button"
@@ -821,7 +825,6 @@ export default function ReportsView({ apiBase, demo, initialVenue, maxDate, thea
         {reportType === "movie" && <div className="report-filters__scope report-filters__scope--movie">
           <MoviePicker
             loading={movieCatalogLoading}
-            maxDate={maxDate}
             movies={movieOptions}
             selectedMovie={selectedMovie}
             onSelect={chooseMovie}
