@@ -166,7 +166,17 @@ function demoSummaries(startDate, endDate, selectedCodes, theatres, movieTitle =
         housefullShows: dailyTotals.housefullShows[index],
         ticketsSold: dailyTotals.ticketsSold[index],
         capacity: dailyTotals.capacity[index],
-        collectionPaise: dailyTotals.collectionPaise[index]
+        collectionPaise: dailyTotals.collectionPaise[index],
+        venues: [{
+          code,
+          name,
+          screenedShows: dailyTotals.screenedShows[index],
+          capturedShows: dailyTotals.capturedShows[index],
+          housefullShows: dailyTotals.housefullShows[index],
+          ticketsSold: dailyTotals.ticketsSold[index],
+          capacity: dailyTotals.capacity[index],
+          collectionPaise: dailyTotals.collectionPaise[index]
+        }]
       }))
     };
   });
@@ -182,13 +192,29 @@ function MovieCollectionTimeline({ days, closingGrossPaise = null }) {
         <ol className="movie-daily__list">
           {days.map((day) => (
             <li key={day.date}>
-              <div className="movie-daily__row">
-                <span>
-                  <strong>{day.label}</strong>
-                  <time dateTime={day.date}>{displayReportDate(day.date)}</time>
-                </span>
-                <b>{money.format(day.collectionPaise / 100)}</b>
-              </div>
+              <details className="movie-daily__expandable">
+                <summary className="movie-daily__row">
+                  <span>
+                    <strong>{day.label}</strong>
+                    <time dateTime={day.date}>{displayReportDate(day.date)}</time>
+                  </span>
+                  <span className="movie-daily__amount">
+                    <b>{money.format(day.collectionPaise / 100)}</b>
+                    <i aria-hidden="true">⌄</i>
+                  </span>
+                </summary>
+                <div className="movie-daily__theatres" aria-label={`${day.label} theatre-wise collection`}>
+                  {day.theatres.length ? day.theatres.map((theatre) => (
+                    <div key={theatre.code}>
+                      <strong>{theatre.name}</strong>
+                      <span>{number.format(theatre.screenedShows)} {theatre.screenedShows === 1 ? "Show" : "Shows"}</span>
+                      <b>{money.format(theatre.collectionPaise / 100)}</b>
+                    </div>
+                  )) : (
+                    <p>No shows screened</p>
+                  )}
+                </div>
+              </details>
               {day.weekNumber && day.date !== finalDate && (
                 <div className="movie-daily__week">
                   <span>{day.weekNumber === 1 ? "1st week gross" : `${day.weekNumber} weeks gross`}</span>

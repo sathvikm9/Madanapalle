@@ -131,6 +131,34 @@ test("builds an aggregated movie collection trend with premiere and calendar run
   ]);
 });
 
+test("adds a gross-ranked theatre breakdown to every movie run day", () => {
+  const trend = buildMovieDailyTrend([{
+    days: [{
+      date: "2026-10-01",
+      screenedShows: 5,
+      capturedShows: 5,
+      ticketsSold: 500,
+      collectionPaise: 5_000_000,
+      venues: [
+        { code: "SKMD", name: "Sri Krishna", screenedShows: 3, capturedShows: 3, ticketsSold: 220, collectionPaise: 2_000_000 },
+        { code: "RTDM", name: "Ravi", screenedShows: 2, capturedShows: 2, ticketsSold: 280, collectionPaise: 3_000_000 }
+      ]
+    }]
+  }], {
+    firstTrackedDate: "2026-10-01",
+    dayOneDate: "2026-10-01"
+  });
+
+  assert.deepEqual(trend[0].theatres.map((theatre) => [
+    theatre.name,
+    theatre.screenedShows,
+    theatre.collectionPaise
+  ]), [
+    ["Ravi", 2, 3_000_000],
+    ["Sri Krishna", 3, 2_000_000]
+  ]);
+});
+
 test("adds cumulative run gross at each completed week boundary", () => {
   const days = [
     { date: "2026-09-23", screenedShows: 1, collectionPaise: 50_000 },

@@ -43,6 +43,15 @@ test("summarizes captured, housefull, gross and theatre coverage", () => {
   assert.equal(summary.venues[2].capturedShows, 0);
   assert.deepEqual(summary.days.map((day) => day.date), ["2026-08-21"]);
   assert.equal(summary.days[0].collectionPaise, 8_015_300);
+  assert.deepEqual(summary.days[0].venues.map((venue) => [
+    venue.code,
+    venue.screenedShows,
+    venue.collectionPaise
+  ]), [
+    ["SCM", 1, 4_015_300],
+    ["ASRM", 1, 4_000_000],
+    ["RTDM", 1, 0]
+  ]);
 });
 
 test("builds the movie catalogue in highest-gross-first order", () => {

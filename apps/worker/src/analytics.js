@@ -174,12 +174,20 @@ export function summarizeAnalyticsRows(rows, {
     };
     const day = days.get(show.show_date) || {
       date: show.show_date,
+      venues: new Map(),
+      ...emptyTotals()
+    };
+    const dayVenue = day.venues.get(show.venue_code) || {
+      code: show.venue_code,
+      name: venueForCode(show.venue_code)?.shortName || show.venue_code,
       ...emptyTotals()
     };
     addShow(total, show);
     addShow(venue, show);
     addShow(venueMovie, show);
     addShow(day, show);
+    addShow(dayVenue, show);
+    day.venues.set(show.venue_code, dayVenue);
     venue.movies.set(movieKey, venueMovie);
     venues.set(show.venue_code, venue);
     days.set(show.show_date, day);
@@ -193,6 +201,16 @@ export function summarizeAnalyticsRows(rows, {
       movies: Array.from(movies.values()).sort((left, right) => left.title.localeCompare(right.title))
     }));
   const includedDates = Array.from(days.keys()).sort();
+  const byDay = Array.from(days.values())
+    .sort((left, right) => left.date.localeCompare(right.date))
+    .map(({ venues: dayVenues, ...day }) => ({
+      ...day,
+      venues: Array.from(dayVenues.values()).sort((left, right) =>
+        right.collectionPaise - left.collectionPaise
+        || right.screenedShows - left.screenedShows
+        || left.name.localeCompare(right.name)
+      )
+    }));
 
   return {
     movieTitle: resolvedTitle,
@@ -204,7 +222,7 @@ export function summarizeAnalyticsRows(rows, {
     excludedIncompleteDates,
     total,
     venues: byVenue,
-    days: Array.from(days.values()).sort((left, right) => left.date.localeCompare(right.date))
+    days: byDay
   };
 }
 

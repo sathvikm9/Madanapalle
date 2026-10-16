@@ -124,8 +124,22 @@ export function buildMovieDailyTrend(summaries, movie = {}, range = {}) {
   for (const summary of Array.isArray(summaries) ? summaries : []) {
     for (const day of summary?.days || []) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(String(day?.date || ""))) continue;
-      const current = days.get(day.date) || { date: day.date, ...emptyTotals() };
+      const current = days.get(day.date) || {
+        date: day.date,
+        theatresByCode: new Map(),
+        ...emptyTotals()
+      };
       addTotals(current, day);
+      for (const venue of day?.venues || []) {
+        if (!venue?.code) continue;
+        const theatre = current.theatresByCode.get(venue.code) || {
+          code: venue.code,
+          name: venue.name || venue.code,
+          ...emptyTotals()
+        };
+        addTotals(theatre, venue);
+        current.theatresByCode.set(venue.code, theatre);
+      }
       days.set(day.date, current);
     }
   }
@@ -137,7 +151,20 @@ export function buildMovieDailyTrend(summaries, movie = {}, range = {}) {
 
   const ordered = [];
   for (let date = startDate; date && date <= endDate; date = addIsoDays(date, 1)) {
-    ordered.push(days.get(date) || { date, ...emptyTotals() });
+    const current = days.get(date) || {
+      date,
+      theatresByCode: new Map(),
+      ...emptyTotals()
+    };
+    const { theatresByCode, ...day } = current;
+    ordered.push({
+      ...day,
+      theatres: Array.from(theatresByCode.values()).sort((left, right) =>
+        right.collectionPaise - left.collectionPaise
+        || right.screenedShows - left.screenedShows
+        || left.name.localeCompare(right.name)
+      )
+    });
   }
 
   const dayOneDate = movie?.dayOneDate || movie?.firstTrackedDate || ordered[0]?.date;
