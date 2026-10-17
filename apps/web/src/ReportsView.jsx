@@ -5,6 +5,7 @@ import {
   completedReportEndDate,
   movieMatchesSearch,
   movieReportRange,
+  orderMoviesForPicker,
   previousReportDate,
   reportSummaryQuery,
   screenedDaysLabel,
@@ -319,10 +320,11 @@ function MoviePicker({ loading, movies, selectedMovie, onSelect }) {
   const fieldRef = useRef(null);
   const sheetSearchRef = useRef(null);
   const dragStartRef = useRef(null);
+  const orderedMovies = useMemo(() => orderMoviesForPicker(movies), [movies]);
   const filteredMovies = useMemo(() => {
     const wanted = filterActive ? query : "";
-    return movies.filter((movie) => movieMatchesSearch(movie.title, wanted));
-  }, [filterActive, movies, query]);
+    return orderedMovies.filter((movie) => movieMatchesSearch(movie.title, wanted));
+  }, [filterActive, orderedMovies, query]);
   const latestTrackedDate = useMemo(
     () => movies.reduce((latest, movie) => movie.lastTrackedDate > latest ? movie.lastTrackedDate : latest, ""),
     [movies]
@@ -526,7 +528,7 @@ function MoviePicker({ loading, movies, selectedMovie, onSelect }) {
             />
             {query && <button type="button" aria-label="Clear movie search" onClick={showAllMovies}>×</button>}
           </div>
-          <p className="movie-picker__menu-note">{movies.length} tracked movies · Highest gross first</p>
+          <p className="movie-picker__menu-note">{movies.length} tracked movies · Running first · Completed by gross</p>
           <div className="movie-picker__options" id="report-movie-list" role="listbox" aria-label="Tracked movies">
             {filteredMovies.length ? filteredMovies.map((movie, index) => {
               const selected = movie.title === selectedMovie?.title;

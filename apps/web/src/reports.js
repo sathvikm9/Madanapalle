@@ -36,6 +36,19 @@ export function sortMoviesByGross(movies) {
   );
 }
 
+export function orderMoviesForPicker(movies) {
+  const grossRanked = sortMoviesByGross(movies);
+  const latestTrackedDate = grossRanked.reduce(
+    (latest, movie) => movie?.lastTrackedDate > latest ? movie.lastTrackedDate : latest,
+    ""
+  );
+
+  return [
+    ...grossRanked.filter((movie) => movie?.lastTrackedDate === latestTrackedDate),
+    ...grossRanked.filter((movie) => movie?.lastTrackedDate !== latestTrackedDate)
+  ];
+}
+
 function normalizedSearch(value) {
   return String(value || "")
     .normalize("NFKD")

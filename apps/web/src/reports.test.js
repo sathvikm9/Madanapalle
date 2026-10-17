@@ -8,6 +8,7 @@ import {
   movieReportRange,
   movieMatchesSearch,
   movieReportStartDate,
+  orderMoviesForPicker,
   previousReportDate,
   reportCsv,
   reportSummaryQuery,
@@ -209,6 +210,22 @@ test("orders movie choices by full-run gross with tickets as the tie-breaker", (
     "Highest",
     "Same gross, more tickets",
     "Lower"
+  ]);
+});
+
+test("orders running movies first and completed runs by highest gross", () => {
+  const movies = orderMoviesForPicker([
+    { title: "Completed leader", collectionPaise: 9_000_000, lastTrackedDate: "2026-10-15" },
+    { title: "Running leader", collectionPaise: 3_000_000, lastTrackedDate: "2026-10-16" },
+    { title: "Completed second", collectionPaise: 6_000_000, lastTrackedDate: "2026-10-14" },
+    { title: "Running re-release", collectionPaise: 1_000_000, lastTrackedDate: "2026-10-16", isReRelease: true }
+  ]);
+
+  assert.deepEqual(movies.map((movie) => movie.title), [
+    "Running leader",
+    "Running re-release",
+    "Completed leader",
+    "Completed second"
   ]);
 });
 
