@@ -1816,11 +1816,12 @@ main { max-width: 1120px; margin: 0 auto; padding: 26px 24px 88px; }
   .assistant-launcher {
     right: calc(12px + env(safe-area-inset-right));
     bottom: calc(12px + env(safe-area-inset-bottom));
-    min-height: 41px;
-    gap: 6px;
-    padding: 0 12px;
-    font-size: 10px;
+    min-height: 36px;
+    gap: 5px;
+    padding: 0 10px;
+    font-size: 9px;
   }
+  .assistant-launcher span { font-size: 12px; }
   .analytics-assistant {
     inset: auto 8px max(8px, env(safe-area-inset-bottom));
     width: auto;

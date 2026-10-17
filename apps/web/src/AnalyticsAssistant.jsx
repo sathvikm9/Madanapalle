@@ -220,9 +220,11 @@ export default function AnalyticsAssistant({ apiBase }) {
 
   return createPortal(
     <>
-      <button className="assistant-launcher" type="button" onClick={() => setOpen(true)} aria-haspopup="dialog">
-        <span aria-hidden="true">✦</span> Ask MPLTalkies
-      </button>
+      {!open && (
+        <button className="assistant-launcher" type="button" onClick={() => setOpen(true)} aria-haspopup="dialog">
+          <span aria-hidden="true">✦</span> Ask MPLTalkies
+        </button>
+      )}
 
       {open && (
         <aside className="analytics-assistant" role="dialog" aria-modal="false" aria-labelledby="analytics-assistant-title">
