@@ -1184,6 +1184,7 @@ main { max-width: 1120px; margin: 0 auto; padding: 26px 24px 88px; }
 .price-table { padding: 12px 16px 14px; border-top: 1px solid var(--line); background: #faf8f3; }
 .price-table__head, .price-table__row { display: grid; grid-template-columns: 1.35fr 1.2fr .7fr .8fr; gap: 14px; padding: 10px 11px; border-bottom: 1px solid var(--line-soft); font-size: 12px; }
 .price-table__head { border-bottom: 0; border-radius: 8px; color: var(--muted); background: var(--surface); font-size: 9px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+.price-table__head span { white-space: nowrap; }
 .price-table__row:last-child { border-bottom: 0; }
 
 .movie-list { display: grid; gap: 10px; }

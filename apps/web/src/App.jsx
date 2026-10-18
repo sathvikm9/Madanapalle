@@ -238,7 +238,7 @@ function ShowCard({ show }) {
       </footer>
       {open && (
         <div className="price-table" role="region" aria-label={`${show.showTime} price breakdown`}>
-          <div className="price-table__head"><span>Class</span><span>Listed → MC adjusted</span><span>Sold</span><span>Gross</span></div>
+          <div className="price-table__head"><span>Class</span><span>Listed → adjusted</span><span>Sold</span><span>Gross</span></div>
           {prices.map((category) => (
             <div className="price-table__row" key={category.name}>
               <span data-label="Class">{category.name}</span>
