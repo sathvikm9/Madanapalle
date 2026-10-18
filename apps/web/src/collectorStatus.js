@@ -11,10 +11,24 @@ export function collectorRelativeTime(lastSeenAt, now = new Date()) {
 }
 
 export function collectorIndicatorLabel(health) {
-  if (health?.status === "online") return "Collector online";
+  if (health?.status === "online" && Number(health?.minutesSinceLastSeen) >= 8) return "Collector delayed";
+  if (health?.status === "online") return "Collector live";
   if (health?.status === "offline") return "Collector offline";
   if (health?.status === "idle") return "Collector resting";
-  return "Automatic backup + final capture";
+  return "Collector health";
+}
+
+export function collectorStatusLabel(health) {
+  if (health?.status === "online" && Number(health?.minutesSinceLastSeen) >= 8) return "Delayed";
+  if (health?.status === "online") return "Live";
+  if (health?.status === "offline") return "Offline";
+  if (health?.status === "idle") return "Resting";
+  return "Not connected";
+}
+
+export function collectorStatusTone(health) {
+  if (health?.status === "online" && Number(health?.minutesSinceLastSeen) >= 8) return "delayed";
+  return health?.status || "unknown";
 }
 
 export function collectorOfflineMessage(health, now = new Date()) {

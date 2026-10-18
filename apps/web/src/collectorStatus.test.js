@@ -3,7 +3,9 @@ import test from "node:test";
 import {
   collectorIndicatorLabel,
   collectorOfflineMessage,
-  collectorRelativeTime
+  collectorRelativeTime,
+  collectorStatusLabel,
+  collectorStatusTone
 } from "./collectorStatus.js";
 
 test("collector relative time stays compact for a PWA warning", () => {
@@ -13,7 +15,13 @@ test("collector relative time stays compact for a PWA warning", () => {
 });
 
 test("collector labels and warnings distinguish online from offline", () => {
-  assert.equal(collectorIndicatorLabel({ status: "online" }), "Collector online");
+  assert.equal(collectorIndicatorLabel({ status: "online", minutesSinceLastSeen: 1 }), "Collector live");
+  assert.equal(collectorStatusLabel({ status: "online", minutesSinceLastSeen: 1 }), "Live");
+  assert.equal(collectorStatusTone({ status: "online", minutesSinceLastSeen: 1 }), "online");
+  assert.equal(collectorIndicatorLabel({ status: "online", minutesSinceLastSeen: 9 }), "Collector delayed");
+  assert.equal(collectorStatusLabel({ status: "online", minutesSinceLastSeen: 9 }), "Delayed");
+  assert.equal(collectorStatusTone({ status: "online", minutesSinceLastSeen: 9 }), "delayed");
+  assert.equal(collectorStatusLabel(null), "Not connected");
   assert.equal(collectorOfflineMessage({ status: "online" }), null);
   assert.match(
     collectorOfflineMessage(

@@ -8,7 +8,10 @@ import ReportsView from "./ReportsView.jsx";
 import { reportPwaInstallation } from "./notifications.js";
 import {
   collectorIndicatorLabel,
-  collectorOfflineMessage
+  collectorOfflineMessage,
+  collectorRelativeTime,
+  collectorStatusLabel,
+  collectorStatusTone
 } from "./collectorStatus.js";
 import {
   clampDashboardDate,
@@ -125,6 +128,74 @@ function CollectorNotice({ health }) {
         <small>{message}</small>
       </span>
     </aside>
+  );
+}
+
+function CollectorHealth({ health }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+  const tone = collectorStatusTone(health);
+  const status = collectorStatusLabel(health);
+  const lastChecked = health?.lastSeenAt
+    ? collectorRelativeTime(health.lastSeenAt)
+    : "Not checked yet";
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const closeOutside = (event) => {
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
+    };
+    const closeWithKeyboard = (event) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", closeWithKeyboard);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      document.removeEventListener("keydown", closeWithKeyboard);
+    };
+  }, [open]);
+
+  return (
+    <div className={`collector-health collector-health--${tone}`} ref={rootRef}>
+      <button
+        className="collector-health__trigger"
+        type="button"
+        aria-expanded={open}
+        aria-controls="collector-health-panel"
+        onClick={() => setOpen((value) => !value)}
+      >
+        <i className="collector-health__signal" aria-hidden="true" />
+        <strong>
+          <span className="collector-health__label-full">{collectorIndicatorLabel(health)}</span>
+          <span className="collector-health__label-compact">{status}</span>
+        </strong>
+        <svg className="collector-health__chevron" viewBox="0 0 12 8" aria-hidden="true" focusable="false">
+          <path d="m1 1.5 5 5 5-5" />
+        </svg>
+      </button>
+
+      {open && (
+        <section
+          className="collector-health__panel"
+          id="collector-health-panel"
+          role="dialog"
+          aria-label="Collector health"
+        >
+          <header><strong>Collector health</strong></header>
+          <dl>
+            <div>
+              <dt>Status</dt>
+              <dd><i aria-hidden="true" />{status}</dd>
+            </div>
+            <div>
+              <dt>Last checked</dt>
+              <dd>{lastChecked}</dd>
+            </div>
+          </dl>
+        </section>
+      )}
+    </div>
   );
 }
 
@@ -645,13 +716,7 @@ export default function App() {
           <span><strong>MPLTalkies</strong><small>Collection Desk</small></span>
         </a>
         <div className="topbar__actions">
-          <div className={`live-indicator live-indicator--${collectorHealth?.status || "unknown"}`}>
-            <i />
-            <span className="live-indicator__status">{collectorIndicatorLabel(collectorHealth)}</span>
-            {data?.generatedAt && (
-              <span className="live-indicator__updated">Updated {dateTime.format(new Date(data.generatedAt))}</span>
-            )}
-          </div>
+          <CollectorHealth health={collectorHealth} />
           <NotificationSettings apiBase={API_BASE} preview={notificationsPreview} />
         </div>
       </header>
