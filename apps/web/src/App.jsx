@@ -213,8 +213,8 @@ function ShowCard({ show }) {
         <div className={`show-card__result ${show.snapshot ? "" : "show-card__result--pending"}`}>
           {show.snapshot ? (
             <>
-              <div><span>Tickets</span><strong>{number.format(show.snapshot.sold)}</strong></div>
-              <div><span>Gross</span><strong>{money.format(show.snapshot.collectionPaise / 100)}</strong></div>
+              <div className="show-card__metric"><span>Tickets sold</span><strong>{number.format(show.snapshot.sold)}</strong></div>
+              <div className="show-card__metric"><span>Gross</span><strong>{money.format(show.snapshot.collectionPaise / 100)}</strong></div>
             </>
           ) : (
             <div className="pending-copy">
@@ -228,12 +228,27 @@ function ShowCard({ show }) {
 
       <footer className="show-card__meta">
         {show.snapshot ? (
-          <span>{estimated ? "Estimated" : "Captured"} {dateTime.format(new Date(show.snapshot.capturedAt))} · {show.snapshot.occupancyPercent}% occupancy{estimated ? " · TicketNew summary" : ""}</span>
+          <div className={`show-card__capture${estimated ? " show-card__capture--estimated" : ""}`}>
+            <i aria-hidden="true" />
+            <span>
+              <small>{estimated ? "Estimate saved" : "Captured"}</small>
+              <time>{dateTime.format(new Date(show.snapshot.capturedAt))}</time>
+              <b className="show-card__capture-occupancy">· {show.snapshot.occupancyPercent}%</b>
+              {estimated ? <em>TicketNew summary</em> : null}
+            </span>
+          </div>
         ) : (
-          <span>Booking cutoff {dateTime.format(new Date(show.cutoffAt))}</span>
+          <div className="show-card__capture show-card__capture--pending">
+            <i aria-hidden="true" />
+            <span>
+              <small>Booking cutoff</small>
+              <time>{dateTime.format(new Date(show.cutoffAt))}</time>
+            </span>
+          </div>
         )}
         <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
-          {open ? "Hide breakdown" : "Price breakdown"}
+          <span>{open ? "Hide prices" : "Price breakdown"}</span>
+          <i aria-hidden="true">⌄</i>
         </button>
       </footer>
       {open && (
@@ -265,17 +280,17 @@ function MovieCard({ movie }) {
         <div className="movie-card__title">
           <div className="movie-card__title-row">
             <span className={`movie-progress movie-progress--${progressTone}`}>{progressLabel}</span>
+            {movie.pendingShows > 0 && <span className="movie-card__pending">{movie.pendingShows} pending</span>}
             <span className="movie-card__count">{movie.capturedShows} of {movie.shows.length} shows captured</span>
           </div>
           {movie.movieRun ? <MovieTitle title={movie.movieTitle} run={movie.movieRun} /> : <h3>{movie.movieTitle}</h3>}
           <p>{[movie.language, movie.format].filter(Boolean).join(" · ") || "Details unavailable"}</p>
           <div
-            className={`movie-card__badges${movie.missedShows || movie.pendingShows ? " has-exceptions" : ""}`}
+            className={`movie-card__badges${movie.missedShows ? " has-exceptions" : ""}`}
             aria-label="Movie capture status"
           >
             {movie.finalizedShows > 0 && <span className="is-final">{movie.finalizedShows} final</span>}
             {movie.missedShows > 0 && <span className="is-missed">{movie.missedShows} missed</span>}
-            {movie.pendingShows > 0 && <span className="is-pending">{movie.pendingShows} pending</span>}
           </div>
         </div>
 
@@ -288,7 +303,7 @@ function MovieCard({ movie }) {
       <footer className="movie-card__footer">
         <span>
           {movie.capturedShows
-            ? `${movie.occupancyPercent}% occupancy across ${number.format(movie.capacity)} captured seats`
+            ? `${movie.occupancyPercent}% occupancy across ${number.format(movie.capturedShows)} captured ${movie.capturedShows === 1 ? "show" : "shows"}`
             : "No capture available yet"}
         </span>
         <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
@@ -299,7 +314,7 @@ function MovieCard({ movie }) {
       {open && (
         <div className="movie-breakdown" role="region" aria-label={`${movie.movieTitle} theatre breakdown`}>
           <div className="movie-breakdown__head">
-            <span>Theatre &amp; show</span><span>Tickets</span><span>Gross</span>
+            <span>Theatre &amp; show</span><span>Tickets</span><span>Gross</span><span>Occupancy</span>
           </div>
           {movie.shows.map((show) => (
             <div className="movie-breakdown__row" key={show.id}>
@@ -309,6 +324,7 @@ function MovieCard({ movie }) {
               </div>
               <span data-label="Tickets">{show.snapshot ? number.format(show.snapshot.sold) : "—"}</span>
               <strong data-label="Gross">{show.snapshot ? money.format(show.snapshot.collectionPaise / 100) : "—"}</strong>
+              <strong className="movie-breakdown__occupancy" data-label="Occupancy">{show.snapshot ? `${show.snapshot.occupancyPercent}%` : "—"}</strong>
             </div>
           ))}
         </div>
@@ -769,11 +785,6 @@ export default function App() {
       </main>
 
       {!inDemoMode && <AnalyticsAssistant apiBase={API_BASE} />}
-
-      <footer className="site-footer">
-        <span>Asia/Kolkata time · ₹5 MC adjusted per ticket</span>
-        <span>Source: BookMyShow &amp; TicketNew seat availability</span>
-      </footer>
     </div>
   );
 }
