@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { demoDashboard } from "./demo.js";
 import { groupShowsByMovie, sortMovieGroups } from "./movieGroups.js";
+import { sortShowsForDisplay } from "./showOrder.js";
 import { buildMoviesCopyText, buildShowsCopyText } from "./copyData.js";
 import AnalyticsAssistant from "./AnalyticsAssistant.jsx";
 import NotificationSettings from "./NotificationSettings.jsx";
@@ -699,7 +700,10 @@ export default function App() {
     window.setTimeout(() => setCopyStatus("idle"), 2200);
   }
 
-  const currentShows = useMemo(() => data?.shows?.filter((show) => show.isCurrent) || [], [data]);
+  const currentShows = useMemo(
+    () => sortShowsForDisplay(data?.shows?.filter((show) => show.isCurrent) || []),
+    [data]
+  );
   const movieGroups = useMemo(
     () => sortMovieGroups(groupShowsByMovie(currentShows), movieSort),
     [currentShows, movieSort]
