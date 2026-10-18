@@ -7,6 +7,10 @@ import NotificationSettings from "./NotificationSettings.jsx";
 import ReportsView from "./ReportsView.jsx";
 import { reportPwaInstallation } from "./notifications.js";
 import {
+  collectorIndicatorLabel,
+  collectorOfflineMessage
+} from "./collectorStatus.js";
+import {
   clampDashboardDate,
   FIRST_LIVE_DATE,
   indiaToday,
@@ -107,6 +111,20 @@ function DashboardSkeleton() {
         {Array.from({ length: 3 }, (_, index) => <i key={index} />)}
       </div>
     </section>
+  );
+}
+
+function CollectorNotice({ health }) {
+  const message = collectorOfflineMessage(health);
+  if (!message) return null;
+  return (
+    <aside className="collector-notice" role="alert" aria-live="assertive">
+      <span className="collector-notice__icon" aria-hidden="true">!</span>
+      <span>
+        <strong>Collector offline</strong>
+        <small>{message}</small>
+      </span>
+    </aside>
   );
 }
 
@@ -344,6 +362,7 @@ export default function App() {
     return THEATRE_OPTIONS.some((venue) => venue.code === requestedVenue) ? requestedVenue : "ALL";
   });
   const [data, setData] = useState(null);
+  const [collectorHealth, setCollectorHealth] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [viewMode, setViewMode] = useState(() => pageParams.get("view") === "reports" ? "reports" : "shows");
@@ -439,6 +458,34 @@ export default function App() {
     dateTransitionRef.current = false;
     void load();
   }, [load]);
+  useEffect(() => {
+    if (inDemoMode) return undefined;
+    let stopped = false;
+    async function refreshCollectorHealth() {
+      if (document.visibilityState === "hidden") return;
+      try {
+        const response = await fetch(`${API_BASE}/api/collector-status`, { cache: "no-store" });
+        if (!response.ok) throw new Error(`Collector status returned ${response.status}`);
+        const next = await response.json();
+        if (!stopped) setCollectorHealth(next);
+      } catch (statusError) {
+        console.warn("Collector status refresh failed", statusError);
+      }
+    }
+    const handleVisible = () => {
+      if (document.visibilityState === "visible") void refreshCollectorHealth();
+    };
+    const timer = window.setInterval(() => void refreshCollectorHealth(), TODAY_REFRESH_INTERVAL_MS);
+    void refreshCollectorHealth();
+    document.addEventListener("visibilitychange", handleVisible);
+    window.addEventListener("online", refreshCollectorHealth);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", handleVisible);
+      window.removeEventListener("online", refreshCollectorHealth);
+    };
+  }, []);
   useEffect(() => {
     let rolloverTimer;
     let foregroundRetryTimer;
@@ -598,9 +645,9 @@ export default function App() {
           <span><strong>MPLTalkies</strong><small>Collection Desk</small></span>
         </a>
         <div className="topbar__actions">
-          <div className="live-indicator">
+          <div className={`live-indicator live-indicator--${collectorHealth?.status || "unknown"}`}>
             <i />
-            <span className="live-indicator__status">Automatic backup + final capture</span>
+            <span className="live-indicator__status">{collectorIndicatorLabel(collectorHealth)}</span>
             {data?.generatedAt && (
               <span className="live-indicator__updated">Updated {dateTime.format(new Date(data.generatedAt))}</span>
             )}
@@ -637,6 +684,8 @@ export default function App() {
             Movie Reports
           </button>
         </nav>
+
+        {!inDemoMode && <CollectorNotice health={collectorHealth} />}
 
         {viewMode !== "reports" && <section className="date-control" aria-label="Dashboard filters">
           <div className="control-field">

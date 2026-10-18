@@ -15,6 +15,8 @@ The extension creates one pinned BookMyShow or TicketNew tab per theatre. Keep C
 ## Behavior
 
 - today's schedule refreshes every fifteen minutes
+- a lightweight authenticated collector heartbeat is sent every five minutes, including while there are no captures due
+- after the first heartbeat, the dashboard and PWA warn once if the collector is unseen for twenty minutes during the active cinema day and announce when it reconnects
 - each theatre's routine discovery pauses after its final known show has a successful capture and passes cutoff
 - **Save and test now** forces a fresh discovery and verifies an exact District live route for every discovered Sai Chitra show
 - tomorrow is never opened early; discovery rolls to the new India date just after 12:00 AM IST
@@ -40,6 +42,7 @@ The extension creates one pinned BookMyShow or TicketNew tab per theatre. Keep C
 - a successfully counted District seat-layout URL is cached only for that exact natural key, date, and session; it is never reused for another movie or day
 - TicketNew remains the isolated ESTIMATED summary fallback when District never yields a live seat map; even an earlier verified District live capture outranks a later TicketNew estimate
 - the newest successful snapshot is finalized after cutoff, so a failed final attempt keeps the backup
+- after the final cutoff of the day, the Worker records a one-time completeness check and alerts if any current show still lacks a final capture
 - a protected backup can be finalized without erasing the last failed-final diagnostic
 - simultaneous theatre captures use independent tabs and pending jobs
 - every successful seat count is written to a durable Chrome-storage outbox before its browser attempt is closed

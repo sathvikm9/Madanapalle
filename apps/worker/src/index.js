@@ -20,6 +20,12 @@ import {
 } from "./logic.js";
 import { dashboardVenueForCode, publicVenues } from "./venues.js";
 import {
+  collectorHealthStatus,
+  evaluateCollectorHealth,
+  recordCollectorHeartbeat,
+  runEndOfDayCompletenessCheck
+} from "./collector-health.js";
+import {
   adoptionStats,
   deletePushSubscription,
   dispatchNotifications,
@@ -134,13 +140,18 @@ async function route(request, env, origin, context) {
   const url = new URL(request.url);
   if (request.method === "GET" && url.pathname === "/health") {
     await env.DB.prepare("SELECT 1 AS ok").first();
+    const collector = await collectorHealthStatus(env.DB);
     return json({
       ok: true,
       database: "connected",
-      collector: "local-chrome-extension",
+      collector,
       venues: publicVenues().filter((venue) => venue.code !== "ALL"),
       now: new Date().toISOString()
     }, 200, origin);
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/collector-status") {
+    return json(await collectorHealthStatus(env.DB), 200, origin);
   }
 
   if (request.method === "GET" && url.pathname === "/api/notifications/config") {
@@ -224,6 +235,36 @@ async function route(request, env, origin, context) {
       dispatchNotifications(env.DB, env),
       "Schedule notification dispatch failed"
     );
+    return json(result, 200, origin);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/agent/heartbeat") {
+    requireAgent(request, env);
+    const body = await bodyJson(request);
+    const agentVersion = requiredString(body?.agentVersion, "agentVersion", 30);
+    if (!/^\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?$/.test(agentVersion)) {
+      throw new RequestError("agentVersion is invalid");
+    }
+    const clientAt = new Date(requiredString(body?.clientAt, "clientAt", 50));
+    if (!Number.isFinite(clientAt.getTime())) throw new RequestError("clientAt is invalid");
+    const pendingUploads = Number(body?.pendingUploads || 0);
+    if (!Number.isInteger(pendingUploads) || pendingUploads < 0 || pendingUploads > 10_000) {
+      throw new RequestError("pendingUploads is invalid");
+    }
+    const result = await recordCollectorHeartbeat(env.DB, {
+      agentVersion,
+      clientAt: clientAt.toISOString(),
+      automaticCapture: body?.automaticCapture === true,
+      pendingUploads,
+      indiaDateCode: body?.indiaDateCode ? String(body.indiaDateCode).slice(0, 8) : null
+    });
+    if (result.recovered) {
+      runInBackground(
+        context,
+        dispatchNotifications(env.DB, env),
+        "Collector recovery notification dispatch failed"
+      );
+    }
     return json(result, 200, origin);
   }
 
@@ -366,7 +407,9 @@ export default {
   async scheduled(_controller, env, context) {
     context.waitUntil((async () => {
       await finalizeExpiredShows(env.DB);
+      await evaluateCollectorHealth(env.DB);
+      await runEndOfDayCompletenessCheck(env.DB);
       await dispatchNotifications(env.DB, env);
-    })().catch((error) => console.error("Finalization/notification cron failed", error)));
+    })().catch((error) => console.error("Finalization/health/notification cron failed", error)));
   }
 };

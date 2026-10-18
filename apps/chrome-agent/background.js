@@ -82,6 +82,7 @@ const INDIA_DAY_ROLLOVER = "discovery:india-day-rollover";
 const DISCOVERY_RETRY_PREFIX = "discovery-retry:";
 const FINAL_SUMMARY_PREFIX = "ticketnew-final-summary:";
 const MOVIE_METADATA_ALARM = "movie-metadata:sync";
+const COLLECTOR_HEARTBEAT_ALARM = "collector:heartbeat";
 let pendingMutation = Promise.resolve();
 let captureStateMutation = Promise.resolve();
 let agentDiagnosticMutation = Promise.resolve();
@@ -102,6 +103,7 @@ async function initializeAgent() {
   await flushCaptureOutbox().catch(() => {});
   const settings = await chrome.storage.sync.get({ enabled: false });
   if (!settings.enabled) return;
+  await sendCollectorHeartbeat().catch(() => {});
   const { movieMetadataQueue = {} } = await chrome.storage.local.get({ movieMetadataQueue: {} });
   if (Object.keys(movieMetadataQueue).length) {
     await chrome.alarms.create(MOVIE_METADATA_ALARM, { delayInMinutes: 0.1 });
@@ -159,6 +161,7 @@ async function ensureBaseAlarms() {
   await chrome.alarms.clear(LEGACY_DISCOVERY_TOMORROW);
   await chrome.alarms.create(DISCOVERY_TODAY, { delayInMinutes: 0.1, periodInMinutes: 15 });
   await chrome.alarms.create(CAPTURE_OUTBOX_ALARM, { delayInMinutes: 0.1, periodInMinutes: 1 });
+  await chrome.alarms.create(COLLECTOR_HEARTBEAT_ALARM, { delayInMinutes: 0.1, periodInMinutes: 5 });
   await scheduleIndiaDayRollover();
 }
 
@@ -193,6 +196,10 @@ async function handleAlarm(alarm) {
     return;
   }
   if (!settings.enabled) return;
+  if (alarm.name === COLLECTOR_HEARTBEAT_ALARM) {
+    await sendCollectorHeartbeat();
+    return;
+  }
   if (alarm.name === MOVIE_METADATA_ALARM) {
     await syncNextMovieMetadata();
     return;
@@ -296,6 +303,12 @@ async function handleAlarm(alarm) {
 }
 
 async function handleMessage(message) {
+  if (message.type === "SETTINGS_UPDATED") {
+    await ensureBaseAlarms();
+    const settings = await chrome.storage.sync.get({ enabled: false });
+    if (settings.enabled) await sendCollectorHeartbeat();
+    return { ok: true };
+  }
   if (message.type === "RUN_DISCOVERY") {
     const dateCode = indiaDateCode(0);
     const result = await discoverAll(dateCode, { force: true });
@@ -1757,6 +1770,23 @@ async function postCaptureEvent(show, eventType, extra = {}) {
     // Telemetry must never prevent a seat capture or its retry.
     return false;
   }
+}
+
+async function sendCollectorHeartbeat() {
+  const settings = await chrome.storage.sync.get({ enabled: false });
+  if (!settings.enabled) return { ok: false, disabled: true };
+  const { captureOutbox = {} } = await chrome.storage.local.get({ captureOutbox: {} });
+  const result = await apiPost("/api/agent/heartbeat", {
+    agentVersion: chrome.runtime.getManifest().version,
+    clientAt: new Date().toISOString(),
+    automaticCapture: true,
+    pendingUploads: Object.keys(captureOutbox).length,
+    indiaDateCode: indiaDateCode(0)
+  });
+  await chrome.storage.local.set({
+    lastHeartbeatAt: new Date().toISOString()
+  });
+  return result;
 }
 
 async function apiPost(path, body) {

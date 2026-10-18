@@ -17,10 +17,13 @@ The new tracker removes third-party data sources from the counting path. BookMyS
 flowchart LR
   BMS["BookMyShow venue and seat pages"] --> C["Local Chrome capture agent"]
   C --> OUTBOX["Durable Chrome capture outbox"]
+  C --> HEARTBEAT["5-minute collector heartbeat"]
   OUTBOX --> API["Cloudflare Worker API"]
+  HEARTBEAT --> API
   API --> DB["Cloudflare D1 audit store"]
   DB --> API
   API --> WEB["GitHub Pages dashboard"]
+  API --> PUSH["PWA operational alerts"]
   C --> ALERT["Chrome attention notification"]
 ```
 
@@ -85,6 +88,12 @@ Automated datacenter/headless browsers are frequently challenged or blocked by C
 - Chrome startup rebuilds the known preflight and capture alarms
 - stuck extension-owned discovery tabs are replaced without closing unrelated user tabs
 - the Worker independently finalizes the latest valid snapshot after cutoff
+
+### Collector availability watchdog
+
+The extension sends one small authenticated heartbeat every five minutes. The Worker stores a single current-health row rather than a heartbeat history, so availability monitoring adds only one compact write per heartbeat. Monitoring is intentionally dormant until the first heartbeat arrives. During the active India cinema day, twenty minutes without a heartbeat changes the collector to offline and queues exactly one high-priority PWA alert. A later heartbeat changes it back to online and queues one recovery notification. Event keys make both transitions idempotent.
+
+The dashboard reads the compact collector status once per minute while visible. When offline, it shows the last-seen time and a direct instruction to open the collector laptop and Chrome. After the latest current show cutoff plus a short grace period, the Worker performs one end-of-day completeness check. It records the result by show date and sends one operational alert listing any current show that is not completed or has no final snapshot. Operational watchdog alerts reach every enabled PWA installation; ordinary show-result filters remain unchanged.
 
 ## Hosting decision
 

@@ -429,6 +429,41 @@ function captureAlertDeliveryStatements(db, subscriptions, event, now) {
   return statements;
 }
 
+function operationalAlertDeliveryStatements(db, subscriptions, event, now) {
+  const payload = parseJson(event.payload_json, {});
+  let title;
+  let body;
+  let url = "./";
+  if (event.event_type === "collector_offline") {
+    title = "Collector offline - CHECK NOW";
+    body = `The Chrome capture agent has not checked in for ${payload.staleAfterMinutes || 20} minutes. Open the collector laptop.`;
+    url = "?collector=offline";
+  } else if (event.event_type === "collector_recovered") {
+    title = "Collector is back online";
+    body = "Automatic discovery and capture have resumed.";
+    url = "?collector=online";
+  } else if (event.event_type === "daily_incomplete") {
+    const incomplete = Array.isArray(payload.incomplete) ? payload.incomplete : [];
+    title = `Daily capture check - ${incomplete.length} ${incomplete.length === 1 ? "show" : "shows"} need attention`;
+    body = incomplete.slice(0, 5).map((show) =>
+      `${show.venueName || show.venueCode} · ${show.showTime} · ${show.movieTitle}`
+    ).join("\n");
+    if (incomplete.length > 5) body += `\n+${incomplete.length - 5} more`;
+    url = `?date=${encodeURIComponent(payload.showDate || "")}&venue=ALL`;
+  } else {
+    return [];
+  }
+  return subscriptions.map((subscription) => deliveryStatement(
+    db,
+    subscription.id,
+    event.event_key,
+    event.event_type,
+    { title, body, tag: event.event_key, url },
+    now.toISOString(),
+    now
+  ));
+}
+
 export async function processNotificationEvents(db, env, now = new Date()) {
   if (!notificationConfig(env).available) return { processed: 0, queued: 0, available: false };
   const timestamp = now.toISOString();
@@ -458,6 +493,11 @@ export async function processNotificationEvents(db, env, now = new Date()) {
   }
   for (const event of events.filter((candidate) => candidate.event_type === "capture_alert")) {
     statements.push(...captureAlertDeliveryStatements(db, subscriptions, event, now));
+  }
+  for (const event of events.filter((candidate) =>
+    new Set(["collector_offline", "collector_recovered", "daily_incomplete"]).has(candidate.event_type)
+  )) {
+    statements.push(...operationalAlertDeliveryStatements(db, subscriptions, event, now));
   }
   for (const event of events) {
     statements.push(
@@ -500,8 +540,12 @@ export async function sendPendingDeliveries(db, env, now = new Date()) {
     const attemptedAt = now.toISOString();
     try {
       const payload = JSON.parse(delivery.payload_json);
-      const urgent = delivery.notification_type === "schedule_changes" ||
-        delivery.notification_type === "capture_alert";
+      const urgent = new Set([
+        "schedule_changes",
+        "capture_alert",
+        "collector_offline",
+        "daily_incomplete"
+      ]).has(delivery.notification_type);
       const request = await buildPushPayload({
         data: payload,
         options: { ttl: urgent ? 15 * 60 : 60 * 60, urgency: urgent ? "high" : "normal" }

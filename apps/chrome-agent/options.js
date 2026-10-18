@@ -27,6 +27,9 @@ async function save() {
     enabled: enabled.checked
   });
   await chrome.storage.local.set({ agentToken: agentToken.value.trim() });
+  await chrome.runtime.sendMessage({ type: "SETTINGS_UPDATED" }).catch(() => {
+    // Saving must still succeed when the API is temporarily unavailable.
+  });
 }
 
 async function restore() {

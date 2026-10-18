@@ -36,6 +36,7 @@ rm "$HOME/Library/LaunchAgents/com.skct.keep-awake.plist"
 
 ## Daily health check
 
+- The dashboard says **Collector online**. If it says **Collector offline**, the last-seen time tells you when the laptop, Chrome, extension, internet, or Worker connection stopped.
 - Chrome is open and the pinned Sri Krishna and Ravi tabs exist.
 - The extension settings show a recent successful discovery.
 - The laptop has internet and AC power.
@@ -43,3 +44,5 @@ rm "$HOME/Library/LaunchAgents/com.skct.keep-awake.plist"
 - The dashboard shows today's sessions and their capture times.
 
 Chrome alarms are rebuilt at browser startup only for the current India date. Discovery refreshes that date every fifteen minutes, pauses per theatre after its final known show has been captured and passes cutoff, and switches to the new date just after 12:00 AM IST. It never opens tomorrow's schedule early.
+
+The extension also sends a heartbeat every five minutes. After monitoring has started, twenty minutes without a heartbeat during the active cinema day sends one PWA warning. Restoring the laptop, Chrome, extension, internet, or API connection sends one recovery notification. The Worker separately checks the completed cinema day after its last show cutoff and reports any show still missing a final capture.

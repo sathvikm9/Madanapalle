@@ -129,6 +129,18 @@ test("capture failure alerts are urgent, theatre-filtered, and use exact titles"
   assert.match(source, /preferences\.venues\.includes\(venueCode\)/);
   assert.match(source, /capture failed - CHECK NOW/);
   assert.match(source, /final capture failed/);
-  assert.match(source, /delivery\.notification_type === "capture_alert"/);
+  assert.match(source, /"capture_alert",[\s\S]*\.has\(delivery\.notification_type\)/);
   assert.match(source, /urgency: urgent \? "high" : "normal"/);
+});
+
+test("collector and daily completeness alerts bypass entertainment filters", () => {
+  const source = fs.readFileSync(new URL("../src/notifications.js", import.meta.url), "utf8");
+  const start = source.indexOf("function operationalAlertDeliveryStatements");
+  const end = source.indexOf("export async function processNotificationEvents", start);
+  const operational = source.slice(start, end);
+  assert.match(operational, /Collector offline - CHECK NOW/);
+  assert.match(operational, /Collector is back online/);
+  assert.match(operational, /Daily capture check/);
+  assert.doesNotMatch(operational, /subscriptionPreferences/);
+  assert.match(source, /"collector_offline",[\s\S]*"daily_incomplete"/);
 });

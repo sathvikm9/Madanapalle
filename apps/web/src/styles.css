@@ -59,6 +59,9 @@ button:focus-visible, input:focus-visible, select:focus-visible {
 .brand small { margin-top: 3px; color: var(--muted); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
 .live-indicator { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 12px; font-weight: 600; }
 .live-indicator i, .updated-dot { width: 7px; height: 7px; border-radius: 50%; background: #28a578; box-shadow: 0 0 0 5px rgba(40, 165, 120, .11); }
+.live-indicator--offline { color: #9e2822; }
+.live-indicator--offline i { background: #d64a42; box-shadow: 0 0 0 5px rgba(214, 74, 66, .12); }
+.live-indicator--idle i, .live-indicator--unknown i { background: #b48a3b; box-shadow: 0 0 0 5px rgba(180, 138, 59, .12); }
 .live-indicator__updated { display: none; }
 .topbar__actions { display: flex; align-items: center; gap: 12px; }
 .notification-trigger {
@@ -240,6 +243,35 @@ main { max-width: 1120px; margin: 0 auto; padding: 26px 24px 88px; }
 .primary-view-switch button:hover { color: var(--ink); background: var(--surface); }
 .primary-view-switch button.is-active { color: #fff; background: var(--ink); }
 .primary-view-switch ~ .reports .reports__intro { margin-top: 24px; }
+
+.collector-notice {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 11px 14px;
+  border: 1px solid #e7aaa4;
+  border-radius: 13px;
+  color: #7f211d;
+  background: linear-gradient(135deg, #fff0ee, #ffe5e2);
+  box-shadow: 0 8px 22px rgba(133, 36, 31, .06);
+}
+.collector-notice__icon {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  background: #c23b35;
+  font-size: 15px;
+  font-weight: 700;
+}
+.collector-notice > span:last-child { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.collector-notice strong { font-size: 12px; }
+.collector-notice small { color: #8b403b; font-size: 10px; line-height: 1.4; }
 
 .date-control {
   display: grid;
@@ -1511,6 +1543,10 @@ main { max-width: 1120px; margin: 0 auto; padding: 26px 24px 88px; }
   }
   .primary-view-switch button { min-width: 0; min-height: 33px; padding: 0 7px; font-size: 10px; }
   .primary-view-switch ~ .reports .reports__intro { margin-top: 14px; }
+  .collector-notice { min-height: 54px; gap: 10px; margin-bottom: 10px; padding: 10px 12px; border-radius: 12px; }
+  .collector-notice__icon { width: 27px; height: 27px; flex-basis: 27px; font-size: 13px; }
+  .collector-notice strong { font-size: 11px; }
+  .collector-notice small { font-size: 9px; }
 
   .date-control {
     grid-template-columns: repeat(2, minmax(0, 1fr));

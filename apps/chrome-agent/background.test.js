@@ -31,6 +31,14 @@ test("retries durable uploads every minute even when automatic capture is disabl
   assert.match(alarms, /alarm\.name === CAPTURE_OUTBOX_ALARM[\s\S]*await flushCaptureOutbox\(\)[\s\S]*const settings/);
 });
 
+test("collector sends a lightweight authenticated heartbeat every five minutes", () => {
+  const source = fs.readFileSync(backgroundUrl, "utf8");
+  assert.match(source, /COLLECTOR_HEARTBEAT_ALARM[\s\S]*periodInMinutes:\s*5/);
+  assert.match(source, /apiPost\("\/api\/agent\/heartbeat"/);
+  assert.match(source, /agentVersion:\s*chrome\.runtime\.getManifest\(\)\.version/);
+  assert.match(source, /pendingUploads:\s*Object\.keys\(captureOutbox\)\.length/);
+});
+
 test("capture alarm checks an attempt-specific success before reporting a page failure", () => {
   const source = fs.readFileSync(backgroundUrl, "utf8");
   const start = source.indexOf('if (alarm.name.startsWith("capture:"))');

@@ -53,10 +53,12 @@ test("schedule audit exposes both sides of a shifted showtime", () => {
 
 test("the Worker finalizes shows before dispatching grouped notifications", () => {
   const source = fs.readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
-  assert.match(source, /await finalizeExpiredShows\(env\.DB\);\s+await dispatchNotifications\(env\.DB, env\);/);
+  assert.match(source, /await finalizeExpiredShows\(env\.DB\);[\s\S]*await evaluateCollectorHealth\(env\.DB\);[\s\S]*await runEndOfDayCompletenessCheck\(env\.DB\);[\s\S]*await dispatchNotifications\(env\.DB, env\);/);
   assert.match(source, /\/api\/notifications\/subscriptions/);
   assert.match(source, /\/api\/installations/);
   assert.match(source, /\/api\/adoption/);
+  assert.match(source, /\/api\/agent\/heartbeat/);
+  assert.match(source, /\/api\/collector-status/);
 });
 
 test("failed captures enqueue idempotent initial and final alert events", () => {
