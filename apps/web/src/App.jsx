@@ -697,9 +697,9 @@ export default function App() {
             {viewMode !== "reports" && <>
               <section className="metrics" aria-label="Daily totals">
                 <Metric label="Final tickets" value={number.format(data.summary.ticketsSold)} note={`${data.summary.finalizedShows} of ${data.summary.totalShows} shows finalized`} tone="ink" />
-                <Metric label="Gross" value={money.format(data.summary.collectionPaise / 100)} note="₹5 MC adjusted per ticket" tone="red" />
-                <Metric label="Final occupancy" value={`${data.summary.occupancyPercent}%`} note={`${number.format(data.summary.capacity)} finalized seats`} />
-                <Metric label="Shows captured" value={capturedShows} note={missedNote} />
+                <Metric label="Gross" value={money.format(data.summary.collectionPaise / 100)} note="₹5 MC adjusted per ticket" tone="green" />
+                <Metric label="Final occupancy" value={`${data.summary.occupancyPercent}%`} note={`${number.format(data.summary.capacity)} finalized seats`} tone="plum" />
+                <Metric label="Shows captured" value={capturedShows} note={missedNote} tone="slate" />
               </section>
 
               <section className="section-heading">
