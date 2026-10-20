@@ -1789,9 +1789,15 @@ main { max-width: 1120px; margin: 0 auto; padding: 26px 24px 88px; }
   .movie-report-overview__facts span { font-size: 7px; letter-spacing: .06em; }
   .movie-report-overview__facts strong { font-size: 16px; }
   .movie-report-overview__facts small { display: none; }
+  .movie-report-overview__totals { grid-template-columns: minmax(0, .78fr) minmax(0, 1.22fr); }
   .movie-report-overview__totals > div { min-height: 86px; gap: 5px; padding: 13px 12px; }
   .movie-report-overview__totals span { font-size: 8px; letter-spacing: .1em; }
   .movie-report-overview__totals strong { font-size: clamp(24px, 7.2vw, 29px); }
+  .movie-report-overview__totals > div:nth-child(2) strong {
+    font-size: clamp(22px, 6.35vw, 28px);
+    letter-spacing: -.05em;
+    white-space: nowrap;
+  }
   .movie-report-overview__totals small { font-size: 9px; }
   .movie-report-sections { padding: 3px; border-radius: 11px; }
   .movie-report-sections button { min-height: 36px; border-radius: 8px; font-size: 11px; }
