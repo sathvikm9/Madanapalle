@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
-import { claimCapture } from "../src/collector-agents.js";
+import { claimCapture, enrollCollector } from "../src/collector-agents.js";
 
 function claimDb({ snapshot = null, claim = null, preferred = null } = {}) {
   const writes = [];
@@ -59,4 +59,38 @@ test("multi collector migration adds identities and capture leases", () => {
   assert.match(migration, /CREATE TABLE IF NOT EXISTS collector_agents/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS capture_claims/);
   assert.match(migration, /collector_agents_capture_priority_idx/);
+});
+
+test("reconnecting an existing laptop rotates its token without changing its priority", async () => {
+  const writes = [];
+  const db = {
+    prepare(sql) {
+      return {
+        bind(...values) {
+          return {
+            async first() {
+              if (sql.includes("agent_id=?")) return { role_priority: 10 };
+              if (sql.includes("MAX(role_priority)")) return { priority: 40 };
+              return null;
+            },
+            async run() { writes.push({ sql, values }); return { success: true }; }
+          };
+        },
+        async first() {
+          if (sql.includes("MAX(role_priority)")) return { priority: 40 };
+          return null;
+        }
+      };
+    }
+  };
+
+  const result = await enrollCollector(db, { COLLECTOR_SETUP_CODE: "private-code" }, {
+    agentId: "existing-laptop",
+    name: "Home laptop",
+    connectionCode: "private-code"
+  }, new Date("2026-10-20T12:00:00.000Z"));
+
+  assert.equal(result.rolePriority, 10);
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].values[2], 10);
 });

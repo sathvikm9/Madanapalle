@@ -1,5 +1,20 @@
 export const DEFAULT_API_BASE = "https://sri-krishna-tracker-api.skct-worker.workers.dev";
 
+export async function invalidateAgentAuthorization(message = "This laptop's saved connection is no longer accepted.") {
+  const at = new Date().toISOString();
+  await chrome.storage.local.remove(["agentToken", "collectorCredentialVersion", "lastHeartbeatAt"]);
+  await chrome.storage.local.set({
+    agentAuthorizationInvalid: { message, at },
+    enabled: false,
+    localSettingsMigrated: true,
+    status: {
+      ok: false,
+      message: "Reconnect this laptop to resume collection.",
+      at
+    }
+  });
+}
+
 export async function ensureAgentIdentity() {
   const local = await chrome.storage.local.get({ agentId: "", agentName: "" });
   const agentId = local.agentId || crypto.randomUUID();

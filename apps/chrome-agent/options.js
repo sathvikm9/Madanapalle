@@ -1,4 +1,9 @@
-import { collectorSettings, DEFAULT_API_BASE, ensureAgentIdentity } from "./agent-settings.js";
+import {
+  collectorSettings,
+  DEFAULT_API_BASE,
+  ensureAgentIdentity,
+  invalidateAgentAuthorization
+} from "./agent-settings.js";
 
 const connectPanel = document.querySelector("#connectPanel");
 const controlPanel = document.querySelector("#controlPanel");
@@ -40,8 +45,10 @@ async function connectLaptop() {
       rolePriority: result.rolePriority,
       collectorCredentialVersion: 2,
       enabled: false,
-      localSettingsMigrated: true
+      localSettingsMigrated: true,
+      status: null
     });
+    await chrome.storage.local.remove("agentAuthorizationInvalid");
     element("#connectionCode").value = "";
     await restore();
     setStatus("Connected. Turn this collector On when you need it.", true);
@@ -59,7 +66,15 @@ async function toggleCollector() {
   if (!result?.ok) {
     enabled.checked = !enabled.checked;
     await chrome.storage.local.set({ enabled: enabled.checked });
+    await restore();
+    const { agentAuthorizationInvalid = null } = await chrome.storage.local.get({ agentAuthorizationInvalid: null });
+    if (agentAuthorizationInvalid) return;
     return setStatus(`Could not change collector: ${result?.error || "unknown error"}`, false);
+  }
+  const { agentAuthorizationInvalid = null } = await chrome.storage.local.get({ agentAuthorizationInvalid: null });
+  if (agentAuthorizationInvalid) {
+    await restore();
+    return;
   }
   setStatus(enabled.checked
     ? "Collector is On. Discovery is running now and captures are protected."
@@ -84,7 +99,12 @@ async function apiPost(path, body = {}) {
     body: JSON.stringify(body)
   });
   const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result.message || `API returned ${response.status}`);
+  if (!response.ok) {
+    if (response.status === 401) {
+      await invalidateAgentAuthorization(result.message || "This laptop's saved connection was rejected.");
+    }
+    throw new Error(result.message || `API returned ${response.status}`);
+  }
   return result;
 }
 
@@ -95,6 +115,9 @@ async function makePrimary() {
     element("#deviceRole").textContent = "Primary collector";
     setStatus("This laptop is now Primary. Other On laptops remain ready as backups.", true);
   } catch (error) {
+    await restore();
+    const { agentAuthorizationInvalid = null } = await chrome.storage.local.get({ agentAuthorizationInvalid: null });
+    if (agentAuthorizationInvalid) return;
     setStatus(error.message, false);
   }
 }
@@ -103,6 +126,11 @@ async function testCollector() {
   if (!element("#enabled").checked) return setStatus("Turn this collector On before testing.", false);
   setStatus("Testing all four theatres…");
   const result = await chrome.runtime.sendMessage({ type: "RUN_DISCOVERY" });
+  if (!result?.ok) {
+    await restore();
+    const { agentAuthorizationInvalid = null } = await chrome.storage.local.get({ agentAuthorizationInvalid: null });
+    if (agentAuthorizationInvalid) return;
+  }
   setStatus(result.ok
     ? `Working: ${result.result.shows} shows found across ${result.result.venues.length} theatres.`
     : `Needs attention: ${result.error}`, result.ok);
@@ -115,18 +143,28 @@ async function restore() {
     agentName: settings.agentName,
     rolePriority: 100,
     status: null,
-    captureOutbox: {}
+    captureOutbox: {},
+    agentAuthorizationInvalid: null
   });
-  const connected = Boolean(local.agentToken);
+  const connected = Boolean(local.agentToken) && !local.agentAuthorizationInvalid;
   connectPanel.hidden = connected;
   controlPanel.hidden = !connected;
+  element("#connectStep").textContent = local.agentAuthorizationInvalid ? "Connection expired" : "One-time setup";
+  element("#connectTitle").textContent = local.agentAuthorizationInvalid ? "Reconnect this laptop" : "Connect this laptop";
+  element("#connectHelp").textContent = local.agentAuthorizationInvalid
+    ? "Collection is safely Off on this laptop. Enter the private connection code once to reconnect; locally protected captures are preserved."
+    : "Use the private connection code once. It is never needed again unless this laptop's connection expires or the extension is removed.";
+  element("#connect").textContent = local.agentAuthorizationInvalid ? "Reconnect laptop" : "Connect laptop";
   element("#connectApiBase").value = settings.apiBase || DEFAULT_API_BASE;
   element("#connectName").value = local.agentName;
   element("#deviceName").value = local.agentName;
   element("#deviceTitle").textContent = local.agentName;
   element("#deviceRole").textContent = Number(local.rolePriority) <= 10 ? "Primary collector" : "Backup collector";
   element("#enabled").checked = settings.enabled;
-  if (local.status) {
+  if (local.agentAuthorizationInvalid) {
+    const pending = Object.keys(local.captureOutbox).length;
+    setStatus(`Not connected. Reconnect this laptop to resume collection${pending ? ` · ${pending} protected upload${pending === 1 ? "" : "s"} preserved` : ""}.`, false);
+  } else if (local.status) {
     const pending = Object.keys(local.captureOutbox).length;
     setStatus(`${local.status.message} · ${new Date(local.status.at).toLocaleString()}${pending ? ` · ${pending} upload pending` : ""}`, local.status.ok);
   } else if (!connected) {

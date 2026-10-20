@@ -39,7 +39,12 @@ import {
   needsBackupSummary,
   TICKETNEW_SUMMARY_METHOD
 } from "./ticketnew-summary.js";
-import { collectorSettings, DEFAULT_API_BASE, ensureAgentIdentity } from "./agent-settings.js";
+import {
+  collectorSettings,
+  DEFAULT_API_BASE,
+  ensureAgentIdentity,
+  invalidateAgentAuthorization
+} from "./agent-settings.js";
 import "./bookmyshow.js";
 import "./movie-metadata.js";
 import "./ticketnew.js";
@@ -1833,6 +1838,9 @@ async function apiPost(path, body) {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (response.status === 401) {
+      await invalidateAgentAuthorization(data.message || "This laptop's saved connection was rejected.");
+    }
     const error = new Error(data.message || data.error || `API returned ${response.status}`);
     error.apiStatus = response.status;
     error.apiCode = data.error || null;
@@ -1852,13 +1860,19 @@ async function migrateLegacyAgentCredential() {
     body: JSON.stringify({ agentId: identity.agentId, name: "Home laptop" })
   });
   const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result.message || "Could not register this collector");
+  if (!response.ok) {
+    if (response.status === 401) {
+      await invalidateAgentAuthorization(result.message || "This laptop's saved connection was rejected.");
+    }
+    throw new Error(result.message || "Could not register this collector");
+  }
   await chrome.storage.local.set({
     agentToken: result.agentToken || local.agentToken,
     agentName: result.name || identity.agentName,
     collectorCredentialVersion: 2,
     rolePriority: result.rolePriority || 10
   });
+  await chrome.storage.local.remove("agentAuthorizationInvalid");
 }
 
 async function stopAutomaticCaptureWork() {

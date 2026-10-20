@@ -74,3 +74,5 @@ The extension needs:
 - HTTPS access to upload normalized results to the configured API
 
 Device tokens are created automatically, stored only in local extension storage, and never synced through the Chrome account. Keep the reusable connection code private and rotate it if it is shared accidentally.
+
+If the Worker rejects a saved device token, the extension safely turns that laptop Off, preserves every protected upload, and returns to a clear **Reconnect this laptop** screen. Reconnecting rotates only that device's token and keeps its existing Primary or Backup priority.

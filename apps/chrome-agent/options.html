@@ -13,8 +13,9 @@
       <p class="intro">Pair this laptop once. Turn it On only when you want it collecting; every other laptop keeps its own independent switch.</p>
 
       <section id="connectPanel" hidden>
-        <p class="step">One-time setup</p>
-        <h2>Connect this laptop</h2>
+        <p id="connectStep" class="step">One-time setup</p>
+        <h2 id="connectTitle">Connect this laptop</h2>
+        <p id="connectHelp" class="panel-help">Use the private connection code once. It is never needed again unless this laptop's connection expires or the extension is removed.</p>
         <label>Laptop name<input id="connectName" type="text" maxlength="60" placeholder="Friend's laptop" /></label>
         <label>Connection code<input id="connectionCode" type="password" autocomplete="off" placeholder="Enter your short code" /></label>
         <details><summary>Advanced</summary><label>API address<input id="connectApiBase" type="url" /></label></details>

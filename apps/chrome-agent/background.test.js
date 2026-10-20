@@ -41,7 +41,9 @@ test("collector sends a lightweight authenticated heartbeat every five minutes",
 
 test("each laptop keeps its own On Off state and coordinates before opening a seat map", () => {
   const source = fs.readFileSync(backgroundUrl, "utf8");
-  assert.match(source, /import \{ collectorSettings,[^}]*ensureAgentIdentity \} from "\.\/agent-settings\.js"/);
+  const settingsImport = source.match(/import \{[^}]*\} from "\.\/agent-settings\.js"/)?.[0] || "";
+  assert.match(settingsImport, /collectorSettings/);
+  assert.match(settingsImport, /ensureAgentIdentity/);
   assert.doesNotMatch(source, /chrome\.storage\.sync\.get\(\{ enabled:/);
   const beginStart = source.indexOf("async function beginCapture");
   const beginEnd = source.indexOf("function discoveryHousefullResult", beginStart);

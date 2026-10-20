@@ -86,13 +86,18 @@ export async function enrollCollector(db, env, body, now = new Date()) {
   }
   const agentId = validAgentId(body?.agentId);
   const name = requiredString(body?.name, "name", 60);
+  const existing = await db.prepare(
+    "SELECT role_priority FROM collector_agents WHERE agent_id=? AND revoked_at IS NULL"
+  ).bind(agentId).first();
   const next = await db.prepare(
     "SELECT COALESCE(MAX(role_priority), 10) + 10 AS priority FROM collector_agents"
   ).first();
   return saveCredential(db, {
     agentId,
     name,
-    rolePriority: Math.max(20, Number(next?.priority || 20))
+    rolePriority: existing
+      ? Number(existing.role_priority)
+      : Math.max(20, Number(next?.priority || 20))
   }, now);
 }
 
