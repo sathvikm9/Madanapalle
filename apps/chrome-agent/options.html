@@ -8,18 +8,31 @@
   </head>
   <body>
     <main>
-      <p class="eyebrow">Local browser collector</p>
-      <h1>Madanapalle Theatre Capture Agent</h1>
-      <p class="intro">This extension uses normal BookMyShow, TicketNew, and District tabs for Sri Krishna, Sai Chitra, Ravi, and ASR, discovers schedule changes, and reads each final seat state without relying on a cloud scraper.</p>
-      <form id="settings">
-        <label>API base URL<input id="apiBase" type="url" placeholder="https://tracker-api.example.com" required /></label>
-        <label>Capture agent token<input id="agentToken" type="password" autocomplete="off" required /></label>
-        <label class="toggle"><input id="enabled" type="checkbox" /><span>Enable automatic discovery and final capture</span></label>
-        <div class="actions"><button type="submit">Save settings</button><button id="test" type="button" class="secondary">Save and test now</button></div>
-      </form>
-      <section><h2>Agent status</h2><div id="status" class="status">Not configured yet.</div></section>
-      <aside><strong>Keep Chrome running.</strong> A pinned booking tab may ask for a verification check. Complete it manually if prompted; the agent will reuse that browser session.</aside>
+      <p class="eyebrow">MPLTalkies collector</p>
+      <h1>Never miss a show.</h1>
+      <p class="intro">Pair this laptop once. Turn it On only when you want it collecting; every other laptop keeps its own independent switch.</p>
+
+      <section id="connectPanel" hidden>
+        <p class="step">One-time setup</p>
+        <h2>Connect this laptop</h2>
+        <label>Laptop name<input id="connectName" type="text" maxlength="60" placeholder="Friend's laptop" /></label>
+        <label>Connection code<input id="connectionCode" type="password" autocomplete="off" placeholder="Enter your short code" /></label>
+        <details><summary>Advanced</summary><label>API address<input id="connectApiBase" type="url" /></label></details>
+        <button id="connect" type="button">Connect laptop</button>
+      </section>
+
+      <section id="controlPanel" hidden>
+        <div class="device-head">
+          <div><p class="step">This device</p><h2 id="deviceTitle">My laptop</h2><p id="deviceRole" class="role">Backup collector</p></div>
+          <label class="switch"><input id="enabled" type="checkbox" /><span aria-hidden="true"></span><strong>Collector <b class="off-word">Off</b><b class="on-word">On</b></strong></label>
+        </div>
+        <div class="rename"><input id="deviceName" type="text" maxlength="60" /><button id="saveName" class="secondary" type="button">Rename</button></div>
+        <div class="actions"><button id="test" type="button">Test now</button><button id="makePrimary" type="button" class="secondary">Make Primary</button></div>
+      </section>
+
+      <section><h2>Collector status</h2><div id="status" class="status">Loading…</div></section>
+      <aside><strong>Simple handoff:</strong> turn the backup laptop On before the show. When the home laptop is fixed, turn the backup Off. If both are On briefly, only one receives each capture and the other stays ready.</aside>
     </main>
-    <script src="options.js"></script>
+    <script type="module" src="options.js"></script>
   </body>
 </html>

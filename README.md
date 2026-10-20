@@ -70,7 +70,8 @@ npm run worker:deploy
 
 Set at minimum:
 
-- Worker secret `AGENT_TOKEN`, shared only with the local Chrome extension
+- Worker secret `AGENT_TOKEN`, retained for automatic migration of the original collector
+- Worker secret `COLLECTOR_SETUP_CODE`, the private code used to pair additional laptops
 - Worker variable `CORS_ORIGINS`, set to the exact GitHub Pages origin
 - `VITE_API_BASE` in the GitHub repository Actions variables/secrets
 
@@ -80,9 +81,11 @@ The health endpoint is `GET /health`. The Worker cron finalizes received snapsho
 
 1. Open `chrome://extensions`, enable **Developer mode**, and choose **Load unpacked**.
 2. Select `apps/chrome-agent` from this repository.
-3. Enter the HTTPS API URL and the same `AGENT_TOKEN` stored as a Worker secret.
-4. Enable automatic capture and click **Save and test now**.
-5. Keep Chrome and all four pinned theatre tabs running.
+3. On a backup laptop, enter a laptop name and the private connection code once.
+4. Turn **Collector On** and click **Test now**. The API address and device token are configured automatically.
+5. Turn that laptop **Off** after the home collector is restored. Its pairing stays saved for the next handoff.
+
+Each laptop has an independent local On/Off switch. If two paired laptops are On during a handoff, the Primary gets the first attempt and the backup takes over after a short lease when no result is protected.
 
 If Cloudflare asks for verification, complete it manually in that pinned tab. The extension reuses the normal Chrome session and never attempts to bypass a challenge.
 

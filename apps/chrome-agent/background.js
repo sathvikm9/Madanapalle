@@ -39,6 +39,7 @@ import {
   needsBackupSummary,
   TICKETNEW_SUMMARY_METHOD
 } from "./ticketnew-summary.js";
+import { collectorSettings, DEFAULT_API_BASE, ensureAgentIdentity } from "./agent-settings.js";
 import "./bookmyshow.js";
 import "./movie-metadata.js";
 import "./ticketnew.js";
@@ -99,9 +100,10 @@ chrome.runtime.onStartup.addListener(() => initializeAgent().catch((error) => re
 
 async function initializeAgent() {
   await migrateSingleTheatreStorage();
+  await migrateLegacyAgentCredential().catch(() => {});
   await ensureBaseAlarms();
   await flushCaptureOutbox().catch(() => {});
-  const settings = await chrome.storage.sync.get({ enabled: false });
+  const settings = await collectorSettings();
   if (!settings.enabled) return;
   await sendCollectorHeartbeat().catch(() => {});
   const { movieMetadataQueue = {} } = await chrome.storage.local.get({ movieMetadataQueue: {} });
@@ -179,7 +181,7 @@ async function handleAlarm(alarm) {
     await flushCaptureOutbox();
     return;
   }
-  const settings = await chrome.storage.sync.get({ enabled: false });
+  const settings = await collectorSettings();
   if (alarm.name === INDIA_DAY_ROLLOVER) {
     try {
       if (settings.enabled) {
@@ -305,8 +307,14 @@ async function handleAlarm(alarm) {
 async function handleMessage(message) {
   if (message.type === "SETTINGS_UPDATED") {
     await ensureBaseAlarms();
-    const settings = await chrome.storage.sync.get({ enabled: false });
-    if (settings.enabled) await sendCollectorHeartbeat();
+    const settings = await collectorSettings();
+    if (settings.enabled) {
+      await sendCollectorHeartbeat({ automaticCapture: true });
+      await discoverAll(indiaDateCode(0), { force: true });
+    } else {
+      await stopAutomaticCaptureWork();
+      await sendCollectorHeartbeat({ automaticCapture: false }).catch(() => {});
+    }
     return { ok: true };
   }
   if (message.type === "RUN_DISCOVERY") {
@@ -793,6 +801,22 @@ async function beginCapture(show) {
     throw new Error(`${venue.shortName} ${show.showTimeLabel} capture alarm ran after cutoff`);
   }
   if (await getPending(show.naturalKey)) return;
+  const phase = Date.now() >= finalCaptureAt(show) ? "final" : "backup";
+  const claim = await apiPost("/api/agent/claim", { naturalKey: show.naturalKey, phase });
+  if (!claim.granted) {
+    if (!claim.protected && claim.retryAt) {
+      const retryAt = new Date(claim.retryAt).getTime();
+      if (Number.isFinite(retryAt) && retryAt < deadline) {
+        await chrome.alarms.create(`capture:${encodeURIComponent(show.naturalKey)}`, {
+          when: Math.max(Date.now() + 1_000, retryAt + 250)
+        });
+      }
+    }
+    await recordSuccess(claim.protected
+      ? `${venue.shortName} ${show.showTimeLabel} ${phase} capture already protected`
+      : `${venue.shortName} ${show.showTimeLabel} standing by for another collector`);
+    return;
+  }
   const captureMode = captureModeFor(show, state);
   const captureShow = show.venueCode === "SCM"
     ? await withCachedTicketNewSeatLayout(show)
@@ -1780,14 +1804,15 @@ async function postCaptureEvent(show, eventType, extra = {}) {
   }
 }
 
-async function sendCollectorHeartbeat() {
-  const settings = await chrome.storage.sync.get({ enabled: false });
-  if (!settings.enabled) return { ok: false, disabled: true };
+async function sendCollectorHeartbeat({ automaticCapture } = {}) {
+  const settings = await collectorSettings();
+  const captureEnabled = typeof automaticCapture === "boolean" ? automaticCapture : settings.enabled;
   const { captureOutbox = {} } = await chrome.storage.local.get({ captureOutbox: {} });
   const result = await apiPost("/api/agent/heartbeat", {
     agentVersion: chrome.runtime.getManifest().version,
+    agentName: settings.agentName,
     clientAt: new Date().toISOString(),
-    automaticCapture: true,
+    automaticCapture: captureEnabled,
     pendingUploads: Object.keys(captureOutbox).length,
     indiaDateCode: indiaDateCode(0)
   });
@@ -1798,9 +1823,9 @@ async function sendCollectorHeartbeat() {
 }
 
 async function apiPost(path, body) {
-  const settings = await chrome.storage.sync.get({ apiBase: "" });
+  const settings = await collectorSettings();
   const secrets = await chrome.storage.local.get({ agentToken: "" });
-  if (!settings.apiBase || !secrets.agentToken) throw new Error("Open the extension settings and configure the API first");
+  if (!secrets.agentToken) throw new Error("Open the extension settings and connect this laptop first");
   const response = await fetch(`${settings.apiBase.replace(/\/$/, "")}${path}`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${secrets.agentToken}` },
@@ -1814,6 +1839,37 @@ async function apiPost(path, body) {
     throw error;
   }
   return data;
+}
+
+async function migrateLegacyAgentCredential() {
+  const identity = await ensureAgentIdentity();
+  const local = await chrome.storage.local.get({ agentToken: "", collectorCredentialVersion: 0 });
+  if (!local.agentToken || local.collectorCredentialVersion >= 2) return;
+  const settings = await collectorSettings();
+  const response = await fetch(`${settings.apiBase || DEFAULT_API_BASE}/api/agent/register`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${local.agentToken}` },
+    body: JSON.stringify({ agentId: identity.agentId, name: "Home laptop" })
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.message || "Could not register this collector");
+  await chrome.storage.local.set({
+    agentToken: result.agentToken || local.agentToken,
+    agentName: result.name || identity.agentName,
+    collectorCredentialVersion: 2,
+    rolePriority: result.rolePriority || 10
+  });
+}
+
+async function stopAutomaticCaptureWork() {
+  const alarms = await chrome.alarms.getAll();
+  for (const alarm of alarms) {
+    if (/^(preflight|final-preflight|capture|watchdog|recovery-cleanup|ticketnew-final-summary|discovery-retry):/.test(alarm.name)) {
+      await chrome.alarms.clear(alarm.name);
+    }
+  }
+  await chrome.storage.local.set({ pendingCaptures: {} });
+  await closeAllRecoveryTabs();
 }
 
 function venueFor(venueCode) {

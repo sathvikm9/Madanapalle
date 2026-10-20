@@ -1,4 +1,5 @@
 import { venueForCode } from "./venues.js";
+import { collectorAgentsStatus } from "./collector-agents.js";
 
 export const COLLECTOR_HEARTBEAT_INTERVAL_MINUTES = 5;
 export const COLLECTOR_STALE_AFTER_MINUTES = 20;
@@ -70,7 +71,20 @@ export function collectorStatusFromRow(row, now = new Date()) {
 
 export async function collectorHealthStatus(db, now = new Date()) {
   const row = await db.prepare("SELECT * FROM collector_health WHERE id=1").first();
-  return collectorStatusFromRow(row, now);
+  const agents = await collectorAgentsStatus(db, now);
+  const liveAgents = agents.filter((agent) => agent.automaticCapture && agent.status === "live");
+  const base = collectorStatusFromRow(row, now);
+  return {
+    ...base,
+    ...(agents.length ? {
+      status: liveAgents.length ? "online" : base.activeWindow ? "offline" : "idle",
+      monitoring: base.monitoring || agents.some((agent) => agent.lastSeenAt),
+      lastSeenAt: liveAgents[0]?.lastSeenAt || base.lastSeenAt,
+      minutesSinceLastSeen: liveAgents[0]?.minutesSinceLastSeen ?? base.minutesSinceLastSeen
+    } : {}),
+    agents,
+    liveAgents: liveAgents.length
+  };
 }
 
 function healthEventStatement(db, {

@@ -7,10 +7,19 @@ This unpacked Chrome extension is the primary local collector. It uses separate 
 1. In Chrome, open `chrome://extensions`.
 2. Enable **Developer mode**.
 3. Select **Load unpacked** and choose this `apps/chrome-agent` directory.
-4. In the settings page, enter the public API base URL and the Worker's `AGENT_TOKEN`.
-5. Enable automatic capture and click **Save and test now**.
+4. In the settings page, enter a laptop name and the private connection code once.
+5. Turn **Collector On** and click **Test now**.
 
-The extension creates one pinned BookMyShow or TicketNew tab per theatre. Keep Chrome and the computer awake during theatre hours.
+The extension creates one pinned BookMyShow or TicketNew tab per theatre. Keep Chrome and the computer awake while that laptop is On.
+
+## Backup laptops
+
+- Pair two or three laptops once; each receives its own private device token.
+- On/Off is stored locally and never syncs through the Chrome account.
+- Keep standby laptops Off. Turn one On when the home laptop is unavailable; it immediately discovers the current India-date shows.
+- If Primary and Backup overlap, D1 grants only one short capture lease. A backup takes over after about fifteen seconds when the earlier collector does not protect the show.
+- When the main laptop is restored, turn the temporary laptop Off. Already-protected uploads still retry safely.
+- **Make Primary** changes which On laptop receives the first attempt; it is optional during a short handoff.
 
 ## Behavior
 
@@ -64,4 +73,4 @@ The extension needs:
 - notification access for capture success or human-attention alerts
 - HTTPS access to upload normalized results to the configured API
 
-The agent token is stored only in local extension storage and is not synced through the Chrome account. Use a dedicated random token and rotate it if the Chrome profile is shared or compromised.
+Device tokens are created automatically, stored only in local extension storage, and never synced through the Chrome account. Keep the reusable connection code private and rotate it if it is shared accidentally.

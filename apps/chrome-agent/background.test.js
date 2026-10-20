@@ -39,6 +39,25 @@ test("collector sends a lightweight authenticated heartbeat every five minutes",
   assert.match(source, /pendingUploads:\s*Object\.keys\(captureOutbox\)\.length/);
 });
 
+test("each laptop keeps its own On Off state and coordinates before opening a seat map", () => {
+  const source = fs.readFileSync(backgroundUrl, "utf8");
+  assert.match(source, /import \{ collectorSettings,[^}]*ensureAgentIdentity \} from "\.\/agent-settings\.js"/);
+  assert.doesNotMatch(source, /chrome\.storage\.sync\.get\(\{ enabled:/);
+  const beginStart = source.indexOf("async function beginCapture");
+  const beginEnd = source.indexOf("function discoveryHousefullResult", beginStart);
+  const beginCapture = source.slice(beginStart, beginEnd);
+  assert.match(beginCapture, /apiPost\("\/api\/agent\/claim"/);
+  assert.ok(beginCapture.indexOf('/api/agent/claim') < beginCapture.indexOf("addPending(pending)"));
+  assert.match(beginCapture, /claim\.retryAt/);
+});
+
+test("turning a laptop off reports its state and clears only automatic capture work", () => {
+  const source = fs.readFileSync(backgroundUrl, "utf8");
+  assert.match(source, /sendCollectorHeartbeat\(\{ automaticCapture: false \}\)\.catch/);
+  assert.match(source, /async function stopAutomaticCaptureWork/);
+  assert.match(source, /CAPTURE_OUTBOX_ALARM[\s\S]*?flushCaptureOutbox\(\)[\s\S]*?return/);
+});
+
 test("capture alarm checks an attempt-specific success before reporting a page failure", () => {
   const source = fs.readFileSync(backgroundUrl, "utf8");
   const start = source.indexOf('if (alarm.name.startsWith("capture:"))');

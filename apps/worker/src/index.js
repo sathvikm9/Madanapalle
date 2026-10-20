@@ -26,6 +26,15 @@ import {
   runEndOfDayCompletenessCheck
 } from "./collector-health.js";
 import {
+  authenticateCollector,
+  claimCapture,
+  completeCaptureClaim,
+  enrollCollector,
+  makeCollectorPrimary,
+  recordAgentHeartbeat,
+  registerLegacyCollector
+} from "./collector-agents.js";
+import {
   adoptionStats,
   deletePushSubscription,
   dispatchNotifications,
@@ -80,12 +89,6 @@ async function bodyJson(request) {
     return JSON.parse(text);
   } catch {
     throw new RequestError("Request body must be valid JSON");
-  }
-}
-
-function requireAgent(request, env) {
-  if (!env.AGENT_TOKEN || request.headers.get("authorization") !== `Bearer ${env.AGENT_TOKEN}`) {
-    throw new RequestError("Unauthorized", 401, "unauthorized");
   }
 }
 
@@ -152,6 +155,21 @@ async function route(request, env, origin, context) {
 
   if (request.method === "GET" && url.pathname === "/api/collector-status") {
     return json(await collectorHealthStatus(env.DB), 200, origin);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/agent/enroll") {
+    return json(await enrollCollector(env.DB, env, await bodyJson(request)), 200, origin);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/agent/register") {
+    const agent = await authenticateCollector(request, env, env.DB);
+    return json(await registerLegacyCollector(env.DB, agent, await bodyJson(request)), 200, origin);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/agent/primary") {
+    const agent = await authenticateCollector(request, env, env.DB);
+    if (agent.legacy) throw new RequestError("Reload the extension once before changing its role", 409, "registration_required");
+    return json(await makeCollectorPrimary(env.DB, agent.agentId), 200, origin);
   }
 
   if (request.method === "GET" && url.pathname === "/api/notifications/config") {
@@ -226,7 +244,7 @@ async function route(request, env, origin, context) {
   }
 
   if (request.method === "POST" && url.pathname === "/api/agent/discovery") {
-    requireAgent(request, env);
+    await authenticateCollector(request, env, env.DB);
     const discovery = normalizeDiscovery(await bodyJson(request));
     const result = await reconcileDiscovery(env.DB, discovery);
     await invalidateDashboardCache(discovery.showDate, discovery.venueCode);
@@ -239,7 +257,7 @@ async function route(request, env, origin, context) {
   }
 
   if (request.method === "POST" && url.pathname === "/api/agent/heartbeat") {
-    requireAgent(request, env);
+    const agent = await authenticateCollector(request, env, env.DB);
     const body = await bodyJson(request);
     const agentVersion = requiredString(body?.agentVersion, "agentVersion", 30);
     if (!/^\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?$/.test(agentVersion)) {
@@ -251,13 +269,18 @@ async function route(request, env, origin, context) {
     if (!Number.isInteger(pendingUploads) || pendingUploads < 0 || pendingUploads > 10_000) {
       throw new RequestError("pendingUploads is invalid");
     }
-    const result = await recordCollectorHeartbeat(env.DB, {
+    const heartbeat = {
       agentVersion,
+      agentName: body?.agentName ? requiredString(body.agentName, "agentName", 60) : agent.name,
       clientAt: clientAt.toISOString(),
       automaticCapture: body?.automaticCapture === true,
       pendingUploads,
       indiaDateCode: body?.indiaDateCode ? String(body.indiaDateCode).slice(0, 8) : null
-    });
+    };
+    await recordAgentHeartbeat(env.DB, agent, heartbeat);
+    const result = heartbeat.automaticCapture
+      ? await recordCollectorHeartbeat(env.DB, heartbeat)
+      : { ...(await collectorHealthStatus(env.DB)), recovered: false };
     if (result.recovered) {
       runInBackground(
         context,
@@ -269,7 +292,7 @@ async function route(request, env, origin, context) {
   }
 
   if (request.method === "POST" && url.pathname === "/api/agent/movie-release") {
-    requireAgent(request, env);
+    await authenticateCollector(request, env, env.DB);
     const body = await bodyJson(request);
     const movieKey = requiredString(body?.movieKey, "movieKey", 300);
     const provider = String(body?.provider || "bookmyshow").trim().toLowerCase();
@@ -319,8 +342,16 @@ async function route(request, env, origin, context) {
     }), 200, origin);
   }
 
+  if (request.method === "POST" && url.pathname === "/api/agent/claim") {
+    const agent = await authenticateCollector(request, env, env.DB);
+    const body = await bodyJson(request);
+    const naturalKey = requiredString(body?.naturalKey, "naturalKey", 300);
+    const show = await showForCapture(env.DB, naturalKey);
+    return json(await claimCapture(env.DB, agent, show, String(body?.phase || "")), 200, origin);
+  }
+
   if (request.method === "POST" && url.pathname === "/api/agent/capture") {
-    requireAgent(request, env);
+    const agent = await authenticateCollector(request, env, env.DB);
     const body = await bodyJson(request);
     const naturalKey = requiredString(body?.naturalKey, "naturalKey", 300);
     const show = await showForCapture(env.DB, naturalKey);
@@ -333,12 +364,13 @@ async function route(request, env, origin, context) {
       }));
     }
     const result = await saveCapture(env.DB, show, capture);
+    await completeCaptureClaim(env.DB, agent.agentId, show, capture.capturedAt);
     await invalidateDashboardCache(show.show_date, show.venue_code);
     return json(result, 200, origin);
   }
 
   if (request.method === "POST" && url.pathname === "/api/agent/event") {
-    requireAgent(request, env);
+    await authenticateCollector(request, env, env.DB);
     const body = await bodyJson(request);
     const eventType = requiredString(body?.eventType, "eventType", 50);
     if (!new Set(["capture_started", "capture_failed"]).has(eventType)) {
