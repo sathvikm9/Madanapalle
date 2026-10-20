@@ -313,20 +313,28 @@ async function handleMessage(message) {
   if (message.type === "SETTINGS_UPDATED") {
     await ensureBaseAlarms();
     const settings = await collectorSettings();
-    if (settings.enabled) {
+    const enabled = typeof message.enabled === "boolean" ? message.enabled : settings.enabled;
+    await chrome.storage.local.set({ enabled, localSettingsMigrated: true });
+    if (enabled) {
       await sendCollectorHeartbeat({ automaticCapture: true });
       await discoverAll(indiaDateCode(0), { force: true });
     } else {
       await stopAutomaticCaptureWork();
       await sendCollectorHeartbeat({ automaticCapture: false }).catch(() => {});
     }
-    return { ok: true };
+    return { ok: true, enabled };
   }
   if (message.type === "RUN_DISCOVERY") {
+    const automaticCapture = message.automaticCapture === true;
+    if (automaticCapture) {
+      await chrome.storage.local.set({ enabled: true, localSettingsMigrated: true });
+      await sendCollectorHeartbeat({ automaticCapture: true });
+    }
     const dateCode = indiaDateCode(0);
     const result = await discoverAll(dateCode, { force: true });
     const districtLiveRoutes = await primeAllSaiChitraDistrictRoutes(dateCode);
-    return { ok: true, result: { ...result, districtLiveRoutes } };
+    if (automaticCapture) await sendCollectorHeartbeat({ automaticCapture: true });
+    return { ok: true, enabled: automaticCapture, result: { ...result, districtLiveRoutes } };
   }
   if (message.type === "CAPTURE_RESULT") {
     const pending = await getPending(message.result.naturalKey);

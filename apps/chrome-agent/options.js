@@ -59,12 +59,13 @@ async function connectLaptop() {
 
 async function toggleCollector() {
   const enabled = element("#enabled");
+  const requestedEnabled = enabled.checked;
   enabled.disabled = true;
-  await chrome.storage.local.set({ enabled: enabled.checked, localSettingsMigrated: true });
-  const result = await chrome.runtime.sendMessage({ type: "SETTINGS_UPDATED" });
+  await chrome.storage.local.set({ enabled: requestedEnabled, localSettingsMigrated: true });
+  const result = await chrome.runtime.sendMessage({ type: "SETTINGS_UPDATED", enabled: requestedEnabled });
   enabled.disabled = false;
   if (!result?.ok) {
-    enabled.checked = !enabled.checked;
+    enabled.checked = !requestedEnabled;
     await chrome.storage.local.set({ enabled: enabled.checked });
     await restore();
     const { agentAuthorizationInvalid = null } = await chrome.storage.local.get({ agentAuthorizationInvalid: null });
@@ -76,7 +77,9 @@ async function toggleCollector() {
     await restore();
     return;
   }
-  setStatus(enabled.checked
+  enabled.checked = result.enabled === true;
+  await chrome.storage.local.set({ enabled: enabled.checked });
+  setStatus(result.enabled
     ? "Collector is On. Discovery is running now and captures are protected."
     : "Collector is Off on this laptop. Saved uploads will still finish safely.", true);
 }
@@ -124,15 +127,15 @@ async function makePrimary() {
 
 async function testCollector() {
   if (!element("#enabled").checked) return setStatus("Turn this collector On before testing.", false);
-  setStatus("Testing all four theatres…");
-  const result = await chrome.runtime.sendMessage({ type: "RUN_DISCOVERY" });
+  setStatus("Confirming collector and testing all four theatres…");
+  const result = await chrome.runtime.sendMessage({ type: "RUN_DISCOVERY", automaticCapture: true });
   if (!result?.ok) {
     await restore();
     const { agentAuthorizationInvalid = null } = await chrome.storage.local.get({ agentAuthorizationInvalid: null });
     if (agentAuthorizationInvalid) return;
   }
   setStatus(result.ok
-    ? `Working: ${result.result.shows} shows found across ${result.result.venues.length} theatres.`
+    ? `Collector is On · ${result.result.shows} shows found across ${result.result.venues.length} theatres.`
     : `Needs attention: ${result.error}`, result.ok);
 }
 

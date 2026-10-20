@@ -55,6 +55,8 @@ test("each laptop keeps its own On Off state and coordinates before opening a se
 
 test("turning a laptop off reports its state and clears only automatic capture work", () => {
   const source = fs.readFileSync(backgroundUrl, "utf8");
+  assert.match(source, /typeof message\.enabled === "boolean" \? message\.enabled : settings\.enabled/);
+  assert.match(source, /chrome\.storage\.local\.set\(\{ enabled, localSettingsMigrated: true \}\)/);
   assert.match(source, /sendCollectorHeartbeat\(\{ automaticCapture: false \}\)\.catch/);
   assert.match(source, /async function stopAutomaticCaptureWork/);
   assert.match(source, /CAPTURE_OUTBOX_ALARM[\s\S]*?flushCaptureOutbox\(\)[\s\S]*?return/);
@@ -127,6 +129,7 @@ test("manual discovery verifies every Sai Chitra District live route", () => {
   const runDiscovery = source.slice(runStart, runEnd);
 
   assert.match(runDiscovery, /await discoverAll\(dateCode, \{ force: true \}\)/);
+  assert.match(runDiscovery, /sendCollectorHeartbeat\(\{ automaticCapture: true \}\)/);
   assert.match(runDiscovery, /await primeAllSaiChitraDistrictRoutes\(dateCode\)/);
   assert.match(source, /liveSeatLayoutProvider:\s*"district"/);
 });

@@ -13,3 +13,9 @@ test("a rejected token returns the laptop to an explicit reconnect screen", () =
   assert.match(markup, /id="connectTitle"/);
   assert.match(markup, /id="connectHelp"/);
 });
+
+test("the On switch and Test now send an explicit active state to the background worker", () => {
+  assert.match(options, /type: "SETTINGS_UPDATED", enabled: requestedEnabled/);
+  assert.match(options, /type: "RUN_DISCOVERY", automaticCapture: true/);
+  assert.match(options, /Collector is On ·/);
+});
