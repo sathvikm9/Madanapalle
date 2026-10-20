@@ -429,6 +429,17 @@ function captureAlertDeliveryStatements(db, subscriptions, event, now) {
   return statements;
 }
 
+async function finalCaptureAlertIsProtected(db, event) {
+  const payload = parseJson(event.payload_json, {});
+  if (payload.alertPhase !== "final") return false;
+  const showId = Number(payload.showId);
+  if (!Number.isSafeInteger(showId) || showId <= 0) return false;
+  const protectedCapture = await db.prepare(
+    `SELECT id FROM snapshots WHERE show_id=? ORDER BY captured_at DESC LIMIT 1`
+  ).bind(showId).first();
+  return Boolean(protectedCapture);
+}
+
 function operationalAlertDeliveryStatements(db, subscriptions, event, now) {
   const payload = parseJson(event.payload_json, {});
   let title;
@@ -492,6 +503,7 @@ export async function processNotificationEvents(db, env, now = new Date()) {
     statements.push(...scheduleDeliveryStatements(db, subscriptions, event, now));
   }
   for (const event of events.filter((candidate) => candidate.event_type === "capture_alert")) {
+    if (await finalCaptureAlertIsProtected(db, event)) continue;
     statements.push(...captureAlertDeliveryStatements(db, subscriptions, event, now));
   }
   for (const event of events.filter((candidate) =>

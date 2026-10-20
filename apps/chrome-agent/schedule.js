@@ -24,6 +24,10 @@ export function supportsFinalCaptureRecovery(show) {
 }
 
 export function attemptSecondOffset(show) {
+  // Ravi and ASR commonly share the same show and cutoff times. Give Ravi its
+  // established :05 attempt, then let ASR start after Ravi's fast path has had
+  // time to finish instead of loading two BookMyShow seat maps simultaneously.
+  if (show?.platform === "bookmyshow" && show?.venueCode === "ASRM") return 25_000;
   return DEFAULT_ATTEMPT_SECOND_OFFSET_MS;
 }
 

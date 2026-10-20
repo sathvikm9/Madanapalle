@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
+import { recordCaptureEvent } from "../src/database.js";
 
 const databaseUrl = new URL("../src/database.js", import.meta.url);
 
@@ -70,8 +71,49 @@ test("failed captures enqueue idempotent initial and final alert events", () => 
 
   assert.match(captureEvents, /capture-alert:\$\{show\.id\}:\$\{event\.alertPhase\}/);
   assert.match(captureEvents, /'capture_alert'/);
+  assert.match(captureEvents, /cutoffAt \+ 65_000/);
+  assert.match(captureEvents, /venue\?\.platform === "bookmyshow"/);
   assert.match(worker, /alertPhase must be initial or final for a failed capture/);
   assert.match(worker, /Capture failure notification dispatch failed/);
+});
+
+test("BookMyShow final alerts wait until its recovery grace period has ended", async () => {
+  const prepared = [];
+  const db = {
+    prepare(sql) {
+      return {
+        bind(...values) {
+          const statement = { sql, values };
+          prepared.push(statement);
+          return statement;
+        }
+      };
+    },
+    async batch(statements) {
+      return statements.map(() => ({ success: true }));
+    }
+  };
+  const now = new Date("2026-10-20T16:19:23.000Z");
+  await recordCaptureEvent(db, {
+    id: 74121,
+    venue_code: "RTDM",
+    show_date: "2026-10-20",
+    show_time_label: "09:30 PM",
+    movie_title: "Jailer 2",
+    cutoff_at: "2026-10-20T16:20:00.000Z"
+  }, {
+    eventType: "capture_failed",
+    clientAt: now.toISOString(),
+    attemptId: "attempt-1",
+    stage: "watchdog_timeout",
+    error: "Seat layout timed out",
+    alertPhase: "final",
+    diagnostics: null
+  }, now);
+
+  const alertInsert = prepared.find((statement) => statement.sql.includes("'capture_alert'"));
+  assert.ok(alertInsert);
+  assert.equal(alertInsert.values[4], "2026-10-20T16:21:05.000Z");
 });
 
 test("movie release metadata supports exact BookMyShow and District provider identities", () => {

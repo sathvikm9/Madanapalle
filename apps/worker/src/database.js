@@ -517,6 +517,11 @@ export async function saveCapture(db, show, capture) {
 
 export async function recordCaptureEvent(db, show, event, now = new Date()) {
   const observedAt = now.toISOString();
+  const venue = venueForCode(show.venue_code);
+  const cutoffAt = new Date(show.cutoff_at).getTime();
+  const finalAlertDueAt = event.alertPhase === "final" && venue?.platform === "bookmyshow" && Number.isFinite(cutoffAt)
+    ? new Date(cutoffAt + 65_000).toISOString()
+    : observedAt;
   const started = event.eventType === "capture_started";
   const status = started ? "started" : "error";
   const statements = [
@@ -571,7 +576,7 @@ export async function recordCaptureEvent(db, show, event, now = new Date()) {
             movieTitle: show.movie_title,
             alertPhase: event.alertPhase
           }),
-          observedAt,
+          finalAlertDueAt,
           observedAt
         )
       );

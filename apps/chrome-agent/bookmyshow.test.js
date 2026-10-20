@@ -4,6 +4,9 @@ import test from "node:test";
 await import("./bookmyshow.js");
 const {
   enabledTicketOptions,
+  normalizedControlText,
+  findSelectSeatsControl,
+  findOneTicketControl,
   singleTicketOption,
   selectedTicketCount,
   isFullySold,
@@ -47,6 +50,19 @@ test("recognizes an already-selected BookMyShow ticket quantity without matching
   }), 2);
   assert.equal(selectedTicketCount("02:00 PM ATMOS 4K"), null);
   assert.equal(selectedTicketCount("Buy 2 Tickets"), null);
+});
+
+test("recognizes both modern BookMyShow modal controls without exact whitespace or element types", () => {
+  const controls = [
+    { getAttribute: () => null, textContent: "  Select\n Seats  " },
+    { getAttribute: (name) => name === "aria-label" ? "1 Ticket" : null, textContent: "" },
+    { getAttribute: () => null, textContent: "2" }
+  ];
+  assert.equal(normalizedControlText(controls[0]), "Select Seats");
+  assert.equal(findSelectSeatsControl(controls), controls[0]);
+  assert.equal(findOneTicketControl(controls), controls[1]);
+  assert.ok(findSelectSeatsControl([{ getAttribute: () => "Select Seats button", textContent: "" }]));
+  assert.ok(findOneTicketControl([{ getAttribute: () => "Select 1 seat", textContent: "" }]));
 });
 
 test("requires every real seat in every category to be sold", () => {
@@ -107,10 +123,11 @@ test("recovery resumes from the furthest usable BookMyShow control", () => {
     quantity: {}, categorySelect: {}, rowSelect: {}, accessibility: {}, selectSeats: {}
   }), "ready");
   assert.equal(recoveryAction({ categorySelect: {}, rowSelect: {} }), "seat_controls_ready");
-  assert.equal(recoveryAction({ quantity: {}, accessibility: {}, selectSeats: {} }), "quantity_ready");
+  assert.equal(recoveryAction({ quantity: {}, accessibility: {}, selectSeats: {} }), "click_select_seats");
+  assert.equal(recoveryAction({ oneTicket: {}, selectSeats: {} }), "click_one_ticket");
   assert.equal(recoveryAction({ categorySelect: {}, accessibility: {} }), "wait_seat_controls");
-  assert.equal(recoveryAction({ selectedQuantity: {}, accessibility: {}, selectSeats: {} }), "click_accessibility_with_selected_quantity");
-  assert.equal(recoveryAction({ accessibility: {}, selectSeats: {} }), "click_accessibility");
+  assert.equal(recoveryAction({ selectedQuantity: {}, accessibility: {}, selectSeats: {} }), "click_select_seats");
+  assert.equal(recoveryAction({ accessibility: {}, selectSeats: {} }), "click_select_seats");
   assert.equal(recoveryAction({ selectSeats: {} }), "click_select_seats");
   assert.equal(recoveryAction({ visualSeatMap: true }), "visual_seat_map_without_accessibility_controls");
   assert.equal(recoveryAction({}), "wait_booking_entry_control");

@@ -898,13 +898,19 @@ async function captureAttemptDiagnostics(show, error = {}) {
   const rawTabUrl = error?.tabUrl || tab?.pendingUrl || tab?.url ||
     show.directSeatLayoutUrl || show.seatLayoutUrl || null;
   const tabUrl = rawTabUrl ? String(rawTabUrl).slice(0, 500) : null;
+  const pageDiagnostics = tabId && tab?.status === "complete"
+    ? await chrome.tabs.sendMessage(tabId, { type: "CAPTURE_DIAGNOSTICS" })
+      .then((result) => result?.diagnostics || null)
+      .catch(() => null)
+    : null;
   return {
     tabId,
     tabUrl,
     tabStatus: error?.tabStatus || tab?.status || (tabId ? "missing" : "unknown"),
     pageKind: capturePageKind(tabUrl),
     sessionId: show.sessionId ? String(show.sessionId).slice(0, 200) : null,
-    provider: show.liveSeatLayoutProvider || show.platform || null
+    provider: show.liveSeatLayoutProvider || show.platform || null,
+    ...(pageDiagnostics || {})
   };
 }
 
@@ -927,7 +933,9 @@ async function failCapture(show, error, stage, { pendingAlreadyRemoved = false }
     show.attemptStartedAt || state.lastAttemptAt || Date.now()
   );
   const localAlertField = alertPhase ? localAlertStateField(alertPhase) : null;
-  const localAlertNeeded = Boolean(alertPhase && !state[localAlertField]);
+  // The Worker delays and validates final alerts after recovery ends. Only the
+  // first failure is safe to surface immediately from the collector itself.
+  const localAlertNeeded = Boolean(alertPhase === "initial" && !state[localAlertField]);
   const failedAt = new Date().toISOString();
   await updateCaptureState(show.naturalKey, {
     lastError: message,

@@ -23,9 +23,11 @@ const saiChitra = {
   cutoffAt: "2026-09-07T05:45:00.000Z"
 };
 
-test("uses the five-second offset for Sai Chitra and BookMyShow captures", () => {
+test("keeps normal captures at five seconds and staggers ASR away from Ravi", () => {
   assert.equal(attemptSecondOffset(saiChitra), 5_000);
   assert.equal(attemptSecondOffset(sriKrishna), 5_000);
+  assert.equal(attemptSecondOffset({ venueCode: "RTDM", platform: "bookmyshow" }), 5_000);
+  assert.equal(attemptSecondOffset({ venueCode: "ASRM", platform: "bookmyshow" }), 25_000);
 });
 
 test("schedules Sai Chitra backup at 11:10:05 and final at 11:14:05", () => {

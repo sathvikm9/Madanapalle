@@ -5,6 +5,7 @@ import {
   adoptionStats,
   dispatchNotifications,
   notificationConfig,
+  processNotificationEvents,
   recordPwaInstallation,
   savePushSubscription
 } from "../src/notifications.js";
@@ -131,6 +132,71 @@ test("capture failure alerts are urgent, theatre-filtered, and use exact titles"
   assert.match(source, /final capture failed/);
   assert.match(source, /"capture_alert",[\s\S]*\.has\(delivery\.notification_type\)/);
   assert.match(source, /urgency: urgent \? "high" : "normal"/);
+  assert.match(source, /finalCaptureAlertIsProtected/);
+  assert.match(source, /SELECT id FROM snapshots WHERE show_id=\?/);
+  assert.match(source, /if \(await finalCaptureAlertIsProtected\(db, event\)\) continue/);
+});
+
+test("a late protected capture suppresses a queued final-failure notification", async () => {
+  const finalEvent = {
+    id: 91,
+    event_key: "capture-alert:74121:final",
+    event_type: "capture_alert",
+    show_date: "2026-10-20",
+    venue_code: "RTDM",
+    payload_json: JSON.stringify({
+      showId: "74121",
+      venueCode: "RTDM",
+      showTime: "09:30 PM",
+      movieTitle: "Jailer 2",
+      alertPhase: "final"
+    })
+  };
+  const batches = [];
+  const db = {
+    prepare(sql) {
+      const rows = async () => {
+        if (sql.includes("FROM notification_events")) return { results: [finalEvent] };
+        if (sql.includes("FROM push_subscriptions")) return { results: [{
+          id: 4,
+          venue_codes_json: '["RTDM"]',
+          notification_types_json: '["capture_alert"]'
+        }] };
+        return { results: [] };
+      };
+      return {
+        all: rows,
+        bind(...values) {
+          return {
+            sql,
+            values,
+            all: rows,
+            async first() {
+              if (sql.includes("FROM snapshots")) return { id: 1888 };
+              return null;
+            }
+          };
+        }
+      };
+    },
+    async batch(statements) {
+      batches.push(statements);
+      return statements.map(() => ({ success: true }));
+    }
+  };
+  const env = {
+    NOTIFICATIONS_ENABLED: "true",
+    VAPID_SUBJECT: "mailto:test@example.com",
+    VAPID_PUBLIC_KEY: "public-key",
+    VAPID_PRIVATE_KEY: "private-key"
+  };
+
+  const result = await processNotificationEvents(db, env, new Date("2026-10-20T16:21:10.000Z"));
+
+  assert.deepEqual(result, { processed: 1, queued: 0, available: true });
+  assert.equal(batches.length, 1);
+  assert.equal(batches[0].length, 1);
+  assert.match(batches[0][0].sql, /UPDATE notification_events SET status='processed'/);
 });
 
 test("collector and daily completeness alerts bypass entertainment filters", () => {

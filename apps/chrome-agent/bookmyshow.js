@@ -18,6 +18,30 @@
 
   const normalizedName = (value) => String(value || "").trim().toUpperCase();
 
+  function normalizedControlText(control) {
+    return [
+      control?.getAttribute?.("aria-label"),
+      control?.getAttribute?.("title"),
+      control?.value,
+      control?.textContent
+    ]
+      .map((value) => String(value || "").replace(/\s+/g, " ").trim())
+      .find(Boolean) || "";
+  }
+
+  function findSelectSeatsControl(controls = []) {
+    return Array.from(controls).find((control) => (
+      /^select\s+seats?(?:\s+button)?$/i.test(normalizedControlText(control))
+    )) || null;
+  }
+
+  function findOneTicketControl(controls = []) {
+    return Array.from(controls).find((control) => {
+      const label = normalizedControlText(control);
+      return label === "1" || /^(?:select\s+)?1\s+(?:seats?|tickets?)$/i.test(label);
+    }) || null;
+  }
+
   function enabledTicketOptions(select) {
     return Array.from(select?.options || []).filter((option) => option.value && !option.disabled);
   }
@@ -95,17 +119,21 @@
   function recoveryAction(controls = {}) {
     if (controls.quantity && controls.categorySelect && controls.rowSelect) return "ready";
     if (controls.categorySelect && controls.rowSelect) return "seat_controls_ready";
+    if (controls.oneTicket) return "click_one_ticket";
+    if (controls.selectSeats) return "click_select_seats";
     if (controls.quantity) return "quantity_ready";
     if (controls.categorySelect || controls.rowSelect) return "wait_seat_controls";
     if (controls.selectedQuantity && controls.accessibility) return "click_accessibility_with_selected_quantity";
     if (controls.accessibility) return "click_accessibility";
-    if (controls.selectSeats) return "click_select_seats";
     if (controls.visualSeatMap) return "visual_seat_map_without_accessibility_controls";
     return "wait_booking_entry_control";
   }
 
   root.SKCTBookMyShow = {
     VERIFIED_LAYOUTS,
+    normalizedControlText,
+    findSelectSeatsControl,
+    findOneTicketControl,
     enabledTicketOptions,
     singleTicketOption,
     selectedTicketCount,
