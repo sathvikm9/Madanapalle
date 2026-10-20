@@ -51,6 +51,10 @@ test("service-worker startup and the upload alarm repair a missing heartbeat sch
   assert.match(source, /async function ensurePeriodicAlarm[\s\S]*chrome\.alarms\.get\(name\)/);
   assert.match(alarms, /CAPTURE_OUTBOX_ALARM[\s\S]*await flushCaptureOutbox\(\)[\s\S]*await ensureCollectorHeartbeatFresh\(\)/);
   assert.match(source, /COLLECTOR_HEARTBEAT_WATCHDOG_MS\s*=\s*3 \* 60 \* 1000/);
+  assert.match(source, /CHROME_ALARM_START_DELAY_MS\s*=\s*30 \* 1000/);
+  assert.match(source, /when:\s*Date\.now\(\) \+ CHROME_ALARM_START_DELAY_MS/);
+  assert.match(source, /baseAlarmScheduleVersion !== BASE_ALARM_SCHEDULE_VERSION[\s\S]*chrome\.alarms\.clear\(COLLECTOR_HEARTBEAT_ALARM\)/);
+  assert.doesNotMatch(source, /delayInMinutes:\s*0\.1/);
   assert.match(runDiscovery, /await ensureBaseAlarms\(\)/);
 });
 

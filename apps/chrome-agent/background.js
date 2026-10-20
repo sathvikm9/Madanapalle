@@ -91,6 +91,8 @@ const MOVIE_METADATA_ALARM = "movie-metadata:sync";
 const COLLECTOR_HEARTBEAT_ALARM = "collector:heartbeat";
 const COLLECTOR_HEARTBEAT_PERIOD_MINUTES = 2;
 const COLLECTOR_HEARTBEAT_WATCHDOG_MS = 3 * 60 * 1000;
+const BASE_ALARM_SCHEDULE_VERSION = 2;
+const CHROME_ALARM_START_DELAY_MS = 30 * 1000;
 let pendingMutation = Promise.resolve();
 let captureStateMutation = Promise.resolve();
 let agentDiagnosticMutation = Promise.resolve();
@@ -121,7 +123,7 @@ async function initializeAgent() {
   await sendCollectorHeartbeat().catch(() => {});
   const { movieMetadataQueue = {} } = await chrome.storage.local.get({ movieMetadataQueue: {} });
   if (Object.keys(movieMetadataQueue).length) {
-    await chrome.alarms.create(MOVIE_METADATA_ALARM, { delayInMinutes: 0.1 });
+    await chrome.alarms.create(MOVIE_METADATA_ALARM, { when: Date.now() + CHROME_ALARM_START_DELAY_MS });
   }
   const { knownShows = {} } = await chrome.storage.local.get({ knownShows: {} });
   const today = indiaDateCode(0);
@@ -173,17 +175,29 @@ async function migrateSingleTheatreStorage() {
 }
 
 async function ensureBaseAlarms() {
+  const { baseAlarmScheduleVersion = 0 } = await chrome.storage.local.get({ baseAlarmScheduleVersion: 0 });
+  if (baseAlarmScheduleVersion !== BASE_ALARM_SCHEDULE_VERSION) {
+    await Promise.all([
+      chrome.alarms.clear(DISCOVERY_TODAY),
+      chrome.alarms.clear(CAPTURE_OUTBOX_ALARM),
+      chrome.alarms.clear(COLLECTOR_HEARTBEAT_ALARM)
+    ]);
+  }
   await chrome.alarms.clear(LEGACY_DISCOVERY_TOMORROW);
   await ensurePeriodicAlarm(DISCOVERY_TODAY, 15);
   await ensurePeriodicAlarm(CAPTURE_OUTBOX_ALARM, 1);
   await ensurePeriodicAlarm(COLLECTOR_HEARTBEAT_ALARM, COLLECTOR_HEARTBEAT_PERIOD_MINUTES);
   await scheduleIndiaDayRollover();
+  await chrome.storage.local.set({ baseAlarmScheduleVersion: BASE_ALARM_SCHEDULE_VERSION });
 }
 
 async function ensurePeriodicAlarm(name, periodInMinutes) {
   const existing = await chrome.alarms.get(name);
   if (Number(existing?.periodInMinutes) === periodInMinutes) return existing;
-  await chrome.alarms.create(name, { delayInMinutes: 0.1, periodInMinutes });
+  await chrome.alarms.create(name, {
+    when: Date.now() + CHROME_ALARM_START_DELAY_MS,
+    periodInMinutes
+  });
   return chrome.alarms.get(name);
 }
 
@@ -534,7 +548,9 @@ async function queueMovieMetadataRequests(requests) {
     };
   }
   await chrome.storage.local.set({ movieMetadataQueue: next });
-  if (Object.keys(next).length) await chrome.alarms.create(MOVIE_METADATA_ALARM, { delayInMinutes: 0.1 });
+  if (Object.keys(next).length) {
+    await chrome.alarms.create(MOVIE_METADATA_ALARM, { when: Date.now() + CHROME_ALARM_START_DELAY_MS });
+  }
 }
 
 async function syncNextMovieMetadata() {
