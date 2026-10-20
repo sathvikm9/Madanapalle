@@ -89,12 +89,19 @@ const DISCOVERY_RETRY_PREFIX = "discovery-retry:";
 const FINAL_SUMMARY_PREFIX = "ticketnew-final-summary:";
 const MOVIE_METADATA_ALARM = "movie-metadata:sync";
 const COLLECTOR_HEARTBEAT_ALARM = "collector:heartbeat";
+const COLLECTOR_HEARTBEAT_PERIOD_MINUTES = 2;
+const COLLECTOR_HEARTBEAT_WATCHDOG_MS = 3 * 60 * 1000;
 let pendingMutation = Promise.resolve();
 let captureStateMutation = Promise.resolve();
 let agentDiagnosticMutation = Promise.resolve();
 let captureOutboxMutation = Promise.resolve();
 let captureOutboxFlushPromise = null;
+let collectorHeartbeatWatchdogPromise = null;
 const venueDiscoveryOperations = new Map();
+
+// Chrome can discard extension alarms across browser or extension restarts. Verify
+// the essential schedule every time the Manifest V3 service worker starts.
+void ensureBaseAlarms().catch((error) => recordFailure(error));
 
 chrome.runtime.onInstalled.addListener(async () => {
   await initializeAgent();
@@ -167,10 +174,17 @@ async function migrateSingleTheatreStorage() {
 
 async function ensureBaseAlarms() {
   await chrome.alarms.clear(LEGACY_DISCOVERY_TOMORROW);
-  await chrome.alarms.create(DISCOVERY_TODAY, { delayInMinutes: 0.1, periodInMinutes: 15 });
-  await chrome.alarms.create(CAPTURE_OUTBOX_ALARM, { delayInMinutes: 0.1, periodInMinutes: 1 });
-  await chrome.alarms.create(COLLECTOR_HEARTBEAT_ALARM, { delayInMinutes: 0.1, periodInMinutes: 5 });
+  await ensurePeriodicAlarm(DISCOVERY_TODAY, 15);
+  await ensurePeriodicAlarm(CAPTURE_OUTBOX_ALARM, 1);
+  await ensurePeriodicAlarm(COLLECTOR_HEARTBEAT_ALARM, COLLECTOR_HEARTBEAT_PERIOD_MINUTES);
   await scheduleIndiaDayRollover();
+}
+
+async function ensurePeriodicAlarm(name, periodInMinutes) {
+  const existing = await chrome.alarms.get(name);
+  if (Number(existing?.periodInMinutes) === periodInMinutes) return existing;
+  await chrome.alarms.create(name, { delayInMinutes: 0.1, periodInMinutes });
+  return chrome.alarms.get(name);
 }
 
 chrome.action.onClicked.addListener(() => chrome.runtime.openOptionsPage());
@@ -185,6 +199,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 async function handleAlarm(alarm) {
   if (alarm.name === CAPTURE_OUTBOX_ALARM) {
     await flushCaptureOutbox();
+    await ensureCollectorHeartbeatFresh();
     return;
   }
   const settings = await collectorSettings();
@@ -328,6 +343,7 @@ async function handleMessage(message) {
     return { ok: true, enabled };
   }
   if (message.type === "RUN_DISCOVERY") {
+    await ensureBaseAlarms();
     const automaticCapture = message.automaticCapture === true;
     if (automaticCapture) {
       await chrome.storage.local.set({ enabled: true, localSettingsMigrated: true });
@@ -1837,6 +1853,27 @@ async function sendCollectorHeartbeat({ automaticCapture } = {}) {
     lastHeartbeatAt: new Date().toISOString()
   });
   return result;
+}
+
+async function ensureCollectorHeartbeatFresh() {
+  if (collectorHeartbeatWatchdogPromise) return collectorHeartbeatWatchdogPromise;
+  collectorHeartbeatWatchdogPromise = (async () => {
+    const settings = await collectorSettings();
+    if (!settings.enabled) return false;
+    const { lastHeartbeatAt = null } = await chrome.storage.local.get({ lastHeartbeatAt: null });
+    const lastHeartbeatTime = Date.parse(lastHeartbeatAt || "");
+    if (Number.isFinite(lastHeartbeatTime) && Date.now() - lastHeartbeatTime < COLLECTOR_HEARTBEAT_WATCHDOG_MS) {
+      return false;
+    }
+    syncSystemAwake(true);
+    await sendCollectorHeartbeat({ automaticCapture: true });
+    return true;
+  })();
+  try {
+    return await collectorHeartbeatWatchdogPromise;
+  } finally {
+    collectorHeartbeatWatchdogPromise = null;
+  }
 }
 
 function syncSystemAwake(enabled) {

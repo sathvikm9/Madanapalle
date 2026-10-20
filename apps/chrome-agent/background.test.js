@@ -27,16 +27,31 @@ test("retries durable uploads every minute even when automatic capture is disabl
   const source = fs.readFileSync(backgroundUrl, "utf8");
   const alarms = source.match(/async function handleAlarm\(alarm\)[\s\S]*?if \(!settings\.enabled\) return/)?.[0];
 
-  assert.match(source, /CAPTURE_OUTBOX_ALARM[\s\S]*periodInMinutes:\s*1/);
+  assert.match(source, /ensurePeriodicAlarm\(CAPTURE_OUTBOX_ALARM,\s*1\)/);
   assert.match(alarms, /alarm\.name === CAPTURE_OUTBOX_ALARM[\s\S]*await flushCaptureOutbox\(\)[\s\S]*const settings/);
 });
 
-test("collector sends a lightweight authenticated heartbeat every five minutes", () => {
+test("collector sends a lightweight authenticated heartbeat every two minutes", () => {
   const source = fs.readFileSync(backgroundUrl, "utf8");
-  assert.match(source, /COLLECTOR_HEARTBEAT_ALARM[\s\S]*periodInMinutes:\s*5/);
+  assert.match(source, /COLLECTOR_HEARTBEAT_PERIOD_MINUTES\s*=\s*2/);
+  assert.match(source, /ensurePeriodicAlarm\(COLLECTOR_HEARTBEAT_ALARM, COLLECTOR_HEARTBEAT_PERIOD_MINUTES\)/);
   assert.match(source, /apiPost\("\/api\/agent\/heartbeat"/);
   assert.match(source, /agentVersion:\s*chrome\.runtime\.getManifest\(\)\.version/);
   assert.match(source, /pendingUploads:\s*Object\.keys\(captureOutbox\)\.length/);
+});
+
+test("service-worker startup and the upload alarm repair a missing heartbeat schedule", () => {
+  const source = fs.readFileSync(backgroundUrl, "utf8");
+  const alarms = source.match(/async function handleAlarm\(alarm\)[\s\S]*?if \(!settings\.enabled\) return/)?.[0];
+  const runStart = source.indexOf('if (message.type === "RUN_DISCOVERY")');
+  const runEnd = source.indexOf('if (message.type === "CAPTURE_RESULT")', runStart);
+  const runDiscovery = source.slice(runStart, runEnd);
+
+  assert.match(source, /void ensureBaseAlarms\(\)\.catch/);
+  assert.match(source, /async function ensurePeriodicAlarm[\s\S]*chrome\.alarms\.get\(name\)/);
+  assert.match(alarms, /CAPTURE_OUTBOX_ALARM[\s\S]*await flushCaptureOutbox\(\)[\s\S]*await ensureCollectorHeartbeatFresh\(\)/);
+  assert.match(source, /COLLECTOR_HEARTBEAT_WATCHDOG_MS\s*=\s*3 \* 60 \* 1000/);
+  assert.match(runDiscovery, /await ensureBaseAlarms\(\)/);
 });
 
 test("an enabled collector prevents idle system sleep and releases the lock when turned off", () => {
