@@ -80,7 +80,7 @@ async function toggleCollector() {
   enabled.checked = result.enabled === true;
   await chrome.storage.local.set({ enabled: enabled.checked });
   setStatus(result.enabled
-    ? "Collector is On. Discovery is running now and captures are protected."
+    ? "Collector is On. Sleep protection is active and captures are protected."
     : "Collector is Off on this laptop. Saved uploads will still finish safely.", true);
 }
 
@@ -135,7 +135,7 @@ async function testCollector() {
     if (agentAuthorizationInvalid) return;
   }
   setStatus(result.ok
-    ? `Collector is On · ${result.result.shows} shows found across ${result.result.venues.length} theatres.`
+    ? `Collector is On · Sleep protection active · ${result.result.shows} shows found across ${result.result.venues.length} theatres.`
     : `Needs attention: ${result.error}`, result.ok);
 }
 

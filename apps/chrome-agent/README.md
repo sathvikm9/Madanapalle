@@ -10,7 +10,7 @@ This unpacked Chrome extension is the primary local collector. It uses separate 
 4. In the settings page, enter a laptop name and the private connection code once.
 5. Turn **Collector On** and click **Test now**.
 
-The extension creates one pinned BookMyShow or TicketNew tab per theatre. Keep Chrome and the computer awake while that laptop is On.
+The extension creates one pinned BookMyShow or TicketNew tab per theatre. While the collector is On, it requests Chrome's system-level sleep protection so the display may turn off but the computer stays awake. Closing Chrome, shutting down, manually sleeping, or closing a laptop lid can still stop collection.
 
 ## Backup laptops
 

@@ -2,6 +2,7 @@ export const DEFAULT_API_BASE = "https://sri-krishna-tracker-api.skct-worker.wor
 
 export async function invalidateAgentAuthorization(message = "This laptop's saved connection is no longer accepted.") {
   const at = new Date().toISOString();
+  chrome.power?.releaseKeepAwake?.();
   await chrome.storage.local.remove(["agentToken", "collectorCredentialVersion", "lastHeartbeatAt"]);
   await chrome.storage.local.set({
     agentAuthorizationInvalid: { message, at },

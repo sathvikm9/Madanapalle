@@ -18,4 +18,5 @@ test("the On switch and Test now send an explicit active state to the background
   assert.match(options, /type: "SETTINGS_UPDATED", enabled: requestedEnabled/);
   assert.match(options, /type: "RUN_DISCOVERY", automaticCapture: true/);
   assert.match(options, /Collector is On ·/);
+  assert.match(options, /Sleep protection active/);
 });

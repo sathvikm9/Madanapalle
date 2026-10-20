@@ -109,6 +109,7 @@ async function initializeAgent() {
   await ensureBaseAlarms();
   await flushCaptureOutbox().catch(() => {});
   const settings = await collectorSettings();
+  syncSystemAwake(settings.enabled);
   if (!settings.enabled) return;
   await sendCollectorHeartbeat().catch(() => {});
   const { movieMetadataQueue = {} } = await chrome.storage.local.get({ movieMetadataQueue: {} });
@@ -204,6 +205,7 @@ async function handleAlarm(alarm) {
   }
   if (!settings.enabled) return;
   if (alarm.name === COLLECTOR_HEARTBEAT_ALARM) {
+    syncSystemAwake(true);
     await sendCollectorHeartbeat();
     return;
   }
@@ -315,6 +317,7 @@ async function handleMessage(message) {
     const settings = await collectorSettings();
     const enabled = typeof message.enabled === "boolean" ? message.enabled : settings.enabled;
     await chrome.storage.local.set({ enabled, localSettingsMigrated: true });
+    syncSystemAwake(enabled);
     if (enabled) {
       await sendCollectorHeartbeat({ automaticCapture: true });
       await discoverAll(indiaDateCode(0), { force: true });
@@ -328,6 +331,7 @@ async function handleMessage(message) {
     const automaticCapture = message.automaticCapture === true;
     if (automaticCapture) {
       await chrome.storage.local.set({ enabled: true, localSettingsMigrated: true });
+      syncSystemAwake(true);
       await sendCollectorHeartbeat({ automaticCapture: true });
     }
     const dateCode = indiaDateCode(0);
@@ -1833,6 +1837,11 @@ async function sendCollectorHeartbeat({ automaticCapture } = {}) {
     lastHeartbeatAt: new Date().toISOString()
   });
   return result;
+}
+
+function syncSystemAwake(enabled) {
+  if (enabled) chrome.power.requestKeepAwake("system");
+  else chrome.power.releaseKeepAwake();
 }
 
 async function apiPost(path, body) {

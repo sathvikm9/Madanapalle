@@ -39,6 +39,17 @@ test("collector sends a lightweight authenticated heartbeat every five minutes",
   assert.match(source, /pendingUploads:\s*Object\.keys\(captureOutbox\)\.length/);
 });
 
+test("an enabled collector prevents idle system sleep and releases the lock when turned off", () => {
+  const source = fs.readFileSync(backgroundUrl, "utf8");
+  const manifest = JSON.parse(fs.readFileSync(new URL("./manifest.json", import.meta.url), "utf8"));
+
+  assert.ok(manifest.permissions.includes("power"));
+  assert.match(source, /chrome\.power\.requestKeepAwake\("system"\)/);
+  assert.match(source, /chrome\.power\.releaseKeepAwake\(\)/);
+  assert.match(source, /syncSystemAwake\(settings\.enabled\)/);
+  assert.match(source, /COLLECTOR_HEARTBEAT_ALARM[\s\S]*?syncSystemAwake\(true\)[\s\S]*?sendCollectorHeartbeat/);
+});
+
 test("each laptop keeps its own On Off state and coordinates before opening a seat map", () => {
   const source = fs.readFileSync(backgroundUrl, "utf8");
   const settingsImport = source.match(/import \{[^}]*\} from "\.\/agent-settings\.js"/)?.[0] || "";
