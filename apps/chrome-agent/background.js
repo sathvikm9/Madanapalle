@@ -40,10 +40,12 @@ import {
   TICKETNEW_SUMMARY_METHOD
 } from "./ticketnew-summary.js";
 import {
+  collectorRuntimeSettings,
   collectorSettings,
   DEFAULT_API_BASE,
   ensureAgentIdentity,
-  invalidateAgentAuthorization
+  invalidateAgentAuthorization,
+  migrateCollectorSettings
 } from "./agent-settings.js";
 import "./bookmyshow.js";
 import "./movie-metadata.js";
@@ -92,7 +94,7 @@ const COLLECTOR_HEARTBEAT_ALARM = "collector:heartbeat";
 const COLLECTOR_KEEPALIVE_PORT = "collector-tab-keepalive";
 const COLLECTOR_HEARTBEAT_PERIOD_MINUTES = 2;
 const COLLECTOR_HEARTBEAT_WATCHDOG_MS = 90 * 1000;
-const BASE_ALARM_SCHEDULE_VERSION = 2;
+const BASE_ALARM_SCHEDULE_VERSION = 3;
 const CHROME_ALARM_START_DELAY_MS = 30 * 1000;
 let pendingMutation = Promise.resolve();
 let captureStateMutation = Promise.resolve();
@@ -115,10 +117,11 @@ chrome.runtime.onStartup.addListener(() => initializeAgent().catch((error) => re
 
 async function initializeAgent() {
   await migrateSingleTheatreStorage();
+  await migrateCollectorSettings();
   await migrateLegacyAgentCredential().catch(() => {});
   await ensureBaseAlarms();
   await flushCaptureOutbox().catch(() => {});
-  const settings = await collectorSettings();
+  const settings = await collectorRuntimeSettings();
   syncSystemAwake(settings.enabled);
   if (!settings.enabled) return;
   await sendCollectorHeartbeat().catch(() => {});
@@ -225,10 +228,10 @@ async function handleAlarm(alarm) {
     await ensureCollectorHeartbeatFresh();
     return;
   }
-  const settings = await collectorSettings();
+  const { enabled = false } = await chrome.storage.local.get({ enabled: false });
   if (alarm.name === INDIA_DAY_ROLLOVER) {
     try {
-      if (settings.enabled) {
+      if (enabled) {
         const today = indiaDateCode(0);
         await clearShowAlarmsOutsideDate(today);
         await clearDiscoveryRetryAlarmsOutsideDate(today);
@@ -241,7 +244,7 @@ async function handleAlarm(alarm) {
     }
     return;
   }
-  if (!settings.enabled) return;
+  if (!enabled) return;
   if (alarm.name === COLLECTOR_HEARTBEAT_ALARM) {
     syncSystemAwake(true);
     await sendCollectorHeartbeat();
@@ -1865,7 +1868,7 @@ async function postCaptureEvent(show, eventType, extra = {}) {
 }
 
 async function sendCollectorHeartbeat({ automaticCapture } = {}) {
-  const settings = await collectorSettings();
+  const settings = await collectorRuntimeSettings();
   const captureEnabled = typeof automaticCapture === "boolean" ? automaticCapture : settings.enabled;
   const { captureOutbox = {} } = await chrome.storage.local.get({ captureOutbox: {} });
   const result = await apiPost("/api/agent/heartbeat", {
@@ -1885,9 +1888,11 @@ async function sendCollectorHeartbeat({ automaticCapture } = {}) {
 async function ensureCollectorHeartbeatFresh() {
   if (collectorHeartbeatWatchdogPromise) return collectorHeartbeatWatchdogPromise;
   collectorHeartbeatWatchdogPromise = (async () => {
-    const settings = await collectorSettings();
-    if (!settings.enabled) return false;
-    const { lastHeartbeatAt = null } = await chrome.storage.local.get({ lastHeartbeatAt: null });
+    const { enabled = false, lastHeartbeatAt = null } = await chrome.storage.local.get({
+      enabled: false,
+      lastHeartbeatAt: null
+    });
+    if (!enabled) return false;
     const lastHeartbeatTime = Date.parse(lastHeartbeatAt || "");
     if (Number.isFinite(lastHeartbeatTime) && Date.now() - lastHeartbeatTime < COLLECTOR_HEARTBEAT_WATCHDOG_MS) {
       return false;
@@ -1909,7 +1914,7 @@ function syncSystemAwake(enabled) {
 }
 
 async function apiPost(path, body) {
-  const settings = await collectorSettings();
+  const settings = await collectorRuntimeSettings();
   const secrets = await chrome.storage.local.get({ agentToken: "" });
   if (!secrets.agentToken) throw new Error("Open the extension settings and connect this laptop first");
   const response = await fetch(`${settings.apiBase.replace(/\/$/, "")}${path}`, {

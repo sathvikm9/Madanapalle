@@ -25,10 +25,10 @@ test("stores a capture durably before clearing its pending browser attempt", () 
 
 test("retries durable uploads every minute even when automatic capture is disabled", () => {
   const source = fs.readFileSync(backgroundUrl, "utf8");
-  const alarms = source.match(/async function handleAlarm\(alarm\)[\s\S]*?if \(!settings\.enabled\) return/)?.[0];
+  const alarms = source.match(/async function handleAlarm\(alarm\)[\s\S]*?if \(!enabled\) return/)?.[0];
 
   assert.match(source, /ensurePeriodicAlarm\(CAPTURE_OUTBOX_ALARM,\s*1\)/);
-  assert.match(alarms, /alarm\.name === CAPTURE_OUTBOX_ALARM[\s\S]*await flushCaptureOutbox\(\)[\s\S]*const settings/);
+  assert.match(alarms, /alarm\.name === CAPTURE_OUTBOX_ALARM[\s\S]*await flushCaptureOutbox\(\)[\s\S]*const \{ enabled = false \}/);
 });
 
 test("collector sends a lightweight authenticated heartbeat every two minutes", () => {
@@ -38,11 +38,21 @@ test("collector sends a lightweight authenticated heartbeat every two minutes", 
   assert.match(source, /apiPost\("\/api\/agent\/heartbeat"/);
   assert.match(source, /agentVersion:\s*chrome\.runtime\.getManifest\(\)\.version/);
   assert.match(source, /pendingUploads:\s*Object\.keys\(captureOutbox\)\.length/);
+  assert.match(source, /async function sendCollectorHeartbeat[\s\S]*collectorRuntimeSettings\(\)/);
+});
+
+test("periodic alarm decisions avoid identity migration and shared synced state", () => {
+  const source = fs.readFileSync(backgroundUrl, "utf8");
+  const alarmHandler = source.match(/async function handleAlarm\(alarm\)[\s\S]*?\n}\n\nasync function handleMessage/)?.[0] || "";
+
+  assert.match(alarmHandler, /chrome\.storage\.local\.get\(\{ enabled: false \}\)/);
+  assert.doesNotMatch(alarmHandler, /collectorSettings\(\)/);
+  assert.doesNotMatch(alarmHandler, /ensureAgentIdentity\(\)/);
 });
 
 test("service-worker startup and the upload alarm repair a missing heartbeat schedule", () => {
   const source = fs.readFileSync(backgroundUrl, "utf8");
-  const alarms = source.match(/async function handleAlarm\(alarm\)[\s\S]*?if \(!settings\.enabled\) return/)?.[0];
+  const alarms = source.match(/async function handleAlarm\(alarm\)[\s\S]*?if \(!enabled\) return/)?.[0];
   const runStart = source.indexOf('if (message.type === "RUN_DISCOVERY")');
   const runEnd = source.indexOf('if (message.type === "CAPTURE_RESULT")', runStart);
   const runDiscovery = source.slice(runStart, runEnd);

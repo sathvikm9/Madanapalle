@@ -73,14 +73,20 @@ export async function collectorHealthStatus(db, now = new Date()) {
   const row = await db.prepare("SELECT * FROM collector_health WHERE id=1").first();
   const agents = await collectorAgentsStatus(db, now);
   const liveAgents = agents.filter((agent) => agent.automaticCapture && agent.status === "live");
+  const freshestLiveAgent = liveAgents.reduce((freshest, agent) => {
+    if (!freshest) return agent;
+    return new Date(agent.lastSeenAt).getTime() > new Date(freshest.lastSeenAt).getTime()
+      ? agent
+      : freshest;
+  }, null);
   const base = collectorStatusFromRow(row, now);
   return {
     ...base,
     ...(agents.length ? {
       status: liveAgents.length ? "online" : base.activeWindow ? "offline" : "idle",
       monitoring: base.monitoring || agents.some((agent) => agent.lastSeenAt),
-      lastSeenAt: liveAgents[0]?.lastSeenAt || base.lastSeenAt,
-      minutesSinceLastSeen: liveAgents[0]?.minutesSinceLastSeen ?? base.minutesSinceLastSeen
+      lastSeenAt: freshestLiveAgent?.lastSeenAt || base.lastSeenAt,
+      minutesSinceLastSeen: freshestLiveAgent?.minutesSinceLastSeen ?? base.minutesSinceLastSeen
     } : {}),
     agents,
     liveAgents: liveAgents.length

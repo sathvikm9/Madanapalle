@@ -24,24 +24,40 @@ export async function ensureAgentIdentity() {
   return { agentId, agentName };
 }
 
-export async function collectorSettings() {
+export async function migrateCollectorSettings() {
   const synced = await chrome.storage.sync.get({ apiBase: DEFAULT_API_BASE, enabled: undefined });
   const local = await chrome.storage.local.get({
     enabled: undefined,
-    localSettingsMigrated: false,
-    agentId: "",
-    agentName: "My laptop"
+    localSettingsMigrated: false
   });
-  let enabled = local.enabled;
   if (!local.localSettingsMigrated) {
-    enabled = typeof local.enabled === "boolean" ? local.enabled : synced.enabled === true;
+    const enabled = typeof local.enabled === "boolean" ? local.enabled : synced.enabled === true;
     await chrome.storage.local.set({ enabled, localSettingsMigrated: true });
     await chrome.storage.sync.remove("enabled");
   }
-  const identity = await ensureAgentIdentity();
+}
+
+// Periodic alarms use this side-effect-free read. Identity creation and legacy
+// migration belong to startup/options flows, not the heartbeat hot path.
+export async function collectorRuntimeSettings() {
+  const [synced, local] = await Promise.all([
+    chrome.storage.sync.get({ apiBase: DEFAULT_API_BASE }),
+    chrome.storage.local.get({ enabled: false, agentId: "", agentName: "My laptop" })
+  ]);
   return {
     apiBase: String(synced.apiBase || DEFAULT_API_BASE).replace(/\/$/, ""),
-    enabled: enabled === true,
+    enabled: local.enabled === true,
+    agentId: local.agentId,
+    agentName: local.agentName || "My laptop"
+  };
+}
+
+export async function collectorSettings() {
+  await migrateCollectorSettings();
+  const identity = await ensureAgentIdentity();
+  const settings = await collectorRuntimeSettings();
+  return {
+    ...settings,
     ...identity
   };
 }

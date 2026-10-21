@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 import {
+  collectorHealthStatus,
   collectorStatusFromRow,
   collectorWindowActive,
   evaluateCollectorHealth,
@@ -10,7 +11,7 @@ import {
   runEndOfDayCompletenessCheck
 } from "../src/collector-health.js";
 
-function fakeDb({ health = null, dailyCheck = null, summary = null, incomplete = [] } = {}) {
+function fakeDb({ health = null, dailyCheck = null, summary = null, incomplete = [], agents = [] } = {}) {
   const batches = [];
   const prepared = [];
   return {
@@ -27,6 +28,7 @@ function fakeDb({ health = null, dailyCheck = null, summary = null, incomplete =
           return null;
         },
         async all() {
+          if (sql.includes("FROM collector_agents")) return { results: agents };
           if (sql.includes("FROM shows") && sql.includes("snapshots.is_final=1")) {
             return { results: incomplete };
           }
@@ -50,6 +52,44 @@ function fakeDb({ health = null, dailyCheck = null, summary = null, incomplete =
     }
   };
 }
+
+test("multi-laptop health uses the freshest enabled collector", async () => {
+  const now = new Date("2026-10-20T23:10:00.000Z");
+  const db = fakeDb({
+    health: {
+      status: "online",
+      last_heartbeat_at: "2026-10-20T23:09:00.000Z",
+      agent_version: "1.20.7"
+    },
+    agents: [
+      {
+        agent_id: "main-agent",
+        name: "Main",
+        role_priority: 10,
+        automatic_capture: 1,
+        last_heartbeat_at: "2026-10-20T23:02:00.000Z",
+        agent_version: "1.20.7",
+        pending_uploads: 0
+      },
+      {
+        agent_id: "backup-agent",
+        name: "Mac",
+        role_priority: 20,
+        automatic_capture: 1,
+        last_heartbeat_at: "2026-10-20T23:09:00.000Z",
+        agent_version: "1.20.7",
+        pending_uploads: 0
+      }
+    ]
+  });
+
+  const status = await collectorHealthStatus(db, now);
+
+  assert.equal(status.status, "online");
+  assert.equal(status.lastSeenAt, "2026-10-20T23:09:00.000Z");
+  assert.equal(status.minutesSinceLastSeen, 1);
+  assert.equal(status.liveAgents, 2);
+});
 
 test("collector watchdog uses the India cinema day and a twenty-minute threshold", () => {
   const active = new Date("2026-10-18T08:30:00.000Z"); // 2:00 PM IST
