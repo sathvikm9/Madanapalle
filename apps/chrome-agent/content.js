@@ -1,9 +1,39 @@
+const COLLECTOR_KEEPALIVE_PORT = "collector-tab-keepalive";
+const COLLECTOR_KEEPALIVE_INTERVAL_MS = 20 * 1000;
+let collectorKeepalivePort = null;
+
+void syncCollectorKeepalive();
+setInterval(() => void syncCollectorKeepalive(), COLLECTOR_KEEPALIVE_INTERVAL_MS);
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === "local" && changes.enabled) void syncCollectorKeepalive();
+});
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   handleMessage(message).then(sendResponse).catch((error) => sendResponse({ ok: false, error: error.message }));
   return true;
 });
 
 resumePendingCapture().catch(() => {});
+
+async function syncCollectorKeepalive() {
+  try {
+    const { enabled = false } = await chrome.storage.local.get({ enabled: false });
+    if (!enabled) {
+      collectorKeepalivePort?.disconnect();
+      collectorKeepalivePort = null;
+      return;
+    }
+    if (!collectorKeepalivePort) {
+      collectorKeepalivePort = chrome.runtime.connect({ name: COLLECTOR_KEEPALIVE_PORT });
+      collectorKeepalivePort.onDisconnect.addListener(() => {
+        collectorKeepalivePort = null;
+      });
+    }
+    collectorKeepalivePort.postMessage({ type: "COLLECTOR_KEEPALIVE", at: new Date().toISOString() });
+  } catch {
+    collectorKeepalivePort = null;
+  }
+}
 
 async function handleMessage(message) {
   if (message.type === "READ_BMS_MOVIE_METADATA") {

@@ -50,12 +50,26 @@ test("service-worker startup and the upload alarm repair a missing heartbeat sch
   assert.match(source, /void ensureBaseAlarms\(\)\.catch/);
   assert.match(source, /async function ensurePeriodicAlarm[\s\S]*chrome\.alarms\.get\(name\)/);
   assert.match(alarms, /CAPTURE_OUTBOX_ALARM[\s\S]*await flushCaptureOutbox\(\)[\s\S]*await ensureCollectorHeartbeatFresh\(\)/);
-  assert.match(source, /COLLECTOR_HEARTBEAT_WATCHDOG_MS\s*=\s*3 \* 60 \* 1000/);
+  assert.match(source, /COLLECTOR_HEARTBEAT_WATCHDOG_MS\s*=\s*90 \* 1000/);
   assert.match(source, /CHROME_ALARM_START_DELAY_MS\s*=\s*30 \* 1000/);
   assert.match(source, /when:\s*Date\.now\(\) \+ CHROME_ALARM_START_DELAY_MS/);
   assert.match(source, /baseAlarmScheduleVersion !== BASE_ALARM_SCHEDULE_VERSION[\s\S]*chrome\.alarms\.clear\(COLLECTOR_HEARTBEAT_ALARM\)/);
   assert.doesNotMatch(source, /delayInMinutes:\s*0\.1/);
   assert.match(runDiscovery, /await ensureBaseAlarms\(\)/);
+});
+
+test("active theatre tabs keep the collector worker alive without affecting Off laptops", () => {
+  const source = fs.readFileSync(backgroundUrl, "utf8");
+  const contentSource = fs.readFileSync(contentUrl, "utf8");
+
+  assert.match(contentSource, /COLLECTOR_KEEPALIVE_INTERVAL_MS\s*=\s*20 \* 1000/);
+  assert.match(contentSource, /chrome\.storage\.local\.get\(\{ enabled: false \}\)/);
+  assert.match(contentSource, /chrome\.runtime\.connect\(\{ name: COLLECTOR_KEEPALIVE_PORT \}\)/);
+  assert.match(contentSource, /postMessage\(\{ type: "COLLECTOR_KEEPALIVE"/);
+  assert.match(source, /chrome\.runtime\.onConnect\.addListener/);
+  assert.match(source, /message\?\.type !== "COLLECTOR_KEEPALIVE"/);
+  assert.match(source, /ensureCollectorHeartbeatFresh\(\)\.catch/);
+  assert.match(source, /autoDiscardable: false/);
 });
 
 test("an enabled collector prevents idle system sleep and releases the lock when turned off", () => {

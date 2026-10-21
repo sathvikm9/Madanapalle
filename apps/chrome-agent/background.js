@@ -89,8 +89,9 @@ const DISCOVERY_RETRY_PREFIX = "discovery-retry:";
 const FINAL_SUMMARY_PREFIX = "ticketnew-final-summary:";
 const MOVIE_METADATA_ALARM = "movie-metadata:sync";
 const COLLECTOR_HEARTBEAT_ALARM = "collector:heartbeat";
+const COLLECTOR_KEEPALIVE_PORT = "collector-tab-keepalive";
 const COLLECTOR_HEARTBEAT_PERIOD_MINUTES = 2;
-const COLLECTOR_HEARTBEAT_WATCHDOG_MS = 3 * 60 * 1000;
+const COLLECTOR_HEARTBEAT_WATCHDOG_MS = 90 * 1000;
 const BASE_ALARM_SCHEDULE_VERSION = 2;
 const CHROME_ALARM_START_DELAY_MS = 30 * 1000;
 let pendingMutation = Promise.resolve();
@@ -208,6 +209,14 @@ chrome.alarms.onAlarm.addListener((alarm) => handleAlarm(alarm).catch((error) =>
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   handleMessage(message).then(sendResponse).catch((error) => sendResponse({ ok: false, error: error.message }));
   return true;
+});
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== COLLECTOR_KEEPALIVE_PORT) return;
+  port.onMessage.addListener((message) => {
+    if (message?.type !== "COLLECTOR_KEEPALIVE") return;
+    void ensureCollectorHeartbeatFresh().catch(() => {});
+  });
 });
 
 async function handleAlarm(alarm) {
@@ -1287,6 +1296,7 @@ async function ensureAgentTab(venue, dateCode, reload) {
     : null;
   if (!tab) {
     tab = await chrome.tabs.create({ url, active: false, pinned: true });
+    await chrome.tabs.update(tab.id, { autoDiscardable: false }).catch(() => {});
     agentTabIds[venue.venueCode] = tab.id;
     await chrome.storage.local.set({ agentTabIds });
   } else if (!tabMatchesDiscovery(tab.url, venue, dateCode)) {
@@ -1310,6 +1320,7 @@ async function replaceAgentTab(venue, dateCode) {
     await chrome.storage.local.set({ agentTabIds });
   }
   const tab = await chrome.tabs.create({ url, active: false, pinned: true });
+  await chrome.tabs.update(tab.id, { autoDiscardable: false }).catch(() => {});
   agentTabIds[venue.venueCode] = tab.id;
   await chrome.storage.local.set({ agentTabIds });
   try {
