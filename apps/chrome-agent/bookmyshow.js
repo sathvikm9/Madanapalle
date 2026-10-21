@@ -22,8 +22,8 @@
     return [
       control?.getAttribute?.("aria-label"),
       control?.getAttribute?.("title"),
-      control?.value,
-      control?.textContent
+      control?.textContent,
+      control?.value
     ]
       .map((value) => String(value || "").replace(/\s+/g, " ").trim())
       .find(Boolean) || "";
@@ -37,6 +37,7 @@
 
   function findOneTicketControl(controls = []) {
     return Array.from(controls).find((control) => {
+      if (control?.id === "quantity-1") return true;
       const label = normalizedControlText(control);
       return label === "1" || /^(?:select\s+)?1\s+(?:seats?|tickets?)$/i.test(label);
     }) || null;

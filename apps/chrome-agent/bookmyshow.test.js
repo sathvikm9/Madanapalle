@@ -65,6 +65,17 @@ test("recognizes both modern BookMyShow modal controls without exact whitespace 
   assert.ok(findOneTicketControl([{ getAttribute: () => "Select 1 seat", textContent: "" }]));
 });
 
+test("recognizes BookMyShow's list-item quantity even when its DOM value defaults to zero", () => {
+  const quantityOne = {
+    id: "quantity-1",
+    value: 0,
+    textContent: "1",
+    getAttribute: () => null
+  };
+  assert.equal(normalizedControlText(quantityOne), "1");
+  assert.equal(findOneTicketControl([quantityOne]), quantityOne);
+});
+
 test("requires every real seat in every category to be sold", () => {
   const full = [
     { name: "BALCONY", price: 105, capacity: 132, available: 0, sold: 132, unknown: 0 },

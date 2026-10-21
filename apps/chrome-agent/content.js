@@ -392,6 +392,8 @@ async function prepareBookMyShowSeatControls(deadline, recoveryMode) {
     }
 
     const controls = currentBookMyShowControls();
+    const selectedCount = globalThis.SKCTBookMyShow.selectedTicketCount(controls.selectedQuantity);
+    if (selectedCount != null) quantityChosen = selectedCount === 1;
     lastAction = globalThis.SKCTBookMyShow.recoveryAction(controls);
     if (controls.categorySelect && controls.rowSelect) {
       return { categorySelect: controls.categorySelect, rowSelect: controls.rowSelect, noTicketOptions };
@@ -412,8 +414,7 @@ async function prepareBookMyShowSeatControls(deadline, recoveryMode) {
     let clickable = null;
     if (controls.oneTicket && !quantityChosen) {
       clickable = controls.oneTicket;
-      quantityChosen = true;
-    } else if (controls.selectSeats) {
+    } else if (controls.selectSeats && quantityChosen) {
       clickable = controls.selectSeats;
     } else if (controls.oneTicket) {
       // Retry the quantity tap if React did not commit the first interaction.
@@ -422,7 +423,7 @@ async function prepareBookMyShowSeatControls(deadline, recoveryMode) {
       clickable = controls.accessibility;
     }
     if (clickable && Date.now() - lastClickedAt >= 1_000) {
-      clickable.click();
+      activateBookMyShowControl(clickable);
       lastClickedAt = Date.now();
     }
     await delay(100);
@@ -440,6 +441,12 @@ async function prepareBookMyShowSeatControls(deadline, recoveryMode) {
     categorySelectPresent: Boolean(controls.categorySelect),
     rowSelectPresent: Boolean(controls.rowSelect)
   });
+}
+
+function activateBookMyShowControl(control) {
+  control.scrollIntoView?.({ block: "center", inline: "center" });
+  control.focus?.({ preventScroll: true });
+  control.click();
 }
 
 function currentBookMyShowControls() {
