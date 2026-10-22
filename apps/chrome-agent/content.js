@@ -190,33 +190,68 @@ async function captureSeats(show) {
   }
   const recoveryMode = show.captureMode === "recovery";
   const configuredRecoveryDeadline = new Date(show.captureDeadlineAt || 0).getTime();
-  const recoveryDeadline = recoveryMode
-    ? (show.isFinalRecovery && Number.isFinite(configuredRecoveryDeadline)
-        ? configuredRecoveryDeadline
-        : Date.now() + 28_000)
-    : null;
-  const deadline = recoveryMode ? recoveryDeadline : Date.now() + 28_000;
-  const { categorySelect, rowSelect, noTicketOptions } = await prepareBookMyShowSeatControls(
+  const attemptBudgetMs = recoveryMode ? 14_000 : 26_000;
+  const attemptDeadline = Date.now() + attemptBudgetMs;
+  const deadline = recoveryMode && show.isFinalRecovery && Number.isFinite(configuredRecoveryDeadline)
+    ? Math.min(configuredRecoveryDeadline, attemptDeadline)
+    : attemptDeadline;
+  const { noTicketOptions } = await prepareBookMyShowSeatControls(
     deadline,
-    recoveryMode
+    recoveryMode,
+    show
   );
-  const categoryOptions = Array.from(categorySelect.options).filter((option) => option.value).map((option) => ({ value: option.value, label: option.label }));
+  const categorySelect = currentBookMyShowControls().categorySelect;
+  const categoryOptions = Array.from(categorySelect?.options || [])
+    .filter((option) => option.value)
+    .map((option) => ({ value: option.value, label: option.label }));
+  if (!categoryOptions.length) {
+    throwCaptureControlError("seat_categories", { recoveryMode });
+  }
   const observedCategories = [];
 
   for (const category of categoryOptions) {
-    setSelect(categorySelect, category.value);
-    await delay(80);
-    const rows = Array.from(rowSelect.options).filter((option) => option.value).map((option) => option.value);
+    const categoryName = category.label.replace(/\s*-\s*₹.*$/, "").trim();
+    const rowPrefix = `${categoryName}-`.toUpperCase();
+    const liveCategorySelect = currentBookMyShowControls().categorySelect;
+    if (!liveCategorySelect) throwCaptureControlError("seat_category_select", { category: category.label });
+    setSelect(liveCategorySelect, category.value);
+    const categoryState = await waitForBookMyShowState(
+      () => {
+        const controls = currentBookMyShowControls();
+        const rows = Array.from(controls.rowSelect?.options || [])
+          .filter((option) => option.value)
+          .map((option) => ({ value: option.value, label: option.label }));
+        const matchingRows = rows.filter((row) => row.value.toUpperCase().startsWith(rowPrefix));
+        return controls.categorySelect?.value === category.value && !controls.rowSelect?.disabled &&
+          matchingRows.length && matchingRows.length === rows.length
+          ? { rows: matchingRows }
+          : null;
+      },
+      "category_rows",
+      deadline,
+      { category: category.label },
+      1_500
+    );
+    const rows = categoryState.rows;
     let capacity = 0, available = 0, sold = 0, unknown = 0;
     for (const row of rows) {
-      setSelect(rowSelect, row);
-      const grid = await waitForControl(
-        () => document.querySelector('[aria-label^="Seats for Row"]'),
+      const liveRowSelect = currentBookMyShowControls().rowSelect;
+      if (!liveRowSelect) throwCaptureControlError("seat_row_select", { category: category.label, row: row.label });
+      setSelect(liveRowSelect, row.value);
+      const grid = await waitForBookMyShowState(
+        () => {
+          const controls = currentBookMyShowControls();
+          if (controls.rowSelect?.value !== row.value) return null;
+          return Array.from(document.querySelectorAll('[aria-label^="Seats for Row"]')).find((item) => (
+            item.getAttribute("aria-label") === `Seats for Row ${row.value}` &&
+            item.querySelector("[aria-label]")
+          )) || null;
+        },
         "seat_grid",
-        5_000,
-        { category: category.label, row }
+        deadline,
+        { category: category.label, row: row.label, rowValue: row.value },
+        1_500
       );
-      await delay(25);
       for (const seat of grid.querySelectorAll("[aria-label]")) {
         const label = seat.getAttribute("aria-label") || "";
         const disabled = seat.getAttribute("aria-disabled") === "true";
@@ -229,7 +264,7 @@ async function captureSeats(show) {
     }
     const price = Number((category.label.match(/₹\s*([\d.]+)/) || [])[1] || 0);
     observedCategories.push({
-      name: category.label.replace(/\s*-\s*₹.*$/, "").trim(),
+      name: categoryName,
       price,
       capacity,
       available,
@@ -379,11 +414,13 @@ function ticketNewIdentity(show) {
   };
 }
 
-async function prepareBookMyShowSeatControls(deadline, recoveryMode) {
+async function prepareBookMyShowSeatControls(deadline, recoveryMode, show) {
+  const startedAt = Date.now();
   let lastAction = "wait_booking_entry_control";
-  let lastClickedAt = 0;
   let quantityChosen = false;
   let noTicketOptions = false;
+  const actionTimes = new Map();
+  const actionTrace = [];
 
   while (Date.now() < deadline) {
     const pageKind = detectPageKind(document.body?.innerText || "");
@@ -411,20 +448,44 @@ async function prepareBookMyShowSeatControls(deadline, recoveryMode) {
       }
     }
 
-    let clickable = null;
-    if (controls.oneTicket && !quantityChosen) {
-      clickable = controls.oneTicket;
-    } else if (controls.selectSeats && quantityChosen) {
-      clickable = controls.selectSeats;
-    } else if (controls.oneTicket) {
-      // Retry the quantity tap if React did not commit the first interaction.
-      clickable = controls.oneTicket;
+    let action = null;
+    let control = null;
+    if (controls.selectSeats || controls.oneTicket || controls.quantityRange) {
+      if (!quantityChosen) {
+        action = "set_quantity_one";
+        control = controls.oneTicket || controls.quantityRange;
+      } else if (controls.selectSeats) {
+        action = "select_seats";
+        control = controls.selectSeats;
+      }
     } else if (controls.accessibility) {
-      clickable = controls.accessibility;
+      action = "open_accessibility";
+      control = controls.accessibility;
     }
-    if (clickable && Date.now() - lastClickedAt >= 1_000) {
-      activateBookMyShowControl(clickable);
-      lastClickedAt = Date.now();
+    if (action && control && Date.now() - Number(actionTimes.get(action) || 0) >= 700) {
+      const bridgeResult = activateBookMyShowControl(control, action);
+      actionTimes.set(action, Date.now());
+      actionTrace.push({
+        atMs: Date.now() - startedAt,
+        action,
+        bridge: bridgeResult?.control || null,
+        ok: bridgeResult?.ok !== false,
+        selectedCount,
+        quantityChosen
+      });
+      if (actionTrace.length > 12) actionTrace.shift();
+      await delay(180);
+      continue;
+    }
+
+    const pageTextLength = (document.body?.innerText || "").trim().length;
+    const loadingShell = document.readyState === "complete" && pageTextLength < 100 &&
+      !controls.oneTicket && !controls.selectSeats && !controls.categorySelect;
+    const reloadKey = `skct-bms-loading-reload:${show?.attemptId || show?.naturalKey || "capture"}`;
+    if (!recoveryMode && loadingShell && Date.now() - startedAt >= 8_000 && !sessionStorage.getItem(reloadKey)) {
+      sessionStorage.setItem(reloadKey, new Date().toISOString());
+      location.reload();
+      await new Promise(() => {});
     }
     await delay(100);
   }
@@ -437,16 +498,37 @@ async function prepareBookMyShowSeatControls(deadline, recoveryMode) {
     selectedTicketCount: globalThis.SKCTBookMyShow.selectedTicketCount(controls.selectedQuantity),
     quantityPresent: Boolean(controls.quantity),
     oneTicketPresent: Boolean(controls.oneTicket),
+    quantityRangePresent: Boolean(controls.quantityRange),
     selectSeatsPresent: Boolean(controls.selectSeats),
     categorySelectPresent: Boolean(controls.categorySelect),
-    rowSelectPresent: Boolean(controls.rowSelect)
+    rowSelectPresent: Boolean(controls.rowSelect),
+    actionTrace
   });
 }
 
-function activateBookMyShowControl(control) {
+function activateBookMyShowControl(control, action) {
   control.scrollIntoView?.({ block: "center", inline: "center" });
   control.focus?.({ preventScroll: true });
-  control.click();
+  const bridgeResult = requestBookMyShowMainAction(action);
+  if (!bridgeResult?.ok) control.click();
+  return bridgeResult;
+}
+
+function requestBookMyShowMainAction(action) {
+  const requestAttribute = "data-skct-bms-main-request";
+  const responseAttribute = "data-skct-bms-main-response";
+  const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  document.documentElement.setAttribute(requestAttribute, JSON.stringify({ id, action }));
+  document.dispatchEvent(new Event("skct:bms-main-action"));
+  let response = null;
+  try {
+    response = JSON.parse(document.documentElement.getAttribute(responseAttribute) || "null");
+  } catch {
+    response = null;
+  }
+  document.documentElement.removeAttribute(requestAttribute);
+  document.documentElement.removeAttribute(responseAttribute);
+  return response?.id === id ? response : null;
 }
 
 function currentBookMyShowControls() {
@@ -459,6 +541,9 @@ function currentBookMyShowControls() {
     oneTicket: quantityPromptPresent
       ? globalThis.SKCTBookMyShow.findOneTicketControl(interactiveControls)
       : null,
+    quantityRange: quantityPromptPresent
+      ? document.querySelector('input[type="range"]')
+      : null,
     accessibility: document.querySelector('button[aria-label="Open accessibility seat selection"]'),
     quantity: document.querySelector('select[aria-label="Select number of tickets, required"]'),
     selectedQuantity: interactiveControls.find((control) => (
@@ -468,6 +553,17 @@ function currentBookMyShowControls() {
     rowSelect: document.querySelector('select[aria-label="Select row"]'),
     visualSeatMap: Boolean(document.querySelector('[aria-label^="Seats for Row"], [aria-label^="Select seat"]'))
   };
+}
+
+async function waitForBookMyShowState(find, control, deadline, context = {}, maximumWaitMs = 1_500) {
+  const timeout = Math.max(0, Math.min(maximumWaitMs, deadline - Date.now()));
+  const started = Date.now();
+  while (Date.now() - started < timeout) {
+    const result = find();
+    if (result) return result;
+    await delay(40);
+  }
+  throwCaptureControlError(control, { ...context, remainingMs: Math.max(0, deadline - Date.now()) });
 }
 
 function extractAssignedJson(text) {

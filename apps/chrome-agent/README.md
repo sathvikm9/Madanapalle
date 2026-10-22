@@ -43,6 +43,8 @@ The extension creates one pinned BookMyShow or TicketNew tab per theatre. While 
 - a second preflight refreshes the schedule and prepares an inactive exact-session standby tab before each BookMyShow final attempt
 - a successful backup waits until the final minute; a failed backup retries once per minute
 - a failed Sri Krishna, Ravi, or ASR final read skips another discovery, reloads its exact-session standby only after the pending capture is registered, and retries fresh recovery tabs in bounded 18-second attempts through the end of the cutoff minute
+- BookMyShow quantity and Select Seats transitions are committed through the page's current React handlers, verified after every step, and retried only while that exact UI state remains visible
+- a stalled BookMyShow loading shell gets one bounded self-reload during a primary attempt; accessibility categories, rows, and exact row grids are then re-acquired and verified before seats are counted
 - a failed Sai Chitra final read stops after 15 seconds, immediately opens a fresh exact District session, and makes one bounded recovery attempt from about `+14:21` through `+14:55`
 - failed capture diagnostics retain the tab URL, loading status, page type, provider, and session ID
 - Sai Chitra reads the exact movie, showtime and session route from District during both capture preflights, then verifies the District session token before counting seats
