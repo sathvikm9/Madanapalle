@@ -32,5 +32,19 @@ test("counts only the exact BMS row that committed in accessibility mode", () =>
   );
   assert.match(capture, /controls\.rowSelect\?\.value !== row\.value/);
   assert.match(capture, /`Seats for Row \$\{row\.value\}`/);
-  assert.match(capture, /waitForBookMyShowState/);
+  assert.match(capture, /commitBookMyShowSelect/);
+});
+
+test("commits BookMyShow category and row changes in the page main world", () => {
+  assert.match(content, /requestBookMyShowMainAction\("set_select"/);
+  assert.match(content, /for \(const method of \["native", "react", "native"\]\)/);
+  assert.match(content, /`commit_\$\{control\}`/);
+});
+
+test("exposes capture progress and accepts an explicit background start acknowledgement", () => {
+  assert.match(content, /message\.type === "START_CAPTURE"/);
+  assert.match(content, /activeCaptureAttemptId === pending\.attemptId/);
+  assert.match(content, /captureProgress/);
+  assert.match(content, /reload_bookmyshow_loading_shell/);
+  assert.doesNotMatch(content, /await new Promise\(\(\) => \{\}\)/);
 });

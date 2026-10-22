@@ -90,14 +90,14 @@ test("after a failed backup retries in the next minute", () => {
   );
 });
 
-test("recovery mode keeps the same minute-by-minute retry and final timing", () => {
+test("recovery mode retries a failed initial capture immediately and preserves final timing", () => {
   const recoveryAfterFailure = {
     recoveryMode: true,
     lastAttemptAt: "2026-08-20T05:40:07.000Z"
   };
   assert.equal(
     nextCaptureWhen(sriKrishna, recoveryAfterFailure, new Date("2026-08-20T05:40:35.000Z").getTime()),
-    new Date("2026-08-20T05:41:05.000Z").getTime()
+    new Date("2026-08-20T05:40:36.000Z").getTime()
   );
 
   const protectedRecoveryBackup = {

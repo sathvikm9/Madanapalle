@@ -920,8 +920,10 @@ async function beginCapture(show) {
     when: timingNow + watchdogDelayMs
   });
   try {
-    if (captureMode === "recovery") await openRecoverySeatLayout(pending, pageLoadTimeoutMs);
-    else await openSeatLayout(pending, pageLoadTimeoutMs);
+    const tab = captureMode === "recovery"
+      ? await openRecoverySeatLayout(pending, pageLoadTimeoutMs)
+      : await openSeatLayout(pending, pageLoadTimeoutMs);
+    await ensureCaptureStarted(tab.id, pending, pageLoadTimeoutMs);
   } catch (error) {
     const taggedError = new Error(String(error?.message || error), { cause: error });
     taggedError.captureAttemptId = attemptId;
@@ -1378,6 +1380,7 @@ async function openSeatLayout(show, timeoutMs = 30_000) {
     tab = await chrome.tabs.update(tab.id, { url: targetUrl, active: false });
   }
   await waitForComplete(tab.id, timeoutMs);
+  return tab;
 }
 
 async function prepareRecoverySeatLayout(show, { active = true, replace = true } = {}) {
@@ -1423,6 +1426,26 @@ async function openRecoverySeatLayout(show, timeoutMs = 30_000) {
     tab = await chrome.tabs.update(tab.id, { url: targetUrl, active: true });
   }
   await waitForComplete(tab.id, timeoutMs);
+  return tab;
+}
+
+async function ensureCaptureStarted(tabId, show, timeoutMs = 8_000) {
+  const deadline = Date.now() + Math.max(1_000, Math.min(timeoutMs, 8_000));
+  let lastError = null;
+  while (Date.now() < deadline) {
+    try {
+      const response = await chrome.tabs.sendMessage(tabId, { type: "START_CAPTURE", show });
+      if (response?.ok && response?.attemptId === show.attemptId) return response;
+      if (response?.ok && response?.completed) return response;
+      lastError = new Error(response?.error || "Capture content script did not acknowledge the attempt");
+    } catch (error) {
+      lastError = error;
+    }
+    await delay(150);
+  }
+  const error = new Error("Capture content script did not start on the completed seat page", { cause: lastError });
+  error.tabId = tabId;
+  throw error;
 }
 
 async function closeRecoveryTab(venueCode) {

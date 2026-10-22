@@ -1,6 +1,14 @@
 const COLLECTOR_KEEPALIVE_PORT = "collector-tab-keepalive";
 const COLLECTOR_KEEPALIVE_INTERVAL_MS = 20 * 1000;
 let collectorKeepalivePort = null;
+let activeCaptureAttemptId = null;
+let captureProgress = {
+  attemptId: null,
+  stage: "idle",
+  startedAt: null,
+  updatedAt: null,
+  context: null
+};
 
 void syncCollectorKeepalive();
 setInterval(() => void syncCollectorKeepalive(), COLLECTOR_KEEPALIVE_INTERVAL_MS);
@@ -60,7 +68,13 @@ async function handleMessage(message) {
     };
   }
   if (message.type === "CAPTURE_DIAGNOSTICS") {
-    return { ok: true, diagnostics: capturePageDiagnostics("background_watchdog") };
+    return {
+      ok: true,
+      diagnostics: capturePageDiagnostics("background_watchdog", { captureProgress })
+    };
+  }
+  if (message.type === "START_CAPTURE") {
+    return startCaptureRequest(message.show);
   }
   if (message.type === "DISCOVER") {
     if (message.platform === "ticketnew") {
@@ -80,6 +94,15 @@ async function handleMessage(message) {
     };
   }
   throw new Error("Unknown page-agent request");
+}
+
+async function startCaptureRequest(show) {
+  const { pendingCaptures = {} } = await chrome.storage.local.get({ pendingCaptures: {} });
+  const pending = pendingCaptures[show?.naturalKey];
+  if (!pending || pending.attemptId !== show?.attemptId) {
+    return { ok: true, started: false, completed: true, attemptId: show?.attemptId || null };
+  }
+  return startPendingCapture(pending);
 }
 
 function discoverShows(dateCode, venueCode, captureStartAfterShowMinutes = 10) {
@@ -168,6 +191,27 @@ async function resumePendingCapture() {
     ));
   }
   if (!pending) return;
+  startPendingCapture(pending);
+}
+
+function startPendingCapture(pending) {
+  if (!pending?.attemptId) return { ok: false, error: "capture_attempt_missing" };
+  if (activeCaptureAttemptId === pending.attemptId) {
+    return { ok: true, started: false, attemptId: pending.attemptId, stage: captureProgress.stage };
+  }
+  activeCaptureAttemptId = pending.attemptId;
+  captureProgress = {
+    attemptId: pending.attemptId,
+    stage: "capture_starting",
+    startedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    context: { captureMode: pending.captureMode || "primary" }
+  };
+  void executePendingCapture(pending);
+  return { ok: true, started: true, attemptId: pending.attemptId, stage: captureProgress.stage };
+}
+
+async function executePendingCapture(pending) {
   try {
     const result = await captureSeats(pending);
     if (!result) return;
@@ -179,9 +223,20 @@ async function resumePendingCapture() {
       attemptId: pending.attemptId,
       error: error.message,
       stage: error.captureStage || "read_seat_map",
-      diagnostics: error.captureDiagnostics || capturePageDiagnostics("seat_capture")
+      diagnostics: error.captureDiagnostics || capturePageDiagnostics("seat_capture", { captureProgress })
     });
+  } finally {
+    if (activeCaptureAttemptId === pending.attemptId) activeCaptureAttemptId = null;
   }
+}
+
+function markCaptureProgress(stage, context = null) {
+  captureProgress = {
+    ...captureProgress,
+    stage,
+    updatedAt: new Date().toISOString(),
+    context
+  };
 }
 
 async function captureSeats(show) {
@@ -195,11 +250,13 @@ async function captureSeats(show) {
   const deadline = recoveryMode && show.isFinalRecovery && Number.isFinite(configuredRecoveryDeadline)
     ? Math.min(configuredRecoveryDeadline, attemptDeadline)
     : attemptDeadline;
-  const { noTicketOptions } = await prepareBookMyShowSeatControls(
+  markCaptureProgress("prepare_bookmyshow_controls", { recoveryMode, deadline: new Date(deadline).toISOString() });
+  const { noTicketOptions, reloading = false } = await prepareBookMyShowSeatControls(
     deadline,
     recoveryMode,
     show
   );
+  if (reloading) return null;
   const categorySelect = currentBookMyShowControls().categorySelect;
   const categoryOptions = Array.from(categorySelect?.options || [])
     .filter((option) => option.value)
@@ -214,8 +271,10 @@ async function captureSeats(show) {
     const rowPrefix = `${categoryName}-`.toUpperCase();
     const liveCategorySelect = currentBookMyShowControls().categorySelect;
     if (!liveCategorySelect) throwCaptureControlError("seat_category_select", { category: category.label });
-    setSelect(liveCategorySelect, category.value);
-    const categoryState = await waitForBookMyShowState(
+    markCaptureProgress("select_bookmyshow_category", { category: category.label });
+    const categoryState = await commitBookMyShowSelect(
+      "Select seat category",
+      category.value,
       () => {
         const controls = currentBookMyShowControls();
         const rows = Array.from(controls.rowSelect?.options || [])
@@ -229,16 +288,21 @@ async function captureSeats(show) {
       },
       "category_rows",
       deadline,
-      { category: category.label },
-      1_500
+      { category: category.label }
     );
     const rows = categoryState.rows;
     let capacity = 0, available = 0, sold = 0, unknown = 0;
     for (const row of rows) {
       const liveRowSelect = currentBookMyShowControls().rowSelect;
       if (!liveRowSelect) throwCaptureControlError("seat_row_select", { category: category.label, row: row.label });
-      setSelect(liveRowSelect, row.value);
-      const grid = await waitForBookMyShowState(
+      markCaptureProgress("select_bookmyshow_row", {
+        category: category.label,
+        row: row.label,
+        rowValue: row.value
+      });
+      const grid = await commitBookMyShowSelect(
+        "Select row",
+        row.value,
         () => {
           const controls = currentBookMyShowControls();
           if (controls.rowSelect?.value !== row.value) return null;
@@ -249,8 +313,7 @@ async function captureSeats(show) {
         },
         "seat_grid",
         deadline,
-        { category: category.label, row: row.label, rowValue: row.value },
-        1_500
+        { category: category.label, row: row.label, rowValue: row.value }
       );
       for (const seat of grid.querySelectorAll("[aria-label]")) {
         const label = seat.getAttribute("aria-label") || "";
@@ -261,6 +324,12 @@ async function captureSeats(show) {
         else if (disabled || /sold|unavailable|booked|taken/i.test(label)) sold += 1;
         else unknown += 1;
       }
+      markCaptureProgress("counted_bookmyshow_row", {
+        category: category.label,
+        row: row.label,
+        rowValue: row.value,
+        seats: grid.querySelectorAll("[aria-label]").length
+      });
     }
     const price = Number((category.label.match(/₹\s*([\d.]+)/) || [])[1] || 0);
     observedCategories.push({
@@ -274,6 +343,7 @@ async function captureSeats(show) {
   }
 
   const capturedAt = new Date().toISOString();
+  markCaptureProgress("bookmyshow_capture_complete", { categories: observedCategories.length });
   const categories = globalThis.SKCTBookMyShow.completeFromVerifiedLayout(
     show.venueCode,
     show.categories,
@@ -420,6 +490,7 @@ async function prepareBookMyShowSeatControls(deadline, recoveryMode, show) {
   let quantityChosen = false;
   let noTicketOptions = false;
   const actionTimes = new Map();
+  const actionCounts = new Map();
   const actionTrace = [];
 
   while (Date.now() < deadline) {
@@ -463,12 +534,17 @@ async function prepareBookMyShowSeatControls(deadline, recoveryMode, show) {
       control = controls.accessibility;
     }
     if (action && control && Date.now() - Number(actionTimes.get(action) || 0) >= 700) {
-      const bridgeResult = activateBookMyShowControl(control, action);
+      const actionCount = Number(actionCounts.get(action) || 0) + 1;
+      actionCounts.set(action, actionCount);
+      const method = actionCount % 2 === 1 ? "native" : "react";
+      markCaptureProgress(`bookmyshow_${action}`, { method, actionCount, selectedCount, quantityChosen });
+      const bridgeResult = activateBookMyShowControl(control, action, { method });
       actionTimes.set(action, Date.now());
       actionTrace.push({
         atMs: Date.now() - startedAt,
         action,
         bridge: bridgeResult?.control || null,
+        method: bridgeResult?.method || method,
         ok: bridgeResult?.ok !== false,
         selectedCount,
         quantityChosen
@@ -484,8 +560,9 @@ async function prepareBookMyShowSeatControls(deadline, recoveryMode, show) {
     const reloadKey = `skct-bms-loading-reload:${show?.attemptId || show?.naturalKey || "capture"}`;
     if (!recoveryMode && loadingShell && Date.now() - startedAt >= 8_000 && !sessionStorage.getItem(reloadKey)) {
       sessionStorage.setItem(reloadKey, new Date().toISOString());
+      markCaptureProgress("reload_bookmyshow_loading_shell", { pageTextLength });
       location.reload();
-      await new Promise(() => {});
+      return { noTicketOptions, reloading: true };
     }
     await delay(100);
   }
@@ -506,19 +583,19 @@ async function prepareBookMyShowSeatControls(deadline, recoveryMode, show) {
   });
 }
 
-function activateBookMyShowControl(control, action) {
+function activateBookMyShowControl(control, action, details = {}) {
   control.scrollIntoView?.({ block: "center", inline: "center" });
   control.focus?.({ preventScroll: true });
-  const bridgeResult = requestBookMyShowMainAction(action);
+  const bridgeResult = requestBookMyShowMainAction(action, details);
   if (!bridgeResult?.ok) control.click();
   return bridgeResult;
 }
 
-function requestBookMyShowMainAction(action) {
+function requestBookMyShowMainAction(action, details = {}) {
   const requestAttribute = "data-skct-bms-main-request";
   const responseAttribute = "data-skct-bms-main-response";
   const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  document.documentElement.setAttribute(requestAttribute, JSON.stringify({ id, action }));
+  document.documentElement.setAttribute(requestAttribute, JSON.stringify({ id, action, ...details }));
   document.dispatchEvent(new Event("skct:bms-main-action"));
   let response = null;
   try {
@@ -529,6 +606,38 @@ function requestBookMyShowMainAction(action) {
   document.documentElement.removeAttribute(requestAttribute);
   document.documentElement.removeAttribute(responseAttribute);
   return response?.id === id ? response : null;
+}
+
+async function commitBookMyShowSelect(ariaLabel, value, findState, control, deadline, context = {}) {
+  let lastError = null;
+  for (const method of ["native", "react", "native"]) {
+    const select = Array.from(document.querySelectorAll("select")).find((item) => (
+      item.getAttribute("aria-label") === ariaLabel
+    ));
+    if (!select) throwCaptureControlError(control, { ...context, ariaLabel, value, method });
+    const bridgeResult = requestBookMyShowMainAction("set_select", { ariaLabel, value, method });
+    if (!bridgeResult?.ok) setSelect(select, value);
+    markCaptureProgress(`commit_${control}`, {
+      ...context,
+      ariaLabel,
+      value,
+      method,
+      bridge: bridgeResult?.control || null,
+      bridgeOk: bridgeResult?.ok === true
+    });
+    try {
+      return await waitForBookMyShowState(
+        findState,
+        control,
+        deadline,
+        { ...context, ariaLabel, value, method },
+        700
+      );
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error(`BookMyShow did not commit ${ariaLabel}`);
 }
 
 function currentBookMyShowControls() {

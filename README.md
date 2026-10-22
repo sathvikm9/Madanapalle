@@ -27,7 +27,10 @@ If a show starts at 7:00 AM and BookMyShow gives a 7:15 AM cutoff:
 5. if the upload is unavailable, it retries every minute after cutoff or browser restart without reopening BookMyShow;
 6. at 7:15 AM, the newest successful capture is locked as final, including the backup when the final attempt fails;
 7. discovery work pauses around the capture window so it cannot delay the seat count;
-8. every attempt and failure is retained in the server audit log.
+8. the background worker explicitly starts and acknowledges each loaded capture page instead of depending only on page-load timing;
+9. BookMyShow ticket, accessibility, category and row transitions are committed in the page's main JavaScript world and verified before counting continues;
+10. a stalled BookMyShow initial attempt is stopped early and retried immediately, preserving the remaining initial-capture window;
+11. live capture progress and every failure are retained in diagnostics and the server audit log.
 
 This requires an always-on collector. GitHub Actions schedules are not used for the final-minute job because their start times are not exact.
 

@@ -57,6 +57,9 @@ export function nextCaptureWhen(show, state = {}, now = Date.now()) {
     saiChitraFinalRecoveryAvailable &&
     lastAttempt != null && lastAttempt >= finalStart &&
     (lastSuccess == null || lastSuccess < finalStart);
+  const needsInitialRecovery = supportsFinalCaptureRecovery(show) && state.recoveryMode &&
+    lastSuccess == null && lastAttempt != null && lastAttempt >= windowStart &&
+    lastAttempt < finalStart && now < finalStart;
 
   if (lastSuccess != null) {
     if (lastSuccess >= finalStart) return null;
@@ -66,6 +69,7 @@ export function nextCaptureWhen(show, state = {}, now = Date.now()) {
   }
 
   if (needsFinalRecovery) return Math.min(now + 1_000, deadline - 1_000);
+  if (needsInitialRecovery) return Math.min(now + 1_000, finalStart - 1_000);
 
   if (now <= firstAttempt) return firstAttempt;
   if (lastAttempt == null || minuteStart(lastAttempt) < minuteStart(now)) {

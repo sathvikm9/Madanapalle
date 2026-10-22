@@ -213,6 +213,21 @@ test("BookMyShow final failure primes and repeatedly schedules bounded recovery 
   assert.doesNotMatch(failCapture, /finalRecoveryExhausted/);
 });
 
+test("background explicitly starts the current content capture after page load", () => {
+  const source = fs.readFileSync(backgroundUrl, "utf8");
+  const beginStart = source.indexOf("async function beginCapture");
+  const beginEnd = source.indexOf("function discoveryHousefullResult", beginStart);
+  const beginCapture = source.slice(beginStart, beginEnd);
+  const starterStart = source.indexOf("async function ensureCaptureStarted");
+  const starterEnd = source.indexOf("async function closeRecoveryTab", starterStart);
+  const starter = source.slice(starterStart, starterEnd);
+
+  assert.match(beginCapture, /ensureCaptureStarted\(tab\.id, pending/);
+  assert.match(starter, /type: "START_CAPTURE"/);
+  assert.match(starter, /response\?\.attemptId === show\.attemptId/);
+  assert.match(starter, /Capture content script did not start/);
+});
+
 test("capture failure alerts are deduplicated while intermediate recovery stays silent", () => {
   const source = fs.readFileSync(backgroundUrl, "utf8");
   const failureStart = source.indexOf("async function failCapture");

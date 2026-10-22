@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  BOOKMYSHOW_FINAL_PRIMARY_TIMEOUT_MS,
+  BOOKMYSHOW_PRIMARY_PAGE_LOAD_TIMEOUT_MS,
+  BOOKMYSHOW_PRIMARY_TIMEOUT_MS,
   captureAttemptTimeouts,
   SAI_CHITRA_FINAL_PRIMARY_PAGE_LOAD_TIMEOUT_MS,
   SAI_CHITRA_FINAL_PRIMARY_TIMEOUT_MS,
@@ -54,14 +57,22 @@ test("bounds the fresh Sai Chitra recovery to the final five-second safety buffe
   });
 });
 
-test("preserves the existing BookMyShow final and recovery limits", () => {
+test("fails stalled BookMyShow attempts quickly enough to preserve recovery time", () => {
+  assert.deepEqual(captureAttemptTimeouts(bookMyShow, {
+    captureMode: "primary",
+    deadline: new Date(bookMyShow.cutoffAt).getTime(),
+    now: new Date("2026-10-03T05:45:05.000Z").getTime()
+  }), {
+    watchdogDelayMs: BOOKMYSHOW_PRIMARY_TIMEOUT_MS,
+    pageLoadTimeoutMs: BOOKMYSHOW_PRIMARY_PAGE_LOAD_TIMEOUT_MS
+  });
   assert.deepEqual(captureAttemptTimeouts(bookMyShow, {
     captureMode: "primary",
     deadline: new Date(bookMyShow.cutoffAt).getTime(),
     now: new Date("2026-10-03T05:49:05.000Z").getTime()
   }), {
-    watchdogDelayMs: 50_000,
-    pageLoadTimeoutMs: 20_000
+    watchdogDelayMs: BOOKMYSHOW_FINAL_PRIMARY_TIMEOUT_MS,
+    pageLoadTimeoutMs: BOOKMYSHOW_PRIMARY_PAGE_LOAD_TIMEOUT_MS
   });
   assert.deepEqual(captureAttemptTimeouts(bookMyShow, {
     captureMode: "recovery",

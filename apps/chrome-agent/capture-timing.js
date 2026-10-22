@@ -1,6 +1,9 @@
 import { finalCaptureAt } from "./schedule.js";
 
 export const BOOKMYSHOW_FINAL_RECOVERY_TIMEOUT_MS = 18_000;
+export const BOOKMYSHOW_PRIMARY_TIMEOUT_MS = 35_000;
+export const BOOKMYSHOW_PRIMARY_PAGE_LOAD_TIMEOUT_MS = 20_000;
+export const BOOKMYSHOW_FINAL_PRIMARY_TIMEOUT_MS = 20_000;
 export const SAI_CHITRA_FINAL_PRIMARY_TIMEOUT_MS = 15_000;
 export const SAI_CHITRA_FINAL_PRIMARY_PAGE_LOAD_TIMEOUT_MS = 14_000;
 export const SAI_CHITRA_FINAL_RECOVERY_TIMEOUT_MS = 34_000;
@@ -28,6 +31,23 @@ export function captureAttemptTimeouts(show, {
     return { watchdogDelayMs: timeout, pageLoadTimeoutMs: timeout };
   }
 
+  if (show?.platform === "bookmyshow") {
+    const finalAttempt = now >= finalCaptureAt(show);
+    return {
+      watchdogDelayMs: Math.max(
+        1_000,
+        Math.min(
+          finalAttempt ? BOOKMYSHOW_FINAL_PRIMARY_TIMEOUT_MS : BOOKMYSHOW_PRIMARY_TIMEOUT_MS,
+          deadlineSafetyMs
+        )
+      ),
+      pageLoadTimeoutMs: Math.max(
+        1_000,
+        Math.min(BOOKMYSHOW_PRIMARY_PAGE_LOAD_TIMEOUT_MS, deadlineSafetyMs)
+      )
+    };
+  }
+
   if (saiChitraFinal && captureMode === "primary") {
     return {
       watchdogDelayMs: Math.max(
@@ -52,11 +72,8 @@ export function captureAttemptTimeouts(show, {
     };
   }
 
-  const primaryFinalTimeoutMs = show?.platform === "bookmyshow" && now >= finalCaptureAt(show)
-    ? 20_000
-    : 30_000;
   return {
     watchdogDelayMs: Math.max(1_000, Math.min(50_000, deadlineSafetyMs)),
-    pageLoadTimeoutMs: Math.max(1_000, Math.min(primaryFinalTimeoutMs, deadlineSafetyMs))
+    pageLoadTimeoutMs: Math.max(1_000, Math.min(30_000, deadlineSafetyMs))
   };
 }

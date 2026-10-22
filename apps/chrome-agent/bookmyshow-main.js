@@ -30,6 +30,19 @@
     return true;
   }
 
+  function invokeReactChange(control) {
+    if (!control) return false;
+    const props = reactProps(control) || {};
+    const handler = typeof props.onChange === "function"
+      ? props.onChange
+      : typeof props.onInput === "function"
+        ? props.onInput
+        : null;
+    if (!handler) return false;
+    handler(syntheticReactEvent(control));
+    return true;
+  }
+
   function nativeClick(control) {
     if (!control) return false;
     const click = root.HTMLElement?.prototype?.click;
@@ -48,6 +61,17 @@
     return true;
   }
 
+  function setSelectValue(control, value, method = "native") {
+    if (!control || !value) return false;
+    const setter = Object.getOwnPropertyDescriptor(root.HTMLSelectElement?.prototype || {}, "value")?.set;
+    if (setter) setter.call(control, value);
+    else control.value = value;
+    if (method === "react") return invokeReactChange(control);
+    control.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    control.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+    return true;
+  }
+
   function findButton(documentRef, label) {
     return Array.from(documentRef.querySelectorAll("button")).find((control) => (
       String(control.getAttribute("aria-label") || control.textContent || "")
@@ -57,17 +81,36 @@
     )) || null;
   }
 
-  function performAction(documentRef, action) {
+  function activateClick(control, method = "native") {
+    return method === "react" ? invokeReactClick(control) : nativeClick(control);
+  }
+
+  function performAction(documentRef, request) {
+    const details = typeof request === "string" ? { action: request } : (request || {});
+    const { action, method = "native", value = "", ariaLabel = "" } = details;
     if (action === "set_quantity_one") {
       const quantityOne = documentRef.querySelector("#quantity-1");
       if (quantityOne) {
         return {
-          ok: invokeReactClick(quantityOne) || nativeClick(quantityOne),
-          control: "quantity-1"
+          ok: activateClick(quantityOne, method),
+          control: "quantity-1",
+          method
         };
       }
       const range = documentRef.querySelector('input[type="range"]');
-      return { ok: setRangeValue(range, "1"), control: "quantity-range" };
+      return { ok: setRangeValue(range, "1"), control: "quantity-range", method: "value" };
+    }
+
+    if (action === "set_select") {
+      const control = Array.from(documentRef.querySelectorAll("select")).find((select) => (
+        select.getAttribute("aria-label") === ariaLabel
+      )) || null;
+      return {
+        ok: setSelectValue(control, value, method),
+        control: ariaLabel || null,
+        method,
+        value
+      };
     }
 
     const control = action === "select_seats"
@@ -77,8 +120,9 @@
         : null;
     if (!control) return { ok: false, control: null, error: "control_missing" };
     return {
-      ok: invokeReactClick(control) || nativeClick(control),
-      control: action
+      ok: activateClick(control, method),
+      control: action,
+      method
     };
   }
 
@@ -92,7 +136,7 @@
       }
       let response;
       try {
-        response = { id: request.id || null, ...performAction(documentRef, request.action) };
+        response = { id: request.id || null, ...performAction(documentRef, request) };
       } catch (error) {
         response = {
           id: request.id || null,
@@ -110,7 +154,9 @@
     RESPONSE_ATTRIBUTE,
     reactProps,
     invokeReactClick,
+    invokeReactChange,
     setRangeValue,
+    setSelectValue,
     performAction,
     installBridge
   };
