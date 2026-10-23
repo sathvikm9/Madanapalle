@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildAnalyticsCatalogMovies, buildCapacityProfiles, summarizeAnalyticsRows } from "../src/analytics.js";
+import { analyticsCatalog, buildAnalyticsCatalogMovies, buildCapacityProfiles, summarizeAnalyticsRows } from "../src/analytics.js";
 
 function row(overrides = {}) {
   return {
@@ -66,6 +66,92 @@ test("builds the movie catalogue in highest-gross-first order", () => {
   assert.equal(movies[1].capturedShows, 2);
   assert.equal(movies[1].ticketsSold, 600);
   assert.equal(movies[1].collectionPaise, 3_000_000);
+});
+
+test("keeps a movie running when today's detected shows have not started yet", () => {
+  const movies = buildAnalyticsCatalogMovies([
+    row({
+      movie_title: "Jailer 2",
+      movie_variant: "Jailer 2",
+      event_code: "JAILER2",
+      show_date: "2026-10-22",
+      start_at: "2026-10-22T15:45:00.000Z",
+      sold: 146,
+      collection_paise: 1_450_000
+    }),
+    row({
+      movie_title: "Jailer 2",
+      movie_variant: "Jailer 2",
+      event_code: "JAILER2",
+      show_date: "2026-10-23",
+      start_at: "2026-10-23T05:30:00.000Z",
+      status: "scheduled",
+      snapshot_id: null,
+      sold: null,
+      collection_paise: null
+    })
+  ]);
+
+  assert.equal(movies[0].lastTrackedDate, "2026-10-23");
+  assert.equal(movies[0].capturedShows, 1);
+  assert.equal(movies[0].ticketsSold, 146);
+  assert.equal(movies[0].collectionPaise, 1_450_000);
+});
+
+test("catalog query includes detected future shows without adding them to gross", async () => {
+  const catalogRows = [
+    row({
+      movie_title: "Jailer 2",
+      movie_variant: "Jailer 2",
+      event_code: "JAILER2",
+      show_date: "2026-10-22",
+      start_at: "2026-10-22T15:45:00.000Z",
+      sold: 146,
+      collection_paise: 1_450_000
+    }),
+    row({
+      movie_title: "Jailer 2",
+      movie_variant: "Jailer 2",
+      event_code: "JAILER2",
+      show_date: "2026-10-23",
+      start_at: "2026-10-23T05:30:00.000Z",
+      status: "scheduled",
+      snapshot_id: null,
+      sold: null,
+      collection_paise: null
+    })
+  ];
+  const statements = [];
+  const db = {
+    prepare(sql) {
+      const statement = { sql, values: [] };
+      statements.push(statement);
+      const result = () => ({ results: sql.includes("shows.movie_title") ? catalogRows : [] });
+      return {
+        async all() {
+          return result();
+        },
+        bind(...values) {
+          statement.values = values;
+          return {
+            async all() {
+              return result();
+            }
+          };
+        }
+      };
+    }
+  };
+
+  const catalog = await analyticsCatalog(db, new Date("2026-10-23T03:41:15.000Z"));
+  const movieQuery = statements.find((statement) => statement.sql.includes("shows.movie_title"));
+
+  assert.ok(movieQuery);
+  assert.doesNotMatch(movieQuery.sql, /start_at\s*<=/);
+  assert.deepEqual(movieQuery.values, ["2026-08-21"]);
+  assert.equal(catalog.movies[0].lastTrackedDate, "2026-10-23");
+  assert.equal(catalog.movies[0].capturedShows, 1);
+  assert.equal(catalog.movies[0].collectionPaise, 1_450_000);
 });
 
 test("returns day-wise totals across a selected range", () => {

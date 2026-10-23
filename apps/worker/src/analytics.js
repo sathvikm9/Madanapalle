@@ -250,9 +250,9 @@ export async function analyticsCatalog(db, now = new Date()) {
          latest.captured_at DESC
        LIMIT 1
      )
-     WHERE is_current=1 AND show_date>=? AND start_at<=?
+     WHERE is_current=1 AND show_date>=?
      ORDER BY show_date ASC, start_at ASC`
-  ).bind(ANALYTICS_FIRST_DATE, now.toISOString()).all();
+  ).bind(ANALYTICS_FIRST_DATE).all();
   const capacityResult = await db.prepare(
     `SELECT shows.venue_code, snapshots.categories_json, snapshots.captured_at
      FROM snapshots
