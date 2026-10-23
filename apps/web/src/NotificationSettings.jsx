@@ -221,7 +221,6 @@ export default function NotificationSettings({ apiBase, preview = false }) {
               <div>
                 <span className="notification-sheet__eyebrow">MPLTalkies alerts</span>
                 <h2 id="notification-title">Notifications</h2>
-                <p>Grouped updates from captured show data.</p>
               </div>
               <div className="notification-sheet__header-actions">
                 <span className={`notification-state${enabled ? " is-on" : ""}`}>{enabled ? "On" : "Off"}</span>
@@ -274,7 +273,7 @@ export default function NotificationSettings({ apiBase, preview = false }) {
 
               <section className="notification-settings-group">
                 <div className="notification-settings-group__heading">
-                  <div><strong>Notify me about</strong><span>Choose the updates useful to you.</span></div>
+                  <div><strong>Notify me about</strong></div>
                 </div>
                 <div className="notification-types">
                   {NOTIFICATION_TYPES.map((type) => (

@@ -1305,6 +1305,8 @@ main { max-width: 1120px; margin: 0 auto; padding: 26px 24px 88px; }
 .show-card__metric > strong { font-size: clamp(23px, 2.7vw, 30px); line-height: 1.05; font-weight: 700; letter-spacing: -.04em; overflow-wrap: anywhere; }
 .show-card__result--pending { grid-template-columns: 1fr; }
 .show-card__result--pending .pending-copy { min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+.pending-copy__window { min-width: 0; display: flex; align-items: baseline; gap: 8px; white-space: nowrap; }
+.pending-copy__window span { color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .pending-copy time { color: var(--text); font-size: 13px; font-weight: 400; line-height: 1.35; }
 .pending-copy strong { margin-top: 5px; color: var(--text); font-size: 13px; font-weight: 700; line-height: 1.35; letter-spacing: 0; }
 .show-card__meta {
@@ -1924,6 +1926,8 @@ main { max-width: 1120px; margin: 0 auto; padding: 26px 24px 88px; }
   .show-card__metric > strong { font-size: clamp(24px, 7.2vw, 29px); }
   .show-card__result--pending { grid-template-columns: 1fr; }
   .show-card__result--pending .pending-copy strong { font-size: 12px; }
+  .pending-copy__window { gap: 6px; }
+  .pending-copy__window span { font-size: 8px; }
   .pending-copy time { font-size: 12px; }
   .show-card__meta { min-height: 48px; align-items: center; gap: 8px; padding: 6px 10px 6px 14px; }
   .show-card__capture { min-height: 32px; gap: 8px; }

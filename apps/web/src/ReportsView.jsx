@@ -533,7 +533,7 @@ function MoviePicker({ loading, movies, selectedMovie, onSelect }) {
             />
             {query && <button type="button" aria-label="Clear movie search" onClick={showAllMovies}>×</button>}
           </div>
-          <p className="movie-picker__menu-note">{movies.length} tracked movies · Running first · Completed by gross</p>
+          <p className="movie-picker__menu-note">{movies.length} tracked movies</p>
           <div className="movie-picker__options" id="report-movie-list" role="listbox" aria-label="Tracked movies">
             {filteredMovies.length ? filteredMovies.map((movie, index) => {
               const selected = movie.title === selectedMovie?.title;
