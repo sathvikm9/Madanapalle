@@ -278,13 +278,19 @@ function MovieCollectionTimeline({ days, closingGrossPaise = null }) {
                   </span>
                 </>}
               >
-                {day.theatres.length ? day.theatres.map((theatre) => (
-                  <div key={theatre.code}>
-                    <strong>{theatre.name}</strong>
-                    <span>{number.format(theatre.screenedShows)} {theatre.screenedShows === 1 ? "Show" : "Shows"}</span>
-                    <b>{money.format(theatre.collectionPaise / 100)}</b>
-                  </div>
-                )) : (
+                {day.theatres.length ? <>
+                  <header className="movie-daily__day-total">
+                    <span>Total shows</span>
+                    <strong>{number.format(day.screenedShows)} {day.screenedShows === 1 ? "Show" : "Shows"}</strong>
+                  </header>
+                  {day.theatres.map((theatre) => (
+                    <div key={theatre.code}>
+                      <strong>{theatre.name}</strong>
+                      <span>{number.format(theatre.screenedShows)} {theatre.screenedShows === 1 ? "Show" : "Shows"}</span>
+                      <b>{money.format(theatre.collectionPaise / 100)}</b>
+                    </div>
+                  ))}
+                </> : (
                   <p>No shows screened</p>
                 )}
               </AnimatedDisclosure>

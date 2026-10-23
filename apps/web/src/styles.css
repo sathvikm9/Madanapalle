@@ -1160,6 +1160,24 @@ main { max-width: 1120px; margin: 0 auto; padding: 26px 24px 88px; }
   border-top: 1px solid var(--line-soft);
   background: var(--surface);
 }
+.movie-daily__day-total {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 7px 46px 7px 28px;
+  border-bottom: 1px solid var(--line-soft);
+  background: rgba(255, 253, 249, .62);
+}
+.movie-daily__day-total span {
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.movie-daily__day-total strong { color: var(--ink); font-size: 10px; }
 .movie-daily__theatres > div {
   min-height: 45px;
   display: grid;
@@ -1839,6 +1857,9 @@ main { max-width: 1120px; margin: 0 auto; padding: 26px 24px 88px; }
   .movie-daily__row > .movie-daily__amount { align-items: center; flex-direction: row; gap: 9px; }
   .movie-daily__amount b { font-size: 13px; }
   .movie-daily__amount i { font-size: 15px; }
+  .movie-daily__day-total { min-height: 34px; padding: 6px 12px 6px 18px; }
+  .movie-daily__day-total span { font-size: 7px; }
+  .movie-daily__day-total strong { font-size: 9px; }
   .movie-daily__theatres > div {
     min-height: 42px;
     grid-template-columns: minmax(0, 1fr) auto minmax(76px, auto);
