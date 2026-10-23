@@ -6,27 +6,49 @@ import { formatFullGrossAnswer, parseFullGrossQuestion } from "./fullGrossCalcul
 const CATALOG_MAX_AGE_MS = 10 * 60 * 1000;
 const CONTEXT_IDLE_MS = 15 * 60 * 1000;
 const PRIMARY_EXAMPLES = [
-  "Give Irumudi report till now",
-  "Give Irumudi first week theatre wise data",
-  "How many Irumudi shows were housefull?",
-  "Give yesterday’s all-theatre report",
-  "Which theatre has the highest Irumudi gross?",
-  "What movies data do you have?"
+  {
+    label: "Today",
+    title: "Today’s collection",
+    description: "All theatres, tickets and gross",
+    prompt: "Give today all-theatre report"
+  },
+  {
+    label: "Movie",
+    title: "Movie performance",
+    description: "Day-wise and theatre-wise data",
+    prompt: "Give Jailer 2 report till now"
+  },
+  {
+    label: "Compare",
+    title: "Compare movies",
+    description: "Opening days, weeks or weekends",
+    prompt: "Compare Jailer 2 and Ranabaali first weekend"
+  },
+  {
+    label: "Shows",
+    title: "Housefull shows",
+    description: "Find sold-out performance",
+    prompt: "How many Jailer 2 shows were housefull?"
+  }
 ];
 const MORE_EXAMPLES = [
   "Give Sri Krishna yesterday’s report",
-  "Give 30 August theatre-wise report",
-  "Give day-wise Irumudi gross",
-  "Compare Irumudi and Toxic first weekend",
-  "Calculate Ravi full show gross and 5 shows with ₹170 and ₹100 prices",
-  "Calculate Ravi, Sai Chitra, ASR and Sri Krishna full show gross and 5 shows with ₹250 and ₹150 prices"
+  "Which theatre has the highest Jailer 2 gross?",
+  "Give day-wise Ranabaali gross",
+  "What movies data do you have?",
+  "Calculate Ravi full show gross with ₹170 and ₹100 prices"
+];
+const FOLLOW_UPS = [
+  { label: "Theatre-wise", prompt: "Show the same report theatre wise" },
+  { label: "Tickets sold", prompt: "How many tickets were sold?" },
+  { label: "Housefull", prompt: "How many shows were housefull?" }
 ];
 
 let nextMessageId = 1;
 
-function message(role, text) {
+function message(role, text, tone = "default") {
   const uniquePart = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${nextMessageId++}`;
-  return { id: `${role}-${uniquePart}`, role, text };
+  return { id: `${role}-${uniquePart}`, role, text, tone };
 }
 
 function shouldTryAiFallback(reply) {
@@ -52,6 +74,7 @@ export default function AnalyticsAssistant({ apiBase }) {
   const lastContextRef = useRef(null);
   const conversationRef = useRef(null);
   const inputRef = useRef(null);
+  const launcherRef = useRef(null);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -89,11 +112,16 @@ export default function AnalyticsAssistant({ apiBase }) {
 
   function closeAssistant() {
     setOpen(false);
+    window.setTimeout(() => launcherRef.current?.focus({ preventScroll: true }), 0);
+  }
+
+  function startNewConversation() {
     setInput("");
     setMessages([]);
     setCopiedId(null);
     setShowMoreExamples(false);
     lastContextRef.current = null;
+    window.setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 0);
   }
 
   function activeContext() {
@@ -202,7 +230,7 @@ export default function AnalyticsAssistant({ apiBase }) {
       rememberContext("analytics", parsed.request);
       setMessages((current) => [...current, message("assistant", formatAnalyticsAnswer(parsed.request, summary))]);
     } catch (error) {
-      setMessages((current) => [...current, message("assistant", `I couldn’t read the captured data. ${error.message}`)]);
+      setMessages((current) => [...current, message("assistant", `I couldn’t read the captured data. ${error.message}`, "error")]);
     } finally {
       setLoading(false);
     }
@@ -221,82 +249,119 @@ export default function AnalyticsAssistant({ apiBase }) {
   return createPortal(
     <>
       {!open && (
-        <button className="assistant-launcher" type="button" onClick={() => setOpen(true)} aria-haspopup="dialog">
-          <span aria-hidden="true">✦</span> Ask MPLTalkies
+        <button ref={launcherRef} className="assistant-launcher" type="button" onClick={() => setOpen(true)} aria-haspopup="dialog">
+          <span className="assistant-launcher__spark" aria-hidden="true">✦</span>
+          <span className="assistant-launcher__label">Ask MPLTalkies</span>
         </button>
       )}
 
       {open && (
-        <aside className="analytics-assistant" role="dialog" aria-modal="false" aria-labelledby="analytics-assistant-title">
-          <header className="analytics-assistant__header">
-            <div>
+        <>
+          <div className="analytics-assistant__backdrop" aria-hidden="true" onMouseDown={closeAssistant} />
+          <aside className="analytics-assistant" role="dialog" aria-modal="true" aria-labelledby="analytics-assistant-title">
+            <header className="analytics-assistant__header">
+              <div className="analytics-assistant__identity">
               <span className="analytics-assistant__mark" aria-hidden="true">MPL</span>
-              <span><strong id="analytics-assistant-title">Collection Assistant</strong><small>Captured records only</small></span>
-            </div>
-            <span className="analytics-assistant__readonly">Read-only</span>
-            <button type="button" onClick={closeAssistant} aria-label="Close collection assistant">×</button>
-          </header>
-
-          <div className="analytics-assistant__conversation" ref={conversationRef} aria-live="polite">
-            {!messages.length && (
-              <div className="analytics-assistant__welcome">
-                <p className="eyebrow">Ask the collection desk</p>
-                <h2>Fast answers from captured show data.</h2>
-                <p className="analytics-assistant__examples-note">Example questions — replace the movie, theatre, date or prices.</p>
-                <ol className="analytics-assistant__examples">
-                  {PRIMARY_EXAMPLES.map((example) => <li key={example}>{example}</li>)}
-                  {showMoreExamples && MORE_EXAMPLES.map((example) => <li key={example}>{example}</li>)}
-                </ol>
-                <button
-                  className="analytics-assistant__examples-toggle"
-                  type="button"
-                  aria-expanded={showMoreExamples}
-                  onClick={() => setShowMoreExamples((visible) => !visible)}
-                >
-                  {showMoreExamples ? "Show fewer examples" : "More examples"}
-                  <span aria-hidden="true">{showMoreExamples ? "−" : "+"}</span>
-                </button>
+                <span>
+                  <strong id="analytics-assistant-title">Ask MPLTalkies</strong>
+                  <small><i aria-hidden="true" /> Captured collection insights</small>
+                </span>
               </div>
-            )}
-
-            {messages.map((item) => (
-              <article className={`assistant-message assistant-message--${item.role}`} key={item.id}>
-                <span>{item.role === "assistant" ? "MPLTalkies" : "You"}</span>
-                <p>{item.text}</p>
-                {item.role === "assistant" && (
-                  <button type="button" onClick={() => copyAnswer(item)}>
-                    {copiedId === item.id ? "Copied!" : "Copy answer"}
-                  </button>
+              <div className="analytics-assistant__actions">
+                {messages.length > 0 && (
+                  <button className="analytics-assistant__new" type="button" onClick={startNewConversation}>New</button>
                 )}
-              </article>
-            ))}
+                <button className="analytics-assistant__close" type="button" onClick={closeAssistant} aria-label="Close Ask MPLTalkies">×</button>
+              </div>
+            </header>
 
-            {loading && (
-              <div className="assistant-thinking" role="status"><i /><i /><i /><span>Checking captured data…</span></div>
-            )}
-          </div>
+            <div className="analytics-assistant__conversation" ref={conversationRef} aria-live="polite">
+              {!messages.length && (
+                <div className="analytics-assistant__welcome">
+                  <span className="analytics-assistant__eyebrow">Your collection desk</span>
+                  <h2>What would you like to know?</h2>
+                  <p>Ask naturally or start with one of these.</p>
+                  <div className="analytics-assistant__starters">
+                    {PRIMARY_EXAMPLES.map((example) => (
+                      <button type="button" key={example.title} onClick={() => ask(example.prompt)}>
+                        <span>{example.label}</span>
+                        <strong>{example.title}</strong>
+                        <small>{example.description}</small>
+                        <b aria-hidden="true">→</b>
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    className="analytics-assistant__examples-toggle"
+                    type="button"
+                    aria-expanded={showMoreExamples}
+                    onClick={() => setShowMoreExamples((visible) => !visible)}
+                  >
+                    {showMoreExamples ? "Hide more questions" : "More questions"}
+                    <span aria-hidden="true">{showMoreExamples ? "−" : "+"}</span>
+                  </button>
+                  {showMoreExamples && (
+                    <div className="analytics-assistant__more">
+                      {MORE_EXAMPLES.map((example) => (
+                        <button type="button" key={example} onClick={() => ask(example)}>{example}<span aria-hidden="true">→</span></button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
-          <form className="analytics-assistant__composer" onSubmit={(event) => { event.preventDefault(); ask(input); }}>
-            <label className="sr-only" htmlFor="analytics-question">Ask about collection data</label>
-            <textarea
-              id="analytics-question"
-              ref={inputRef}
-              rows="2"
-              maxLength="240"
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  ask(input);
-                }
-              }}
-              placeholder="Try: iru 1w g, 28 rpt, rv 170 100…"
-            />
-            <button type="submit" disabled={!input.trim() || loading} aria-label="Send question">→</button>
-          </form>
-          <p className="analytics-assistant__note">Answers cannot edit the tracker database.</p>
-        </aside>
+              {messages.map((item) => (
+                <article className={`assistant-message assistant-message--${item.role}${item.tone === "error" ? " assistant-message--error" : ""}`} key={item.id}>
+                  <span>{item.role === "assistant" ? "MPLTalkies" : "You"}</span>
+                  <div className="assistant-message__bubble">{item.text}</div>
+                  {item.role === "assistant" && (
+                    <button className="assistant-message__copy" type="button" onClick={() => copyAnswer(item)}>
+                      {copiedId === item.id
+                        ? <span aria-hidden="true">✓</span>
+                        : <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="8" height="8" rx="1.5" /><path d="M3 10V4.5C3 3.7 3.7 3 4.5 3H10" /></svg>}
+                      {copiedId === item.id ? "Copied" : "Copy answer"}
+                    </button>
+                  )}
+                </article>
+              ))}
+
+              {loading && (
+                <div className="assistant-thinking" role="status"><span className="assistant-thinking__mark">MPL</span><span>Reading captured data</span><i /><i /><i /></div>
+              )}
+
+              {!loading && messages.at(-1)?.role === "assistant" && (
+                <div className="analytics-assistant__followups" aria-label="Suggested follow-up questions">
+                  {FOLLOW_UPS.map((item) => (
+                    <button type="button" key={item.label} onClick={() => ask(item.prompt)}>{item.label}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <form className="analytics-assistant__composer" onSubmit={(event) => { event.preventDefault(); ask(input); }}>
+              <label className="sr-only" htmlFor="analytics-question">Ask about collection data</label>
+              <textarea
+                id="analytics-question"
+                ref={inputRef}
+                rows="1"
+                maxLength="240"
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    ask(input);
+                  }
+                }}
+                placeholder="Ask about a movie, theatre or date…"
+              />
+              <button type="submit" disabled={!input.trim() || loading} aria-label="Send question">
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h11M11 6l4 4-4 4" /></svg>
+              </button>
+            </form>
+            <p className="analytics-assistant__note"><span aria-hidden="true">●</span> Read-only answers from captured records</p>
+          </aside>
+        </>
       )}
     </>,
     document.body
