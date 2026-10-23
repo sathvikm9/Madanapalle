@@ -68,6 +68,30 @@ test("service-worker startup and the upload alarm repair a missing heartbeat sch
   assert.match(runDiscovery, /await ensureBaseAlarms\(\)/);
 });
 
+test("stalled seat pages cannot block or lose their watchdog recovery", () => {
+  const source = fs.readFileSync(backgroundUrl, "utf8");
+  const beginStart = source.indexOf("async function beginCapture");
+  const beginEnd = source.indexOf("function discoveryHousefullResult", beginStart);
+  const beginCapture = source.slice(beginStart, beginEnd);
+  const watchdogStart = source.indexOf("async function handleCaptureWatchdog");
+  const watchdogEnd = source.indexOf("async function captureAttemptDiagnostics", watchdogStart);
+  const watchdog = source.slice(watchdogStart, watchdogEnd);
+  const diagnosticsStart = source.indexOf("async function captureAttemptDiagnostics");
+  const diagnosticsEnd = source.indexOf("async function failCapture", diagnosticsStart);
+  const diagnostics = source.slice(diagnosticsStart, diagnosticsEnd);
+
+  assert.ok(beginCapture.indexOf("chrome.alarms.create") < beginCapture.indexOf("postCaptureEvent"));
+  assert.match(beginCapture, /watchdogAt:\s*new Date\(watchdogAt\)\.toISOString\(\)/);
+  assert.match(watchdog, /captureWatchdogOperations/);
+  assert.doesNotMatch(watchdog, /removePending/);
+  assert.match(watchdog, /repairPendingCaptureWatchdogs/);
+  assert.match(diagnostics, /settleWithin/);
+  assert.match(diagnostics, /CAPTURE_DIAGNOSTICS_TIMEOUT_MS/);
+  assert.match(source, /CAPTURE_EVENT_TIMEOUT_MS/);
+  assert.match(source, /COLLECTOR_KEEPALIVE[\s\S]*repairPendingCaptureWatchdogs/);
+  assert.match(source, /CAPTURE_OUTBOX_ALARM[\s\S]*repairPendingCaptureWatchdogs/);
+});
+
 test("active theatre tabs keep the collector worker alive without affecting Off laptops", () => {
   const source = fs.readFileSync(backgroundUrl, "utf8");
   const contentSource = fs.readFileSync(contentUrl, "utf8");

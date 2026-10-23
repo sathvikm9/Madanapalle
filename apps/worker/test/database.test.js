@@ -17,3 +17,11 @@ test("every live capture outranks a summary estimate and later live captures win
   assert.match(databaseSource, /latest\.source LIKE '%summary-estimate%' THEN 0 ELSE 4[\s\S]*julianday\(latest\.captured_at\)/);
   assert.match(databaseSource, /ranked\.source LIKE '%summary-estimate%' THEN 0 ELSE 4[\s\S]*julianday\(ranked\.captured_at\)/);
 });
+
+test("capture attempt support history exposes sanitized stages without raw page URLs", () => {
+  assert.match(databaseSource, /export async function captureAttemptHistory/);
+  assert.match(databaseSource, /run_type IN \('capture_attempt','capture'\)/);
+  assert.match(databaseSource, /sanitizedCaptureDiagnostics/);
+  const sanitizer = databaseSource.match(/function sanitizedCaptureDiagnostics[\s\S]*?\n}\n\nexport async function captureAttemptHistory/)?.[0] || "";
+  assert.doesNotMatch(sanitizer, /pageUrl|tabUrl|sessionId/);
+});

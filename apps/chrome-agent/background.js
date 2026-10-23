@@ -94,6 +94,8 @@ const COLLECTOR_HEARTBEAT_ALARM = "collector:heartbeat";
 const COLLECTOR_KEEPALIVE_PORT = "collector-tab-keepalive";
 const COLLECTOR_HEARTBEAT_PERIOD_MINUTES = 2;
 const COLLECTOR_HEARTBEAT_WATCHDOG_MS = 90 * 1000;
+const CAPTURE_DIAGNOSTICS_TIMEOUT_MS = 1_500;
+const CAPTURE_EVENT_TIMEOUT_MS = 3_000;
 const BASE_ALARM_SCHEDULE_VERSION = 3;
 const CHROME_ALARM_START_DELAY_MS = 30 * 1000;
 let pendingMutation = Promise.resolve();
@@ -103,6 +105,7 @@ let captureOutboxMutation = Promise.resolve();
 let captureOutboxFlushPromise = null;
 let collectorHeartbeatWatchdogPromise = null;
 const venueDiscoveryOperations = new Map();
+const captureWatchdogOperations = new Map();
 
 // Chrome can discard extension alarms across browser or extension restarts. Verify
 // the essential schedule every time the Manifest V3 service worker starts.
@@ -124,6 +127,7 @@ async function initializeAgent() {
   const settings = await collectorRuntimeSettings();
   syncSystemAwake(settings.enabled);
   if (!settings.enabled) return;
+  await repairPendingCaptureWatchdogs();
   await sendCollectorHeartbeat().catch(() => {});
   const { movieMetadataQueue = {} } = await chrome.storage.local.get({ movieMetadataQueue: {} });
   if (Object.keys(movieMetadataQueue).length) {
@@ -218,6 +222,7 @@ chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== COLLECTOR_KEEPALIVE_PORT) return;
   port.onMessage.addListener((message) => {
     if (message?.type !== "COLLECTOR_KEEPALIVE") return;
+    void repairPendingCaptureWatchdogs().catch(() => {});
     void ensureCollectorHeartbeatFresh().catch(() => {});
   });
 });
@@ -225,6 +230,7 @@ chrome.runtime.onConnect.addListener((port) => {
 async function handleAlarm(alarm) {
   if (alarm.name === CAPTURE_OUTBOX_ALARM) {
     await flushCaptureOutbox();
+    await repairPendingCaptureWatchdogs();
     await ensureCollectorHeartbeatFresh();
     return;
   }
@@ -247,6 +253,7 @@ async function handleAlarm(alarm) {
   if (!enabled) return;
   if (alarm.name === COLLECTOR_HEARTBEAT_ALARM) {
     syncSystemAwake(true);
+    await repairPendingCaptureWatchdogs();
     await sendCollectorHeartbeat();
     return;
   }
@@ -886,6 +893,13 @@ async function beginCapture(show) {
   const attemptId = `${Date.now()}-${crypto.randomUUID()}`;
   const isFinalRecovery = supportsFinalCaptureRecovery(show) && captureMode === "recovery" &&
     Date.now() >= finalCaptureAt(show);
+  const timingNow = Date.now();
+  const { watchdogDelayMs, pageLoadTimeoutMs } = captureAttemptTimeouts(captureShow, {
+    captureMode,
+    deadline,
+    now: timingNow
+  });
+  const watchdogAt = timingNow + watchdogDelayMs;
   const pending = {
     ...captureShow,
     attemptId,
@@ -893,7 +907,8 @@ async function beginCapture(show) {
     captureMode,
     isFinalRecovery,
     recoveryTabPrimedAt: state.recoveryTabPrimedAt || null,
-    captureDeadlineAt: new Date(deadline).toISOString()
+    captureDeadlineAt: new Date(deadline).toISOString(),
+    watchdogAt: new Date(watchdogAt).toISOString()
   };
   await updateCaptureState(show.naturalKey, {
     lastAttemptAt: attemptStartedAt,
@@ -904,21 +919,15 @@ async function beginCapture(show) {
     ...(captureMode === "recovery" ? { recoveryTabPrimedAt: null } : {})
   });
   await addPending(pending);
+  await chrome.alarms.create(`watchdog:${encodeURIComponent(show.naturalKey)}`, {
+    when: watchdogAt
+  });
   await postCaptureEvent(pending, "capture_started", { stage: `${captureMode}_capture` });
   const discoveryHousefull = discoveryHousefullResult(pending, venue);
   if (discoveryHousefull) {
     await handleMessage({ type: "CAPTURE_RESULT", result: discoveryHousefull });
     return;
   }
-  const timingNow = Date.now();
-  const { watchdogDelayMs, pageLoadTimeoutMs } = captureAttemptTimeouts(pending, {
-    captureMode,
-    deadline,
-    now: timingNow
-  });
-  await chrome.alarms.create(`watchdog:${encodeURIComponent(show.naturalKey)}`, {
-    when: timingNow + watchdogDelayMs
-  });
   try {
     const tab = captureMode === "recovery"
       ? await openRecoverySeatLayout(pending, pageLoadTimeoutMs)
@@ -966,13 +975,54 @@ function discoveryHousefullResult(show, venue) {
 
 async function handleCaptureWatchdog(name) {
   const naturalKey = decodeAlarmKey(name);
-  const pending = await getPending(naturalKey);
-  if (!pending) return;
-  await removePending(naturalKey);
-  const venue = venueFor(pending.venueCode);
-  const error = new Error(`${venue.shortName} ${pending.showTimeLabel} seat read did not finish in time`);
-  error.captureDiagnostics = await captureAttemptDiagnostics(pending);
-  await failCapture(pending, error, "watchdog_timeout", { pendingAlreadyRemoved: true });
+  if (captureWatchdogOperations.has(naturalKey)) return captureWatchdogOperations.get(naturalKey);
+  const operation = (async () => {
+    const pending = await getPending(naturalKey);
+    if (!pending) return;
+    const venue = venueFor(pending.venueCode);
+    const error = new Error(`${venue.shortName} ${pending.showTimeLabel} seat read did not finish in time`);
+    error.captureDiagnostics = await captureAttemptDiagnostics(pending);
+    await failCapture(pending, error, "watchdog_timeout");
+  })();
+  captureWatchdogOperations.set(naturalKey, operation);
+  try {
+    return await operation;
+  } finally {
+    captureWatchdogOperations.delete(naturalKey);
+  }
+}
+
+async function repairPendingCaptureWatchdogs() {
+  await pendingMutation;
+  const { pendingCaptures = {} } = await chrome.storage.local.get({ pendingCaptures: {} });
+  for (const pending of Object.values(pendingCaptures)) {
+    if (!pending?.naturalKey) continue;
+    const encoded = encodeURIComponent(pending.naturalKey);
+    const alarmName = `watchdog:${encoded}`;
+    const watchdogAt = pendingCaptureWatchdogAt(pending);
+    if (watchdogAt <= Date.now()) {
+      await handleCaptureWatchdog(alarmName);
+      continue;
+    }
+    const alarm = await chrome.alarms.get(alarmName);
+    if (!alarm || Math.abs(Number(alarm.scheduledTime || 0) - watchdogAt) > 1_000) {
+      await chrome.alarms.create(alarmName, { when: watchdogAt });
+    }
+  }
+}
+
+function pendingCaptureWatchdogAt(pending) {
+  const storedWatchdogAt = Date.parse(pending.watchdogAt || "");
+  if (Number.isFinite(storedWatchdogAt)) return storedWatchdogAt;
+  const startedAt = Date.parse(pending.attemptStartedAt || "");
+  const deadline = Date.parse(pending.captureDeadlineAt || "");
+  if (!Number.isFinite(startedAt) || !Number.isFinite(deadline)) return Date.now();
+  const { watchdogDelayMs } = captureAttemptTimeouts(pending, {
+    captureMode: pending.captureMode || "primary",
+    deadline,
+    now: startedAt
+  });
+  return startedAt + watchdogDelayMs;
 }
 
 async function captureAttemptDiagnostics(show, error = {}) {
@@ -986,9 +1036,13 @@ async function captureAttemptDiagnostics(show, error = {}) {
     show.directSeatLayoutUrl || show.seatLayoutUrl || null;
   const tabUrl = rawTabUrl ? String(rawTabUrl).slice(0, 500) : null;
   const pageDiagnostics = tabId && tab?.status === "complete"
-    ? await chrome.tabs.sendMessage(tabId, { type: "CAPTURE_DIAGNOSTICS" })
-      .then((result) => result?.diagnostics || null)
-      .catch(() => null)
+    ? await settleWithin(
+      chrome.tabs.sendMessage(tabId, { type: "CAPTURE_DIAGNOSTICS" })
+        .then((result) => result?.diagnostics || null)
+        .catch(() => null),
+      CAPTURE_DIAGNOSTICS_TIMEOUT_MS,
+      null
+    )
     : null;
   return {
     tabId,
@@ -1876,14 +1930,17 @@ async function updateCaptureState(naturalKey, changes) {
 
 async function postCaptureEvent(show, eventType, extra = {}) {
   try {
-    await apiPost("/api/agent/event", {
-      eventType,
-      naturalKey: show.naturalKey,
-      attemptId: show.attemptId || null,
-      clientAt: new Date().toISOString(),
-      ...extra
-    });
-    return true;
+    return await settleWithin(
+      apiPost("/api/agent/event", {
+        eventType,
+        naturalKey: show.naturalKey,
+        attemptId: show.attemptId || null,
+        clientAt: new Date().toISOString(),
+        ...extra
+      }).then(() => true).catch(() => false),
+      CAPTURE_EVENT_TIMEOUT_MS,
+      false
+    );
   } catch {
     // Telemetry must never prevent a seat capture or its retry.
     return false;
@@ -2038,3 +2095,17 @@ async function notify(title, message) {
 }
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+async function settleWithin(promise, milliseconds, fallback) {
+  let timeoutId;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((resolve) => {
+        timeoutId = setTimeout(() => resolve(fallback), milliseconds);
+      })
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}

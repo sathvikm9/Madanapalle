@@ -1,4 +1,5 @@
 import {
+  captureAttemptHistory,
   captureHistory,
   currentShow,
   dashboardData,
@@ -241,6 +242,11 @@ async function route(request, env, origin, context) {
   const captureHistoryMatch = url.pathname.match(/^\/api\/shows\/(\d+)\/captures$/);
   if (request.method === "GET" && captureHistoryMatch) {
     return json(await captureHistory(env.DB, captureHistoryMatch[1]), 200, origin);
+  }
+
+  const captureAttemptHistoryMatch = url.pathname.match(/^\/api\/shows\/(\d+)\/attempts$/);
+  if (request.method === "GET" && captureAttemptHistoryMatch) {
+    return json(await captureAttemptHistory(env.DB, captureAttemptHistoryMatch[1]), 200, origin);
   }
 
   if (request.method === "POST" && url.pathname === "/api/agent/discovery") {

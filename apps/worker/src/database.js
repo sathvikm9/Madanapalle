@@ -816,3 +816,63 @@ export async function captureHistory(db, showId) {
     }))
   };
 }
+
+function sanitizedCaptureDiagnostics(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const progress = value.captureProgress && typeof value.captureProgress === "object"
+    ? value.captureProgress
+    : null;
+  return {
+    tabStatus: value.tabStatus || null,
+    pageKind: value.pageKind || null,
+    provider: value.provider || null,
+    missingControl: value.missingControl || null,
+    pageTitle: value.pageTitle || null,
+    readyState: value.readyState || null,
+    bodyTextLength: Number(value.bodyTextLength || 0),
+    buttonLabels: Array.isArray(value.buttonLabels) ? value.buttonLabels.slice(0, 8) : [],
+    roleButtonLabels: Array.isArray(value.roleButtonLabels) ? value.roleButtonLabels.slice(0, 10) : [],
+    selectLabels: Array.isArray(value.selectLabels) ? value.selectLabels.slice(0, 8) : [],
+    captureMode: value.captureMode || null,
+    recoveryActivated: Boolean(value.recoveryActivated),
+    captureProgress: progress ? {
+      stage: progress.stage || null,
+      startedAt: progress.startedAt || null,
+      updatedAt: progress.updatedAt || null,
+      context: progress.context && typeof progress.context === "object" ? progress.context : null
+    } : null
+  };
+}
+
+export async function captureAttemptHistory(db, showId) {
+  const show = await db.prepare(`SELECT id FROM shows WHERE id=?`).bind(showId).first();
+  if (!show) throw new RequestError("Show was not found", 404, "not_found");
+  const result = await db.prepare(
+    `SELECT id, run_type, status, started_at, finished_at, error, details_json
+     FROM collector_runs
+     WHERE show_id=? AND run_type IN ('capture_attempt','capture')
+     ORDER BY id ASC`
+  ).bind(showId).all();
+  return {
+    showId: String(showId),
+    attempts: (result.results || []).map((row) => {
+      const details = parseJson(row.details_json, {});
+      return {
+        id: String(row.id),
+        type: row.run_type,
+        status: row.status,
+        startedAt: row.started_at,
+        finishedAt: row.finished_at,
+        error: row.error || null,
+        eventType: details.eventType || null,
+        attemptId: details.attemptId || null,
+        clientAt: details.clientAt || null,
+        stage: details.stage || null,
+        alertPhase: details.alertPhase || null,
+        capturedAt: details.capturedAt || null,
+        sold: details.sold == null ? null : Number(details.sold),
+        diagnostics: sanitizedCaptureDiagnostics(details.diagnostics)
+      };
+    })
+  };
+}
