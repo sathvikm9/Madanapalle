@@ -229,36 +229,6 @@ test("understands explicit calendar dates in either order", () => {
   assert.equal(dayFirst.request.endDate, "2026-08-27");
 });
 
-test("does not mistake a sequel number for a calendar date", () => {
-  const sequelCatalog = {
-    ...catalog,
-    movies: [...catalog.movies, { title: "Jailer 2", firstTrackedDate: "2026-08-25" }]
-  };
-  const tillNow = parseAnalyticsQuestion("Give Jailer 2 report till now", sequelCatalog, now).request;
-  assert.equal(tillNow.key, "till_now");
-  assert.equal(tillNow.startDate, "2026-08-25");
-  assert.equal(tillNow.endDate, "2026-08-30");
-
-  const selectedDate = parseAnalyticsQuestion("Give Jailer 2 report on 28", sequelCatalog, now).request;
-  assert.equal(selectedDate.key, "date");
-  assert.equal(selectedDate.startDate, "2026-08-28");
-});
-
-test("generic follow-up words do not fuzzy-match a different movie", () => {
-  const conversationCatalog = {
-    ...catalog,
-    movies: [
-      ...catalog.movies,
-      { title: "Jailer 2", firstTrackedDate: "2026-08-25" },
-      { title: "Mandaadi", firstTrackedDate: "2026-08-27" }
-    ]
-  };
-  const first = parseAnalyticsQuestion("Give Jailer 2 report till now", conversationCatalog, now).request;
-  const followUp = parseAnalyticsQuestion("How many tickets were sold?", conversationCatalog, now, first).request;
-  assert.equal(followUp.movieTitle, "Jailer 2");
-  assert.equal(followUp.metric, "tickets");
-});
-
 test("uses a date-only gross question as an all-movies daily total", () => {
   const result = parseAnalyticsQuestion("Aug 28th gross?", catalog, now);
   assert.equal(result.request.movieTitle, "ALL");

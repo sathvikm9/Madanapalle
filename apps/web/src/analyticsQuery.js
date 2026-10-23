@@ -260,8 +260,7 @@ function questionPhrases(question) {
   const ignored = new Set([
     "and", "compare", "versus", "vs", "gross", "report", "summary", "housefull", "screened",
     "tickets", "first", "week", "weekend", "day", "days", "theatre", "theater", "wise", "highest",
-    "most", "which", "give", "show", "shows", "full", "till", "now", "same", "what", "is", "the",
-    "how", "many", "were", "was", "sold", "did", "does", "total", "tell", "me", "about"
+    "most", "which", "give", "show", "shows", "full", "till", "now", "same", "what", "is", "the"
   ]);
   const words = normalize(question).split(" ").filter((word) => word && !ignored.has(word) && !/^\d/.test(word));
   const phrases = new Set(words);
@@ -355,7 +354,7 @@ function periodForQuestion(question, movie, today) {
   return null;
 }
 
-function standaloneCalendarPeriod(question, today, allowBareDay = false, matchedMovie = null) {
+function standaloneCalendarPeriod(question, today, allowBareDay = false) {
   const normalized = normalize(question);
   if (/\b(today|current day|this day)\b/.test(normalized)) {
     return { key: "today", label: "Today", startDate: today, endDate: today };
@@ -367,16 +366,7 @@ function standaloneCalendarPeriod(question, today, allowBareDay = false, matched
   const selected = calendarPeriod(question, today);
   if (selected) return selected;
 
-  const movieNumberCounts = new Map();
-  for (const match of normalize(matchedMovie?.title).matchAll(/\b(\d{1,2})\b/g)) {
-    movieNumberCounts.set(match[1], (movieNumberCounts.get(match[1]) || 0) + 1);
-  }
-  const numbers = Array.from(normalized.matchAll(/\b(\d{1,2})(?:st|nd|rd|th)?\b/g)).filter((match) => {
-    const remaining = movieNumberCounts.get(match[1]) || 0;
-    if (!remaining) return true;
-    movieNumberCounts.set(match[1], remaining - 1);
-    return false;
-  });
+  const numbers = Array.from(normalized.matchAll(/\b(\d{1,2})(?:st|nd|rd|th)?\b/g));
   const hasMetricHint = /\b(gross|report|summary|housefull|screened|tickets)\b/.test(normalized);
   const isRelativePeriod = /\b(day|days|week|weekend|shows?|prices?|rs|rupees?)\b/.test(normalized);
   if (numbers.length === 1 && !isRelativePeriod && (hasMetricHint || allowBareDay)) {
@@ -487,12 +477,12 @@ export function parseAnalyticsQuestion(question, catalog, now = new Date(), cont
   }
 
   const today = indiaDate(now);
+  const selectedStandalonePeriod = standaloneCalendarPeriod(text, today, Boolean(context));
   const movieMatch = findMovieMatch(text, catalog.movies || []);
   if (movieMatch.uncertain?.length) {
     return { reply: `I’m not certain which movie you mean. Did you mean ${movieMatch.uncertain.map((movie) => movie.title).join(" or ")}? Please type the movie name.` };
   }
   const detectedMovie = movieMatch.movie;
-  const selectedStandalonePeriod = standaloneCalendarPeriod(text, today, Boolean(context), detectedMovie);
   const inheritedMovie = context && !selectedStandalonePeriod
     ? (context.movieTitle === "ALL"
       ? { title: "ALL", firstTrackedDate: catalog.firstLiveDate }
