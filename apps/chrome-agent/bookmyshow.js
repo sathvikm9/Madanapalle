@@ -13,6 +13,10 @@
     ASRM: Object.freeze([
       Object.freeze({ name: "RESERVED", capacity: 386 }),
       Object.freeze({ name: "SECOND CLASS", capacity: 134 })
+    ]),
+    MSDR: Object.freeze([
+      Object.freeze({ name: "GOLD CLASS", capacity: 238 }),
+      Object.freeze({ name: "SILVER CLASS", capacity: 34 })
     ])
   });
 

@@ -37,7 +37,7 @@ rm "$HOME/Library/LaunchAgents/com.skct.keep-awake.plist"
 ## Daily health check
 
 - The dashboard says **Collector online**. If it says **Collector offline**, the last-seen time tells you when the laptop, Chrome, extension, internet, or Worker connection stopped.
-- Chrome is open and the pinned Sri Krishna and Ravi tabs exist.
+- Chrome is open and the configured theatre tabs exist.
 - The extension settings show a recent successful discovery.
 - The laptop has internet and AC power.
 - There is no Cloudflare verification page waiting in either pinned tab.

@@ -31,7 +31,7 @@ function safeContext(context) {
     startDate: cleanText(request.startDate, 10) || null,
     endDate: cleanText(request.endDate, 10) || null,
     venueCodes: Array.isArray(request.venueCodes)
-      ? request.venueCodes.map((value) => cleanText(value, 10)).filter(Boolean).slice(0, 4)
+      ? request.venueCodes.map((value) => cleanText(value, 10)).filter(Boolean).slice(0, 5)
       : null,
     prices: Array.isArray(request.prices)
       ? request.prices.map(Number).filter(Number.isFinite).slice(0, 4)
@@ -116,7 +116,7 @@ export function buildChatInterpreterMessages({ question, context, catalog }) {
         "For unrelated questions, return unsupported.",
         "For resolved requests, put the rewritten request in canonicalQuestion and leave reply empty.",
         `Tracked movies: ${JSON.stringify(movies)}`,
-        "Theatres: Sai Chitra (SCM), ASR (ASRM), Ravi (RTDM), Sri Krishna (SKMD), or All theatres.",
+        "Theatres: Sai Chitra (SCM), ASR (ASRM), Ravi (RTDM), Sri Krishna (SKMD), Mini Siddartha (MSDR), or All theatres.",
         `Capacity profiles: ${JSON.stringify(capacities)}`,
         `Previous conversation context: ${JSON.stringify(previous)}`
       ].join("\n")

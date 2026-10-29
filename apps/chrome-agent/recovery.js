@@ -1,4 +1,4 @@
-export const RECOVERY_VENUES = Object.freeze(["SKMD", "SCM", "RTDM", "ASRM"]);
+export const RECOVERY_VENUES = Object.freeze(["SKMD", "SCM", "RTDM", "ASRM", "MSDR"]);
 
 const RECOVERY_VENUE_SET = new Set(RECOVERY_VENUES);
 

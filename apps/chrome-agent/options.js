@@ -127,7 +127,7 @@ async function makePrimary() {
 
 async function testCollector() {
   if (!element("#enabled").checked) return setStatus("Turn this collector On before testing.", false);
-  setStatus("Confirming collector and testing all four theatres…");
+  setStatus("Confirming collector and testing all five theatres…");
   const result = await chrome.runtime.sendMessage({ type: "RUN_DISCOVERY", automaticCapture: true });
   if (!result?.ok) {
     await restore();

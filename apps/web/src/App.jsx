@@ -41,7 +41,8 @@ const THEATRE_OPTIONS = [
   { code: "SKMD", shortName: "Sri Krishna" },
   { code: "SCM", shortName: "Sai Chitra" },
   { code: "RTDM", shortName: "Ravi" },
-  { code: "ASRM", shortName: "ASR" }
+  { code: "ASRM", shortName: "ASR" },
+  { code: "MSDR", shortName: "Mini Siddartha" }
 ];
 
 const money = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });

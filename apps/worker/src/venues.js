@@ -53,6 +53,19 @@ export const VENUES = Object.freeze([
     ]),
     timezone: "Asia/Kolkata",
     captureStartAfterShowMinutes: 15
+  }),
+  Object.freeze({
+    venueCode: "MSDR",
+    name: "Siddartha Cinemas:Screen 2 Dolby Laser,Madanapalle",
+    shortName: "Mini Siddartha",
+    slug: "siddartha-cinemasscreen-2-dolby-lasermadanapalle",
+    platform: "bookmyshow",
+    layoutCategories: Object.freeze([
+      Object.freeze({ name: "GOLD CLASS", capacity: 238 }),
+      Object.freeze({ name: "SILVER CLASS", capacity: 34 })
+    ]),
+    timezone: "Asia/Kolkata",
+    captureStartAfterShowMinutes: 25
   })
 ]);
 

@@ -2,7 +2,8 @@ const THEATRE_PRIORITY = new Map([
   ["RTDM", 0],
   ["ASRM", 1],
   ["SCM", 2],
-  ["SKMD", 3]
+  ["SKMD", 3],
+  ["MSDR", 4]
 ]);
 
 function showTimestamp(show) {

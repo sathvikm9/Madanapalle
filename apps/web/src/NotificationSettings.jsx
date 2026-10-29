@@ -16,7 +16,8 @@ const FALLBACK_VENUES = [
   { code: "SKMD", name: "Sri Krishna" },
   { code: "SCM", name: "Sai Chitra" },
   { code: "RTDM", name: "Ravi" },
-  { code: "ASRM", name: "ASR" }
+  { code: "ASRM", name: "ASR" },
+  { code: "MSDR", name: "Mini Siddartha" }
 ];
 
 const NOTIFICATION_TYPES = [
@@ -41,7 +42,8 @@ const PREVIEW_RESULTS = {
   SKMD: { collectionPaise: 3412500, line: "Sri Krishna · 11:10 AM — Mandaadi · ₹34,125" },
   RTDM: { collectionPaise: 3175000, line: "Ravi · 10:45 AM — The Paradise · ₹31,750" },
   SCM: { collectionPaise: 3881000, line: "Sai Chitra · 11:20 AM — Mandaadi · ₹38,810" },
-  ASRM: { collectionPaise: 2960000, line: "ASR · 11:15 AM — Irumudi · ₹29,600" }
+  ASRM: { collectionPaise: 2960000, line: "ASR · 11:15 AM — Irumudi · ₹29,600" },
+  MSDR: { collectionPaise: 1864000, line: "Mini Siddartha · 11:00 AM — Cult · ₹18,640" }
 };
 
 const STATIC_PREVIEWS = {

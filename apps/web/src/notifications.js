@@ -1,5 +1,5 @@
 export const DEFAULT_NOTIFICATION_PREFERENCES = {
-  venues: ["SKMD", "SCM", "RTDM", "ASRM"],
+  venues: ["SKMD", "SCM", "RTDM", "ASRM", "MSDR"],
   types: ["period_results", "schedule_changes", "daily_summary"]
 };
 

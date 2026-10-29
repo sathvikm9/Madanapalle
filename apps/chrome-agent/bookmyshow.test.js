@@ -129,6 +129,23 @@ test("rejects a missing BookMyShow class unless the session marks it sold out", 
   );
 });
 
+test("uses Mini Siddartha's verified 272-seat layout", () => {
+  const advertised = [
+    { name: "Gold Class", listPricePaise: 10500, availabilityStatus: "3" },
+    { name: "Silver Class", listPricePaise: 8400, availabilityStatus: "3" }
+  ];
+  const result = completeFromVerifiedLayout("MSDR", advertised, [
+    { name: "GOLD CLASS", price: 105, capacity: 238, available: 200, sold: 38, unknown: 0 },
+    { name: "SILVER CLASS", price: 84, capacity: 34, available: 30, sold: 4, unknown: 0 }
+  ]);
+
+  assert.deepEqual(result.map(({ name, capacity, available, sold }) => ({ name, capacity, available, sold })), [
+    { name: "GOLD CLASS", capacity: 238, available: 200, sold: 38 },
+    { name: "SILVER CLASS", capacity: 34, available: 30, sold: 4 }
+  ]);
+  assert.equal(result.reduce((sum, category) => sum + category.capacity, 0), 272);
+});
+
 test("recovery resumes from the furthest usable BookMyShow control", () => {
   assert.equal(recoveryAction({
     quantity: {}, categorySelect: {}, rowSelect: {}, accessibility: {}, selectSeats: {}

@@ -1,6 +1,6 @@
 # Madanapalle Theatre Collection Tracker
 
-A production-oriented tracker for **Sri Krishna (`SKMD`)**, **Sai Chitra (`SCM`)**, **Ravi (`RTDM`)**, and **ASR (`ASRM`)** in Madanapalle. It discovers BookMyShow, TicketNew and District sessions, notices movie replacements, saves an early backup and then a final capture, subtracts ₹5 MC from each category's ticket price, and stores an auditable final result.
+A production-oriented tracker for **Sri Krishna (`SKMD`)**, **Sai Chitra (`SCM`)**, **Ravi (`RTDM`)**, **ASR (`ASRM`)**, and **Mini Siddartha (`MSDR`)** in Madanapalle. It discovers BookMyShow, TicketNew and District sessions, notices movie replacements, saves an early backup and then a final capture, subtracts ₹5 MC from each category's ticket price, and stores an auditable final result.
 
 ## What it records
 
@@ -111,5 +111,13 @@ Live Ravi inspection on the same date confirmed:
 - all four observed shows had a 20-minute BookMyShow cutoff
 - the collector reads each session's actual cutoff instead of hard-coding 20 minutes
 - current categories included ₹105 and ₹84, counted as ₹100 and ₹79
+
+Live Mini Siddartha inspection on 29 October 2026 confirmed:
+
+- venue code: `MSDR`
+- the 30 October schedule contains 11:00 AM, 2:00 PM, 6:00 PM and 9:00 PM sessions
+- each session has a 30-minute BookMyShow cutoff
+- the verified layout is 238 Gold Class seats and 34 Silver Class seats (272 total)
+- current categories are ₹105 and ₹84, counted as ₹100 and ₹79
 
 Prices are never hard-coded; the ₹5 adjustment is applied to each live category price.

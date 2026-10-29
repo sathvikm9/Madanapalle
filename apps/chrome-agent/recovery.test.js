@@ -10,10 +10,11 @@ import {
 
 const bookMyShow = (venueCode) => ({ venueCode, platform: "bookmyshow" });
 
-test("enables recovery for all four configured theatres", () => {
+test("enables recovery for all five configured theatres", () => {
   assert.equal(supportsRecovery(bookMyShow("SKMD")), true);
   assert.equal(supportsRecovery(bookMyShow("RTDM")), true);
   assert.equal(supportsRecovery(bookMyShow("ASRM")), true);
+  assert.equal(supportsRecovery(bookMyShow("MSDR")), true);
   assert.equal(supportsRecovery({ venueCode: "SCM", platform: "ticketnew" }), true);
   assert.equal(supportsRecovery({ venueCode: "SCM", platform: "bookmyshow" }), false);
   assert.equal(supportsRecovery(bookMyShow("UNKNOWN")), false);

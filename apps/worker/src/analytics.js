@@ -61,7 +61,7 @@ export function buildCapacityProfiles(rows) {
     });
   }
 
-  const order = new Map(["SCM", "ASRM", "RTDM", "SKMD"].map((code, index) => [code, index]));
+  const order = new Map(["SCM", "ASRM", "RTDM", "SKMD", "MSDR"].map((code, index) => [code, index]));
   return Array.from(profiles.values()).sort((left, right) =>
     (order.get(left.venueCode) ?? 99) - (order.get(right.venueCode) ?? 99)
   );
@@ -193,7 +193,7 @@ export function summarizeAnalyticsRows(rows, {
     days.set(show.show_date, day);
   }
 
-  const venueOrder = new Map(["SCM", "ASRM", "RTDM", "SKMD"].map((code, index) => [code, index]));
+  const venueOrder = new Map(["SCM", "ASRM", "RTDM", "SKMD", "MSDR"].map((code, index) => [code, index]));
   const byVenue = Array.from(venues.values())
     .sort((left, right) => (venueOrder.get(left.code) ?? 99) - (venueOrder.get(right.code) ?? 99))
     .map(({ movies, ...venue }) => ({

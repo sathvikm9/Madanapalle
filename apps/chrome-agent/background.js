@@ -81,6 +81,13 @@ const VENUES = [
     slug: "asr-a-c-4k-laser-dolby-surround-71-madanapalle",
     platform: "bookmyshow",
     captureStartAfterShowMinutes: 15
+  },
+  {
+    venueCode: "MSDR",
+    shortName: "Mini Siddartha",
+    slug: "siddartha-cinemasscreen-2-dolby-lasermadanapalle",
+    platform: "bookmyshow",
+    captureStartAfterShowMinutes: 25
   }
 ];
 const VENUE_BY_CODE = Object.fromEntries(VENUES.map((venue) => [venue.venueCode, venue]));

@@ -62,6 +62,31 @@ test("normalizes ASR with a 15-minute backup and live 20-minute cutoff", () => {
   assert.equal(result.shows[0].cutoffAt, "2026-08-20T05:50:00.000Z");
 });
 
+test("normalizes Mini Siddartha with its verified 25-minute backup and 30-minute cutoff", () => {
+  const result = normalizeDiscovery({
+    ...discoveryBody,
+    venueCode: "MSDR",
+    dateCode: "20261030",
+    shows: [{
+      ...discoveryBody.shows[0],
+      eventCode: "ET00524017",
+      sessionId: "12222",
+      showDateTime: "202610301100",
+      cutoffDateTime: "202610301130",
+      movieTitle: "Cult",
+      movieVariant: "Cult (Telugu)",
+      categories: [
+        { name: "Gold Class", priceCode: "T004", listPricePaise: 10500 },
+        { name: "Silver Class", priceCode: "T005", listPricePaise: 8400 }
+      ]
+    }]
+  });
+  assert.equal(result.shows[0].naturalKey, "MSDR:20261030:1100:12222:ET00524017");
+  assert.equal(result.shows[0].venueName, "Siddartha Cinemas:Screen 2 Dolby Laser,Madanapalle");
+  assert.equal(result.shows[0].captureAt, "2026-10-30T05:55:00.000Z");
+  assert.equal(result.shows[0].cutoffAt, "2026-10-30T06:00:00.000Z");
+});
+
 test("normalizes Sai Chitra TicketNew discovery and validates its cinema URL", () => {
   const result = normalizeDiscovery({
     ...discoveryBody,
@@ -141,6 +166,33 @@ test("server recalculates the capture with five rupees removed per category", ()
   assert.equal(result.sold, 50);
   assert.equal(result.collectionPaise, 479000);
   assert.deepEqual(result.categories.map((category) => category.netPricePaise), [10000, 7900]);
+});
+
+test("accepts only Mini Siddartha's verified 272-seat category layout", () => {
+  const show = {
+    natural_key: "MSDR:20261030:1100:12222:ET00524017",
+    venue_code: "MSDR",
+    is_current: 1,
+    capture_at: "2026-10-30T05:55:00.000Z",
+    cutoff_at: "2026-10-30T06:00:00.000Z"
+  };
+  const body = {
+    naturalKey: show.natural_key,
+    capturedAt: "2026-10-30T05:59:05.000Z",
+    categories: [
+      { name: "GOLD CLASS", price: 105, capacity: 238, available: 200, sold: 38, unknown: 0 },
+      { name: "SILVER CLASS", price: 84, capacity: 34, available: 30, sold: 4, unknown: 0 }
+    ]
+  };
+
+  const result = normalizeCapture(body, show, new Date("2026-10-30T05:59:06.000Z"));
+  assert.equal(result.capacity, 272);
+  assert.equal(result.sold, 42);
+  assert.equal(result.collectionPaise, 411_600);
+  assert.throws(() => normalizeCapture({
+    ...body,
+    categories: [{ ...body.categories[0], capacity: 237, available: 199 }, body.categories[1]]
+  }, show, new Date("2026-10-30T05:59:06.000Z")), /did not match the verified Mini Siddartha seating layout/);
 });
 
 test("accepts a verified Sai Chitra TicketNew summary as an estimate", () => {

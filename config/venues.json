@@ -46,6 +46,16 @@
       "captureStartAfterShowMinutes": 10,
       "fallbackCutoffMinutes": 15,
       "active": true
+    },
+    {
+      "name": "Siddartha Cinemas:Screen 2 Dolby Laser,Madanapalle",
+      "shortName": "Mini Siddartha",
+      "venueCode": "MSDR",
+      "slug": "siddartha-cinemasscreen-2-dolby-lasermadanapalle",
+      "platform": "bookmyshow",
+      "captureStartAfterShowMinutes": 25,
+      "fallbackCutoffMinutes": 30,
+      "active": true
     }
   ]
 }

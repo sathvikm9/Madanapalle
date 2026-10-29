@@ -9,7 +9,8 @@ const venues = [
   { code: "SKMD", name: "Sri Krishna A/C 4K Dolby Atmos: Madanapalle", shortName: "Sri Krishna" },
   { code: "SCM", name: "Sai Chitra Theatre A/C 4K Laser Dolby Surround 7.1: Madanapalle", shortName: "Sai Chitra" },
   { code: "RTDM", name: "Ravi A/C 4K Laser Dolby Surround 7.1: Madanapalle", shortName: "Ravi" },
-  { code: "ASRM", name: "ASR A/C 4K Laser Dolby Surround 7.1: Madanapalle", shortName: "ASR" }
+  { code: "ASRM", name: "ASR A/C 4K Laser Dolby Surround 7.1: Madanapalle", shortName: "ASR" },
+  { code: "MSDR", name: "Siddartha Cinemas:Screen 2 Dolby Laser,Madanapalle", shortName: "Mini Siddartha" }
 ];
 
 export function demoDashboard(date = today, venueCode = "ALL") {

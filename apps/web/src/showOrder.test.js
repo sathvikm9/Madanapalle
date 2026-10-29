@@ -22,15 +22,16 @@ test("orders shows by time before applying theatre priority", () => {
   ]);
 });
 
-test("uses Ravi, ASR, Sai Chitra, Sri Krishna for matching showtimes", () => {
+test("uses Ravi, ASR, Sai Chitra, Sri Krishna, Mini Siddartha for matching showtimes", () => {
   const shows = sortShowsForDisplay([
     show("krishna", "SKMD", "2026-10-18T11:00:00+05:30"),
     show("sai", "SCM", "2026-10-18T11:00:00+05:30"),
     show("ravi", "RTDM", "2026-10-18T11:00:00+05:30"),
-    show("asr", "ASRM", "2026-10-18T11:00:00+05:30")
+    show("asr", "ASRM", "2026-10-18T11:00:00+05:30"),
+    show("mini", "MSDR", "2026-10-18T11:00:00+05:30")
   ]);
 
-  assert.deepEqual(shows.map((item) => item.venueCode), ["RTDM", "ASRM", "SCM", "SKMD"]);
+  assert.deepEqual(shows.map((item) => item.venueCode), ["RTDM", "ASRM", "SCM", "SKMD", "MSDR"]);
 });
 
 test("does not mutate the API response array", () => {
