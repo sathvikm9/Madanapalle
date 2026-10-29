@@ -62,7 +62,7 @@ export const VENUES = Object.freeze([
     platform: "bookmyshow",
     layoutCategories: Object.freeze([
       Object.freeze({ name: "GOLD CLASS", capacity: 238 }),
-      Object.freeze({ name: "SILVER CLASS", capacity: 34 })
+      Object.freeze({ name: "SILVER CLASS", capacity: 33 })
     ]),
     timezone: "Asia/Kolkata",
     captureStartAfterShowMinutes: 25

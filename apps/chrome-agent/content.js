@@ -317,6 +317,11 @@ async function captureSeats(show) {
       );
       for (const seat of grid.querySelectorAll("[aria-label]")) {
         const label = seat.getAttribute("aria-label") || "";
+        if (globalThis.SKCTBookMyShow.isVerifiedNonBookableSeat(show.venueCode, {
+          categoryName,
+          rowValue: row.value,
+          label
+        })) continue;
         const disabled = seat.getAttribute("aria-disabled") === "true";
         const pressed = seat.getAttribute("aria-pressed") === "true";
         capacity += 1;

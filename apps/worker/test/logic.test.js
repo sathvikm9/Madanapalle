@@ -168,7 +168,7 @@ test("server recalculates the capture with five rupees removed per category", ()
   assert.deepEqual(result.categories.map((category) => category.netPricePaise), [10000, 7900]);
 });
 
-test("accepts only Mini Siddartha's verified 272-seat category layout", () => {
+test("accepts only Mini Siddartha's verified 271-seat category layout", () => {
   const show = {
     natural_key: "MSDR:20261030:1100:12222:ET00524017",
     venue_code: "MSDR",
@@ -181,12 +181,12 @@ test("accepts only Mini Siddartha's verified 272-seat category layout", () => {
     capturedAt: "2026-10-30T05:59:05.000Z",
     categories: [
       { name: "GOLD CLASS", price: 105, capacity: 238, available: 200, sold: 38, unknown: 0 },
-      { name: "SILVER CLASS", price: 84, capacity: 34, available: 30, sold: 4, unknown: 0 }
+      { name: "SILVER CLASS", price: 84, capacity: 33, available: 29, sold: 4, unknown: 0 }
     ]
   };
 
   const result = normalizeCapture(body, show, new Date("2026-10-30T05:59:06.000Z"));
-  assert.equal(result.capacity, 272);
+  assert.equal(result.capacity, 271);
   assert.equal(result.sold, 42);
   assert.equal(result.collectionPaise, 411_600);
   assert.throws(() => normalizeCapture({

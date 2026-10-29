@@ -12,6 +12,7 @@ const {
   isFullySold,
   layoutSignature,
   completeFromVerifiedLayout,
+  isVerifiedNonBookableSeat,
   recoveryAction
 } = globalThis.SKCTBookMyShow;
 
@@ -129,21 +130,39 @@ test("rejects a missing BookMyShow class unless the session marks it sold out", 
   );
 });
 
-test("uses Mini Siddartha's verified 272-seat layout", () => {
+test("excludes Mini Siddartha's permanently blocked Silver B15 position", () => {
+  assert.equal(isVerifiedNonBookableSeat("MSDR", {
+    categoryName: "Silver Class",
+    rowValue: "Silver Class-B",
+    label: "Booked seat 15 in row B"
+  }), true);
+  assert.equal(isVerifiedNonBookableSeat("MSDR", {
+    categoryName: "Silver Class",
+    rowValue: "Silver Class-B",
+    label: "Select seat 14 in row B"
+  }), false);
+  assert.equal(isVerifiedNonBookableSeat("SKMD", {
+    categoryName: "Silver Class",
+    rowValue: "Silver Class-B",
+    label: "Booked seat 15 in row B"
+  }), false);
+});
+
+test("uses Mini Siddartha's verified 271-seat layout", () => {
   const advertised = [
     { name: "Gold Class", listPricePaise: 10500, availabilityStatus: "3" },
     { name: "Silver Class", listPricePaise: 8400, availabilityStatus: "3" }
   ];
   const result = completeFromVerifiedLayout("MSDR", advertised, [
     { name: "GOLD CLASS", price: 105, capacity: 238, available: 200, sold: 38, unknown: 0 },
-    { name: "SILVER CLASS", price: 84, capacity: 34, available: 30, sold: 4, unknown: 0 }
+    { name: "SILVER CLASS", price: 84, capacity: 33, available: 29, sold: 4, unknown: 0 }
   ]);
 
   assert.deepEqual(result.map(({ name, capacity, available, sold }) => ({ name, capacity, available, sold })), [
     { name: "GOLD CLASS", capacity: 238, available: 200, sold: 38 },
-    { name: "SILVER CLASS", capacity: 34, available: 30, sold: 4 }
+    { name: "SILVER CLASS", capacity: 33, available: 29, sold: 4 }
   ]);
-  assert.equal(result.reduce((sum, category) => sum + category.capacity, 0), 272);
+  assert.equal(result.reduce((sum, category) => sum + category.capacity, 0), 271);
 });
 
 test("recovery resumes from the furthest usable BookMyShow control", () => {

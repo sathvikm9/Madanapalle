@@ -16,7 +16,7 @@
     ]),
     MSDR: Object.freeze([
       Object.freeze({ name: "GOLD CLASS", capacity: 238 }),
-      Object.freeze({ name: "SILVER CLASS", capacity: 34 })
+      Object.freeze({ name: "SILVER CLASS", capacity: 33 })
     ])
   });
 
@@ -121,6 +121,13 @@
     });
   }
 
+  function isVerifiedNonBookableSeat(venueCode, { categoryName, rowValue, label } = {}) {
+    return venueCode === "MSDR" &&
+      normalizedName(categoryName) === "SILVER CLASS" &&
+      normalizedName(rowValue).endsWith("-B") &&
+      /\bseat\s+0*15\s+in\s+row\s+B\b/i.test(String(label || ""));
+  }
+
   function recoveryAction(controls = {}) {
     if (controls.quantity && controls.categorySelect && controls.rowSelect) return "ready";
     if (controls.categorySelect && controls.rowSelect) return "seat_controls_ready";
@@ -145,6 +152,7 @@
     isFullySold,
     layoutSignature,
     completeFromVerifiedLayout,
+    isVerifiedNonBookableSeat,
     recoveryAction
   };
 })(globalThis);
