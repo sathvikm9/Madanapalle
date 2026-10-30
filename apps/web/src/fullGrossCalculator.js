@@ -2,7 +2,8 @@ const VENUE_ALIASES = [
   { code: "SCM", aliases: ["sai chitra", "saichitra", "sai", "sc"] },
   { code: "ASRM", aliases: ["asr"] },
   { code: "RTDM", aliases: ["ravi", "rv"] },
-  { code: "SKMD", aliases: ["sri krishna", "srikrishna", "krishna", "sri", "sk"] }
+  { code: "SKMD", aliases: ["sri krishna", "srikrishna", "krishna", "sri", "sk"] },
+  { code: "MSDR", aliases: ["mini siddartha", "mini siddarth", "siddartha", "msdr", "ms"] }
 ];
 
 function normalize(value) {

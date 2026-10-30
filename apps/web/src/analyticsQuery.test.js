@@ -84,6 +84,11 @@ test("understands compact movie, theatre, period and metric shortcuts", () => {
   assert.equal(day.movieTitle, "Toxic: A Fairy Tale for Grown-ups");
   assert.equal(day.key, "movie_day");
   assert.equal(day.metric, "tickets");
+
+  const mini = parseAnalyticsQuestion("iru ms g", catalog, now).request;
+  assert.equal(mini.venueCode, "MSDR");
+  assert.equal(mini.theatreName, "Mini Siddartha");
+  assert.equal(mini.metric, "gross");
 });
 
 test("understands date-only and conversational shortcuts", () => {
@@ -110,6 +115,7 @@ test("understands date-only and conversational shortcuts", () => {
 test("returns an embedded shortcut guide", () => {
   assert.equal(parseAnalyticsQuestion("help", catalog, now).reply, SHORTCUTS_REPLY);
   assert.match(SHORTCUTS_REPLY, /rv 170 100/);
+  assert.match(SHORTCUTS_REPLY, /ms/);
 });
 
 test("lists tracked movies without inheriting the previous movie context", () => {

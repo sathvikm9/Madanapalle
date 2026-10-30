@@ -171,7 +171,8 @@ function demoSummaries(startDate, endDate, selectedCodes, theatres, movieTitle =
     SKMD: ["Sri Krishna", 185, 50_124, 63_450_950],
     SCM: ["Sai Chitra", 188, 52_710, 50_512_980],
     RTDM: ["Ravi", 181, 46_832, 59_108_700],
-    ASRM: ["ASR", 176, 41_905, 48_932_400]
+    ASRM: ["ASR", 176, 41_905, 48_932_400],
+    MSDR: ["Mini Siddartha", 164, 30_924, 28_441_600]
   };
   const ratios = [.3, .23, .17, .12, .1, .08];
 

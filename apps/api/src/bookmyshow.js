@@ -75,7 +75,7 @@ export class BookMyShowBrowser {
         });
         if (!response?.ok()) throw new Error(`Venue page returned HTTP ${response?.status() || "unknown"}`);
 
-        await this.openCurrentSeatSession(page, show);
+        await this.openCurrentSeatSession(page, show, venue);
 
         await this.openSeatLayout(page);
         const categories = await this.readAllSeats(page, show);
@@ -108,11 +108,11 @@ export class BookMyShowBrowser {
     });
   }
 
-  async openCurrentSeatSession(page, show) {
+  async openCurrentSeatSession(page, show, venue) {
     const eventCode = show.event_code || show.eventCode;
     const showTime = show.show_time_label || show.showTimeLabel;
     const sessionId = String(show.session_id || show.sessionId);
-    const sessionPattern = new RegExp(`/SKMD/${sessionId}/`);
+    const sessionPattern = new RegExp(`/${venue.venueCode}/${sessionId}/`);
     const movieLink = page.locator(`a[href*="${eventCode}"]`).first();
     await movieLink.waitFor({ state: "visible", timeout: 30_000 });
     const row = page.getByRole("row").filter({ has: movieLink });
@@ -164,6 +164,7 @@ export class BookMyShowBrowser {
 
     for (const category of categoryOptions) {
       await categorySelect.selectOption(category.value);
+      const categoryName = category.label.replace(/\s*-\s*₹.*$/, "").trim();
       const rowOptions = await rowSelect.locator("option").evaluateAll((options) =>
         options.filter((option) => option.value).map((option) => ({ value: option.value, label: option.label }))
       );
@@ -185,6 +186,11 @@ export class BookMyShowBrowser {
         );
 
         for (const seat of seats) {
+          const isMiniSilverB15 = (show.venue_code || show.venueCode) === "MSDR"
+            && /silver/i.test(categoryName)
+            && String(row.value).trim().toUpperCase().endsWith("-B")
+            && /\bseat\s+0*15\s+in\s+row\s+B\b/i.test(seat.label);
+          if (isMiniSilverB15) continue;
           capacity += 1;
           if (/^select seat/i.test(seat.label) && !seat.disabled && !seat.pressed) available += 1;
           else if (seat.disabled || /sold|unavailable|booked|taken/i.test(seat.label)) sold += 1;
@@ -193,7 +199,6 @@ export class BookMyShowBrowser {
       }
 
       const priceMatch = category.label.match(/₹\s*([\d.]+)/);
-      const categoryName = category.label.replace(/\s*-\s*₹.*$/, "").trim();
       const fallbackPricePaise = advertised.get(categoryName.toLowerCase()) || 0;
       categories.push({
         name: categoryName,

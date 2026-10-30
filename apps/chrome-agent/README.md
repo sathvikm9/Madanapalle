@@ -1,6 +1,6 @@
 # Local Chrome Capture Agent
 
-This unpacked Chrome extension is the primary local collector. It uses separate normal Chrome tabs for Sri Krishna, Sai Chitra, Ravi, and ASR and the computer's ordinary network connection instead of a cloud/datacenter browser.
+This unpacked Chrome extension is the primary local collector. It uses separate normal Chrome tabs for Sri Krishna, Sai Chitra, Ravi, ASR, and Mini Siddartha and the computer's ordinary network connection instead of a cloud/datacenter browser.
 
 ## Install
 
@@ -37,12 +37,13 @@ The extension creates one pinned BookMyShow or TicketNew tab per theatre. While 
 - at cutoff −0:50, a fresh final TicketNew summary tab is cache-bypass refreshed immediately before reading; it is saved only when no District live result has been protected, and any successful District live result remains authoritative
 - Ravi backup capture starts shortly after showtime +15 minutes
 - ASR backup capture starts shortly after showtime +15 minutes
+- Mini Siddartha backup capture starts shortly after showtime +25 minutes; its verified cutoff is showtime +30 minutes
 - when an initial capture fails with no locally protected or uploaded fallback, one urgent PWA alert asks the selected theatre's subscribers to check immediately
 - automatic recovery failures remain silent; if the final attempt also fails with no fallback, one second urgent PWA alert is sent
 - successful recovery does not send a follow-up alert, and durable event keys prevent duplicate failure notifications
 - a second preflight refreshes the schedule and prepares an inactive exact-session standby tab before each BookMyShow final attempt
 - a successful backup waits until the final minute; a failed backup retries once per minute
-- a failed Sri Krishna, Ravi, or ASR final read skips another discovery, reloads its exact-session standby only after the pending capture is registered, and retries fresh recovery tabs in bounded 18-second attempts through the end of the cutoff minute
+- a failed Sri Krishna, Ravi, ASR, or Mini Siddartha final read skips another discovery, reloads its exact-session standby only after the pending capture is registered, and retries fresh recovery tabs in bounded 18-second attempts through the end of the cutoff minute
 - BookMyShow quantity and Select Seats transitions are committed through the page's current React handlers, verified after every step, and retried only while that exact UI state remains visible
 - a stalled BookMyShow loading shell gets one bounded self-reload during a primary attempt; accessibility categories, rows, and exact row grids are then re-acquired and verified before seats are counted
 - a failed Sai Chitra final read stops after 15 seconds, immediately opens a fresh exact District session, and makes one bounded recovery attempt from about `+14:21` through `+14:55`

@@ -4,6 +4,7 @@ export const DEFAULT_NOTIFICATION_PREFERENCES = {
 };
 
 const PREFERENCES_KEY = "mpltalkies-notification-preferences";
+const LEGACY_ALL_VENUES = ["SKMD", "SCM", "RTDM", "ASRM"];
 const INSTALLATION_ID_KEY = "mpltalkies-pwa-installation-id";
 const INSTALLATION_REPORTED_KEY = "mpltalkies-pwa-installation-reported-at";
 const INSTALLATION_REPORT_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -88,10 +89,26 @@ export function notificationSupport() {
   };
 }
 
+export function migrateNotificationPreferences(preferences) {
+  if (!Array.isArray(preferences?.venues) || !Array.isArray(preferences?.types)) {
+    return DEFAULT_NOTIFICATION_PREFERENCES;
+  }
+  const venues = [...new Set(preferences.venues)];
+  const wasLegacyAllVenues = venues.length === LEGACY_ALL_VENUES.length
+    && LEGACY_ALL_VENUES.every((venueCode) => venues.includes(venueCode));
+  return wasLegacyAllVenues
+    ? { ...preferences, venues: [...venues, "MSDR"] }
+    : preferences;
+}
+
 export function loadNotificationPreferences() {
   try {
     const stored = JSON.parse(window.localStorage.getItem(PREFERENCES_KEY));
-    if (Array.isArray(stored?.venues) && Array.isArray(stored?.types)) return stored;
+    if (Array.isArray(stored?.venues) && Array.isArray(stored?.types)) {
+      const migrated = migrateNotificationPreferences(stored);
+      if (migrated !== stored) storeNotificationPreferences(migrated);
+      return migrated;
+    }
   } catch {
     // Defaults keep the settings usable when local storage is unavailable.
   }

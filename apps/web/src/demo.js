@@ -20,11 +20,13 @@ export function demoDashboard(date = today, venueCode = "ALL") {
   const firstShows = {
     "Vishwanath and Sons": `${vishwanathFirstDate}T11:00:00+05:30`,
     Irumudi: `${irumudiFirstDate}T11:00:00+05:30`,
-    "The Paradise": `${date}T21:45:00+05:30`
+    "The Paradise": `${date}T21:45:00+05:30`,
+    Cult: `${date}T11:00:00+05:30`
   };
   const releaseDates = {
     Irumudi: irumudiFirstDate,
-    "The Paradise": addCalendarDays(date, 1)
+    "The Paradise": addCalendarDays(date, 1),
+    Cult: date
   };
   const allShows = [
     makeShow("1", "SKMD", "Sri Krishna", "11:00 AM", `${base}11:00:00+05:30`, "Vishwanath and Sons", firstShows["Vishwanath and Sons"], date, "completed", 15, 103, 657, 1000000),
@@ -38,7 +40,11 @@ export function demoDashboard(date = today, venueCode = "ALL") {
     makeShow("7", "RTDM", "Ravi", "06:00 PM", `${base}18:00:00+05:30`, "Vishwanath and Sons", firstShows["Vishwanath and Sons"], date, "scheduled", 20),
     makeShow("8", "RTDM", "Ravi", "09:20 PM", `${base}21:20:00+05:30`, "Vishwanath and Sons", firstShows["Vishwanath and Sons"], date, "scheduled", 20),
     makeShow("11", "ASRM", "ASR", "11:00 AM", `${base}11:00:00+05:30`, "Vishwanath and Sons", firstShows["Vishwanath and Sons"], date, "completed", 15, 94, 600, 0),
-    makeShow("12", "ASRM", "ASR", "09:45 PM", `${base}21:45:00+05:30`, "The Paradise", firstShows["The Paradise"], date, "scheduled", 15, 0, 0, 0, releaseDates["The Paradise"])
+    makeShow("12", "ASRM", "ASR", "09:45 PM", `${base}21:45:00+05:30`, "The Paradise", firstShows["The Paradise"], date, "scheduled", 15, 0, 0, 0, releaseDates["The Paradise"]),
+    makeShow("13", "MSDR", "Mini Siddartha", "11:00 AM", `${base}11:00:00+05:30`, "Cult", firstShows.Cult, date, "completed", 30, 42, 271, 0, releaseDates.Cult),
+    makeShow("14", "MSDR", "Mini Siddartha", "02:00 PM", `${base}14:00:00+05:30`, "Cult", firstShows.Cult, date, "scheduled", 30, 0, 0, 0, releaseDates.Cult),
+    makeShow("15", "MSDR", "Mini Siddartha", "06:00 PM", `${base}18:00:00+05:30`, "Cult", firstShows.Cult, date, "scheduled", 30, 0, 0, 0, releaseDates.Cult),
+    makeShow("16", "MSDR", "Mini Siddartha", "09:00 PM", `${base}21:00:00+05:30`, "Cult", firstShows.Cult, date, "scheduled", 30, 0, 0, 0, releaseDates.Cult)
   ];
   const shows = venueCode === "ALL" ? allShows : allShows.filter((show) => show.venueCode === venueCode);
   const allScheduleChanges = [{
@@ -86,8 +92,11 @@ function makeShow(id, venueCode, venueName, time, startAt, movieTitle, firstMovi
   const start = new Date(startAt);
   const cutoff = new Date(start.getTime() + cutoffMinutes * 60_000);
   const captured = new Date(cutoff.getTime() - 22_000);
-  const reservedSold = Math.max(sold - 12, 0);
-  const secondClassSold = Math.min(sold, 12);
+  const lowerTierCapacity = venueCode === "MSDR" ? 33 : 12;
+  const reservedSold = Math.max(sold - lowerTierCapacity, 0);
+  const secondClassSold = Math.min(sold, lowerTierCapacity);
+  const upperClassName = venueCode === "MSDR" ? "GOLD CLASS" : "RESERVED CLASS";
+  const lowerClassName = venueCode === "MSDR" ? "SILVER CLASS" : "SECOND CLASS";
   collectionPaise = reservedSold * 10000 + secondClassSold * 7900;
   return {
     id,
@@ -101,15 +110,15 @@ function makeShow(id, venueCode, venueName, time, startAt, movieTitle, firstMovi
     format: "2D",
     showTime: time,
     startAt,
-    captureDueAt: new Date(start.getTime() + (venueCode === "RTDM" ? 15 : 10) * 60_000).toISOString(),
+    captureDueAt: new Date(start.getTime() + (venueCode === "MSDR" ? 25 : venueCode === "RTDM" ? 15 : 10) * 60_000).toISOString(),
     finalCaptureDueAt: new Date(cutoff.getTime() - 60_000).toISOString(),
     cutoffAt: cutoff.toISOString(),
     isCurrent: true,
     status,
     captureAttempts: status === "completed" ? 1 : 0,
     advertisedCategories: [
-      { name: "RESERVED CLASS", listPricePaise: 10500 },
-      { name: "SECOND CLASS", listPricePaise: 8400 }
+      { name: upperClassName, listPricePaise: 10500 },
+      { name: lowerClassName, listPricePaise: 8400 }
     ],
     snapshot: status === "completed" ? {
       capturedAt: captured.toISOString(),
@@ -121,8 +130,8 @@ function makeShow(id, venueCode, venueName, time, startAt, movieTitle, firstMovi
       occupancyPercent: Number(((sold / capacity) * 100).toFixed(2)),
       isFinal: true,
       categories: [
-        { name: "RESERVED CLASS", listPricePaise: 10500, netPricePaise: 10000, sold: reservedSold, capacity: Math.max(capacity - 164, 0), collectionPaise: reservedSold * 10000 },
-        { name: "SECOND CLASS", listPricePaise: 8400, netPricePaise: 7900, sold: secondClassSold, capacity: Math.min(capacity, 164), collectionPaise: secondClassSold * 7900 }
+        { name: upperClassName, listPricePaise: 10500, netPricePaise: 10000, sold: reservedSold, capacity: venueCode === "MSDR" ? Math.min(capacity, 238) : Math.max(capacity - 164, 0), collectionPaise: reservedSold * 10000 },
+        { name: lowerClassName, listPricePaise: 8400, netPricePaise: 7900, sold: secondClassSold, capacity: venueCode === "MSDR" ? Math.min(capacity, 33) : Math.min(capacity, 164), collectionPaise: secondClassSold * 7900 }
       ]
     } : null
   };

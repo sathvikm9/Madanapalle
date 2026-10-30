@@ -37,7 +37,7 @@ testIfSqlite("reporting migration exposes readable results and uses the applicat
         event_code, movie_title, movie_variant, language, format, seat_layout_url,
         is_current, status, first_seen_at, last_seen_at, capture_attempts, created_at, updated_at
       ) VALUES (
-        1, 'show-1', 'slot-1', 'SKMD', 'Sri Krishna', '2026-10-18', '20261018',
+        1, 'show-1', 'slot-1', 'MSDR', 'Siddartha Cinemas:Screen 2 Dolby Laser,Madanapalle', '2026-10-18', '20261018',
         '1100', '11:00 AM', '2026-10-18T05:30:00.000Z', '2026-10-18T05:50:00.000Z',
         '2026-10-18T05:45:00.000Z', 'session-1', 'ET1', 'Example Movie', 'Example Movie',
         'Telugu', '2D', 'https://example.com', 1, 'completed',
@@ -74,7 +74,7 @@ testIfSqlite("reporting migration exposes readable results and uses the applicat
       databasePath,
       "SELECT json_object('theatre',theatre,'tickets',tickets_sold,'gross',gross_rupees,'type',capture_type) FROM report_show_results;"
     ));
-    assert.deepEqual(show, { theatre: "Sri Krishna", tickets: 55, gross: 5500, type: "Final" });
+    assert.deepEqual(show, { theatre: "Mini Siddartha", tickets: 55, gross: 5500, type: "Final" });
 
     const comparison = JSON.parse(sqlite(
       databasePath,
@@ -177,6 +177,54 @@ testIfSqlite("reporting migration exposes readable results and uses the applicat
        ORDER BY observed_at DESC;`
     );
     assert.match(schedulePlan, /schedule_events_report_idx/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+testIfSqlite("Mini Siddartha notification migration upgrades only the former all-theatre choice", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "collection-notifications-"));
+  const databasePath = path.join(directory, "notifications.sqlite");
+
+  try {
+    const migrationDirectory = path.join(workerDirectory, "migrations");
+    const migrationNames = readdirSync(migrationDirectory)
+      .filter((name) => name.endsWith(".sql"))
+      .sort();
+    const beforeMiniMigration = migrationNames
+      .filter((name) => name < "0017_mini_siddartha_everywhere.sql")
+      .map((name) => readFileSync(path.join(migrationDirectory, name), "utf8"))
+      .join("\n");
+    sqlite(databasePath, beforeMiniMigration);
+
+    sqlite(databasePath, `
+      INSERT INTO push_subscriptions (
+        endpoint, p256dh, auth, device_name, venues_json, types_json, enabled,
+        created_at, updated_at, installation_id
+      ) VALUES
+        ('https://example.com/all', 'key', 'auth', 'Old all',
+         '["SKMD","SCM","RTDM","ASRM"]', '["daily_summary"]', 1,
+         '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z', 'all-device'),
+        ('https://example.com/subset', 'key', 'auth', 'Custom subset',
+         '["SKMD","RTDM"]', '["daily_summary"]', 1,
+         '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z', 'subset-device');
+    `);
+
+    sqlite(databasePath, readFileSync(
+      path.join(migrationDirectory, "0017_mini_siddartha_everywhere.sql"),
+      "utf8"
+    ));
+
+    const migratedAll = JSON.parse(sqlite(
+      databasePath,
+      "SELECT venues_json FROM push_subscriptions WHERE installation_id='all-device';"
+    ));
+    const preservedSubset = JSON.parse(sqlite(
+      databasePath,
+      "SELECT venues_json FROM push_subscriptions WHERE installation_id='subset-device';"
+    ));
+    assert.deepEqual(migratedAll, ["SKMD", "SCM", "RTDM", "ASRM", "MSDR"]);
+    assert.deepEqual(preservedSubset, ["SKMD", "RTDM"]);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
