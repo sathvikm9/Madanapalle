@@ -34,6 +34,8 @@ const inDemoMode = pageParams.get("demo") === "1";
 const installRequested = pageParams.get("install") === "1";
 const installPreview = import.meta.env.DEV ? pageParams.get("installPreview") : "";
 const notificationsPreview = import.meta.env.DEV && pageParams.get("notificationsPreview") === "1";
+// Keep Ask MPLTalkies implemented but hidden until the feature is ready to return.
+const ASK_MPLTALKIES_ENABLED = false;
 const INSTALL_DISMISSED_KEY = "mpltalkies-install-dismissed-at";
 const INSTALL_DISMISS_MS = 30 * 24 * 60 * 60 * 1000;
 const THEATRE_OPTIONS = [
@@ -905,7 +907,7 @@ export default function App() {
         )}
       </main>
 
-      {!inDemoMode && <AnalyticsAssistant apiBase={API_BASE} />}
+      {ASK_MPLTALKIES_ENABLED && !inDemoMode && <AnalyticsAssistant apiBase={API_BASE} />}
     </div>
   );
 }
