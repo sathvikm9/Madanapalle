@@ -3,6 +3,20 @@ const APP_PATH = self.registration.scope;
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
 
+async function confirmDisplayed(payload) {
+  const receipt = payload?.deliveryReceipt;
+  if (!receipt?.url || !receipt?.token) return;
+  try {
+    await fetch(receipt.url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: receipt.token })
+    });
+  } catch {
+    // The server will retry an unconfirmed push with the same notification tag.
+  }
+}
+
 self.addEventListener("push", (event) => {
   let payload = {};
   try {
@@ -11,14 +25,17 @@ self.addEventListener("push", (event) => {
     payload = { title: "Show update", body: event.data?.text() || "New collection update" };
   }
   const title = payload.title || "Show update";
-  event.waitUntil(self.registration.showNotification(title, {
-    body: payload.body || "New collection update",
-    icon: new URL("icons/icon-192.png", APP_PATH).href,
-    badge: new URL("icons/icon-192.png", APP_PATH).href,
-    tag: payload.tag || `mpltalkies-${Date.now()}`,
-    renotify: false,
-    data: { url: payload.url || "./" }
-  }));
+  event.waitUntil((async () => {
+    await self.registration.showNotification(title, {
+      body: payload.body || "New collection update",
+      icon: new URL("icons/icon-192.png", APP_PATH).href,
+      badge: new URL("icons/icon-192.png", APP_PATH).href,
+      tag: payload.tag || `mpltalkies-${Date.now()}`,
+      renotify: false,
+      data: { url: payload.url || "./" }
+    });
+    await confirmDisplayed(payload);
+  })());
 });
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();

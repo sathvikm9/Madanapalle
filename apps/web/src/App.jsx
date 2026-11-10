@@ -6,7 +6,7 @@ import { buildMoviesCopyText, buildShowsCopyText } from "./copyData.js";
 import AnalyticsAssistant from "./AnalyticsAssistant.jsx";
 import NotificationSettings from "./NotificationSettings.jsx";
 import ReportsView from "./ReportsView.jsx";
-import { reportPwaInstallation } from "./notifications.js";
+import { reportPwaInstallation, syncPushSubscription } from "./notifications.js";
 import {
   collectorIndicatorLabel,
   collectorOfflineMessage,
@@ -655,6 +655,8 @@ export default function App() {
   useEffect(() => {
     void reportPwaInstallation(API_BASE)
       .catch((error) => console.warn("PWA installation reporting failed", error));
+    void syncPushSubscription(API_BASE)
+      .catch((error) => console.warn("Push subscription synchronization failed", error));
   }, []);
 
   function closeInstallCard(dismissed = false) {

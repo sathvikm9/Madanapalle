@@ -11,7 +11,8 @@
   "vars": {
     "CORS_ORIGINS": "http://localhost:5173,https://sathvikm9.github.io",
     "AI_MODEL": "@cf/meta/llama-4-scout-17b-16e-instruct",
-    "NOTIFICATIONS_ENABLED": "true"
+    "NOTIFICATIONS_ENABLED": "true",
+    "PUSH_RECEIPT_URL": "https://sri-krishna-tracker-api.skct-worker.workers.dev/api/notifications/receipts"
   },
   "ai": {
     "binding": "AI"

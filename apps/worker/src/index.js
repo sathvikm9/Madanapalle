@@ -36,6 +36,7 @@ import {
   registerLegacyCollector
 } from "./collector-agents.js";
 import {
+  acknowledgePushDelivery,
   adoptionStats,
   deletePushSubscription,
   dispatchNotifications,
@@ -192,6 +193,11 @@ async function route(request, env, origin, context) {
       throw new RequestError("Push notifications are not configured", 503, "notifications_unavailable");
     }
     return json(await savePushSubscription(env.DB, await bodyJson(request)), 200, origin);
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/notifications/receipts") {
+    if (!origin) throw new RequestError("An approved dashboard origin is required", 403, "origin_required");
+    return json(await acknowledgePushDelivery(env.DB, await bodyJson(request)), 200, origin);
   }
 
   if (request.method === "DELETE" && url.pathname === "/api/notifications/subscriptions") {

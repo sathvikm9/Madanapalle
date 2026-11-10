@@ -13,6 +13,7 @@ const TERMINAL_SHOW_STATUSES = new Set(["completed", "missed"]);
 const DAILY_SUMMARY_GAP_MS = 60_000;
 const MAX_EVENT_ATTEMPTS = 10;
 const MAX_DELIVERY_ATTEMPTS = 10;
+const RECEIPT_RETRY_MIN_MS = 5 * 60_000;
 
 function parseJson(value, fallback) {
   try {
@@ -291,24 +292,30 @@ function latestTerminalTime(shows) {
   ).getTime()).filter(Number.isFinite));
 }
 
-function deliveryStatement(db, subscriptionId, key, type, payload, dueAt, now) {
+function deliveryStatement(db, env, subscriptionId, key, type, payload, dueAt, now) {
+  const receiptToken = crypto.randomUUID();
+  const receiptUrl = String(env.PUSH_RECEIPT_URL || "").trim();
   return db.prepare(
     `INSERT OR IGNORE INTO push_deliveries (
        subscription_id, notification_key, notification_type, payload_json,
-       status, due_at, next_attempt_at, created_at
-     ) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)`
+       status, due_at, next_attempt_at, receipt_token, created_at
+     ) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)`
   ).bind(
     subscriptionId,
     key,
     type,
-    JSON.stringify(payload),
+    JSON.stringify({
+      ...payload,
+      ...(receiptUrl ? { deliveryReceipt: { url: receiptUrl, token: receiptToken } } : {})
+    }),
     dueAt,
     dueAt,
+    receiptToken,
     now.toISOString()
   );
 }
 
-function dateDeliveryStatements(db, subscriptions, shows, showDate, now) {
+function dateDeliveryStatements(db, env, subscriptions, shows, showDate, now) {
   const statements = [];
   for (const subscription of subscriptions) {
     const preferences = subscriptionPreferences(subscription);
@@ -327,6 +334,7 @@ function dateDeliveryStatements(db, subscriptions, shows, showDate, now) {
         const message = buildPeriodNotification(periodShows);
         statements.push(deliveryStatement(
           db,
+          env,
           subscription.id,
           `period:${showDate}:${periodKey}`,
           "period_results",
@@ -353,6 +361,7 @@ function dateDeliveryStatements(db, subscriptions, shows, showDate, now) {
       const dueAt = new Date(Math.max(now.getTime(), completedAt + DAILY_SUMMARY_GAP_MS)).toISOString();
       statements.push(deliveryStatement(
         db,
+        env,
         subscription.id,
         `daily:${showDate}`,
         "daily_summary",
@@ -369,7 +378,7 @@ function dateDeliveryStatements(db, subscriptions, shows, showDate, now) {
   return statements;
 }
 
-function scheduleDeliveryStatements(db, subscriptions, event, now) {
+function scheduleDeliveryStatements(db, env, subscriptions, event, now) {
   const payload = parseJson(event.payload_json, {});
   const venueCode = event.venue_code || payload.venueCode;
   const venue = venueForCode(venueCode)?.shortName || venueCode;
@@ -379,6 +388,7 @@ function scheduleDeliveryStatements(db, subscriptions, event, now) {
     if (!preferences.types.includes("schedule_changes") || !preferences.venues.includes(venueCode)) continue;
     statements.push(deliveryStatement(
       db,
+      env,
       subscription.id,
       event.event_key,
       "schedule_changes",
@@ -395,7 +405,7 @@ function scheduleDeliveryStatements(db, subscriptions, event, now) {
   return statements;
 }
 
-function captureAlertDeliveryStatements(db, subscriptions, event, now) {
+function captureAlertDeliveryStatements(db, env, subscriptions, event, now) {
   const payload = parseJson(event.payload_json, {});
   const venueCode = event.venue_code || payload.venueCode;
   const venue = venueForCode(venueCode)?.shortName || venueCode;
@@ -413,6 +423,7 @@ function captureAlertDeliveryStatements(db, subscriptions, event, now) {
     if (!preferences.venues.includes(venueCode)) continue;
     statements.push(deliveryStatement(
       db,
+      env,
       subscription.id,
       event.event_key,
       "capture_alert",
@@ -440,7 +451,7 @@ async function finalCaptureAlertIsProtected(db, event) {
   return Boolean(protectedCapture);
 }
 
-function operationalAlertDeliveryStatements(db, subscriptions, event, now) {
+function operationalAlertDeliveryStatements(db, env, subscriptions, event, now) {
   const payload = parseJson(event.payload_json, {});
   let title;
   let body;
@@ -466,6 +477,7 @@ function operationalAlertDeliveryStatements(db, subscriptions, event, now) {
   }
   return subscriptions.map((subscription) => deliveryStatement(
     db,
+    env,
     subscription.id,
     event.event_key,
     event.event_type,
@@ -497,19 +509,19 @@ export async function processNotificationEvents(db, env, now = new Date()) {
     .map((event) => event.show_date))];
   for (const showDate of showDates) {
     const shows = await notificationShows(db, showDate);
-    statements.push(...dateDeliveryStatements(db, subscriptions, shows, showDate, now));
+    statements.push(...dateDeliveryStatements(db, env, subscriptions, shows, showDate, now));
   }
   for (const event of events.filter((candidate) => candidate.event_type === "schedule_change")) {
-    statements.push(...scheduleDeliveryStatements(db, subscriptions, event, now));
+    statements.push(...scheduleDeliveryStatements(db, env, subscriptions, event, now));
   }
   for (const event of events.filter((candidate) => candidate.event_type === "capture_alert")) {
     if (await finalCaptureAlertIsProtected(db, event)) continue;
-    statements.push(...captureAlertDeliveryStatements(db, subscriptions, event, now));
+    statements.push(...captureAlertDeliveryStatements(db, env, subscriptions, event, now));
   }
   for (const event of events.filter((candidate) =>
     new Set(["collector_offline", "collector_recovered", "daily_incomplete"]).has(candidate.event_type)
   )) {
-    statements.push(...operationalAlertDeliveryStatements(db, subscriptions, event, now));
+    statements.push(...operationalAlertDeliveryStatements(db, env, subscriptions, event, now));
   }
   for (const event of events) {
     statements.push(
@@ -527,6 +539,22 @@ function retryDelayMs(attempt) {
   if (attempt <= 1) return 60_000;
   if (attempt <= 3) return 5 * 60_000;
   return 15 * 60_000;
+}
+
+function receiptRetryDelayMs(attempt) {
+  return Math.max(RECEIPT_RETRY_MIN_MS, retryDelayMs(attempt));
+}
+
+export async function acknowledgePushDelivery(db, body, now = new Date()) {
+  const token = String(body?.token || "").trim();
+  if (!/^[0-9a-f-]{36}$/i.test(token)) throw new RequestError("A valid delivery receipt is required");
+  const timestamp = now.toISOString();
+  await db.prepare(
+    `UPDATE push_deliveries SET
+       status='sent', sent_at=COALESCE(sent_at, ?), acknowledged_at=?, error=NULL
+     WHERE receipt_token=?`
+  ).bind(timestamp, timestamp, token).run();
+  return { ok: true };
 }
 
 export async function sendPendingDeliveries(db, env, now = new Date()) {
@@ -558,9 +586,10 @@ export async function sendPendingDeliveries(db, env, now = new Date()) {
         "collector_offline",
         "daily_incomplete"
       ]).has(delivery.notification_type);
+      const ttl = delivery.notification_type === "daily_summary" ? 3 * 24 * 60 * 60 : 24 * 60 * 60;
       const request = await buildPushPayload({
         data: payload,
-        options: { ttl: urgent ? 15 * 60 : 60 * 60, urgency: urgent ? "high" : "normal" }
+        options: { ttl, urgency: urgent ? "high" : "normal" }
       }, {
         endpoint: delivery.endpoint,
         expirationTime: null,
@@ -568,11 +597,27 @@ export async function sendPendingDeliveries(db, env, now = new Date()) {
       }, vapid);
       const response = await fetch(delivery.endpoint, request);
       if (!response.ok) throw Object.assign(new Error(`Push service returned ${response.status}`), { status: response.status });
+      const attempt = Number(delivery.attempts) + 1;
+      const exhausted = attempt >= MAX_DELIVERY_ATTEMPTS;
+      const nextAttempt = new Date(now.getTime() + receiptRetryDelayMs(attempt)).toISOString();
       await db.batch([
         db.prepare(
-          `UPDATE push_deliveries SET status='sent', attempts=attempts+1,
-             last_attempt_at=?, sent_at=?, error=NULL WHERE id=?`
-        ).bind(attemptedAt, attemptedAt, delivery.id),
+          `UPDATE push_deliveries SET
+             status=CASE
+               WHEN acknowledged_at IS NOT NULL THEN 'sent'
+               WHEN ? THEN 'unconfirmed'
+               ELSE 'pending'
+             END,
+             attempts=attempts+1, last_attempt_at=?, accepted_at=?, next_attempt_at=?,
+             sent_at=CASE WHEN acknowledged_at IS NOT NULL
+               THEN COALESCE(sent_at, acknowledged_at) ELSE sent_at END,
+             error=CASE
+               WHEN acknowledged_at IS NOT NULL THEN NULL
+               WHEN ? THEN 'Push accepted but the device did not confirm display'
+               ELSE 'Awaiting device confirmation'
+             END
+           WHERE id=?`
+        ).bind(exhausted ? 1 : 0, attemptedAt, attemptedAt, nextAttempt, exhausted ? 1 : 0, delivery.id),
         db.prepare(
           `UPDATE push_subscriptions SET last_success_at=?, last_error=NULL,
              failure_count=0, updated_at=? WHERE id=?`

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 import {
+  acknowledgePushDelivery,
   adoptionStats,
   dispatchNotifications,
   notificationConfig,
@@ -122,6 +123,30 @@ test("daily summary is scheduled one minute after the selected day completes", (
   const source = fs.readFileSync(new URL("../src/notifications.js", import.meta.url), "utf8");
   assert.match(source, /completedAt \+ DAILY_SUMMARY_GAP_MS/);
   assert.match(source, /const DAILY_SUMMARY_GAP_MS = 60_000/);
+});
+
+test("push delivery remains retryable until the device confirms it was displayed", () => {
+  const source = fs.readFileSync(new URL("../src/notifications.js", import.meta.url), "utf8");
+  const migration = fs.readFileSync(
+    new URL("../migrations/0018_confirmed_push_delivery.sql", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /deliveryReceipt: \{ url: receiptUrl, token: receiptToken \}/);
+  assert.match(source, /Awaiting device confirmation/);
+  assert.match(source, /status='sent'.*acknowledged_at=/s);
+  assert.match(source, /3 \* 24 \* 60 \* 60/);
+  assert.match(migration, /ADD COLUMN receipt_token TEXT/);
+  assert.match(migration, /ADD COLUMN acknowledged_at TEXT/);
+});
+
+test("a valid device receipt acknowledges its matching push delivery", async () => {
+  const db = statementDb();
+  await acknowledgePushDelivery(db, {
+    token: "83cb5728-9a86-4a86-94ae-8cc40ab53443"
+  }, new Date("2026-11-09T17:12:00.000Z"));
+  assert.match(db.prepared[0].sql, /status='sent'/);
+  assert.match(db.prepared[0].sql, /acknowledged_at=/);
+  assert.equal(db.prepared[0].values[2], "83cb5728-9a86-4a86-94ae-8cc40ab53443");
 });
 
 test("capture failure alerts are urgent, theatre-filtered, and use exact titles", () => {

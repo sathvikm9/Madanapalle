@@ -180,6 +180,15 @@ export async function enablePushNotifications(apiBase, publicKey, preferences) {
   return subscription;
 }
 
+export async function syncPushSubscription(apiBase) {
+  const support = notificationSupport();
+  if (!support.supported || window.Notification.permission !== "granted") return { synced: false };
+  const subscription = await currentPushSubscription();
+  if (!subscription) return { synced: false };
+  await saveSubscription(apiBase, subscription, loadNotificationPreferences());
+  return { synced: true };
+}
+
 export async function updatePushPreferences(apiBase, subscription, preferences) {
   await saveSubscription(apiBase, subscription, preferences);
 }
