@@ -968,11 +968,11 @@ main { max-width: 1120px; margin: 0 auto; padding: 26px 24px 88px; }
 }
 .movie-report-identity h2 {
   margin: 0 0 5px;
-  font-family: "DM Serif Display", Georgia, serif;
-  font-size: clamp(25px, 3vw, 34px);
-  font-weight: 400;
-  line-height: 1.08;
-  letter-spacing: -.025em;
+  font-family: "DM Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: clamp(24px, 2.8vw, 32px);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -.035em;
 }
 .movie-report-identity > div > p:last-child { margin: 0; color: var(--muted); font-size: 13px; }
 .movie-report-identity__run {
@@ -1376,7 +1376,7 @@ main { max-width: 1120px; margin: 0 auto; padding: 26px 24px 88px; }
 .movie-progress--attention { color: #9e2822; background: #ffe0dd; }
 .movie-card__pending { min-height: 26px; display: inline-flex; align-items: center; padding: 0 9px; border-radius: 999px; color: #805815; background: #fff0cc; font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .movie-card__count { margin-left: auto; color: var(--muted); font-size: 11px; font-weight: 600; }
-.movie-card__title h3 { margin: 0 0 5px; font-family: "DM Serif Display", Georgia, serif; font-size: clamp(25px, 3vw, 34px); font-weight: 400; line-height: 1.08; letter-spacing: -.025em; }
+.movie-card__title h3 { margin: 0 0 5px; font-family: "DM Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: clamp(24px, 2.8vw, 32px); font-weight: 700; line-height: 1.12; letter-spacing: -.035em; }
 .movie-card__title > p { margin: 0; color: var(--muted); font-size: 13px; }
 .movie-card__badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
 .movie-card__badges span { min-height: 26px; display: inline-flex; align-items: center; padding: 0 9px; border-radius: 999px; color: #4b5551; background: #efede7; font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }

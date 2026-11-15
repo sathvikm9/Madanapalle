@@ -276,6 +276,29 @@ export async function analyticsCatalog(db, now = new Date()) {
   };
 }
 
+export async function analyticsReportStatus(db, now = new Date()) {
+  const row = await db.prepare(
+    `SELECT MAX(completed.show_date) AS latest_completed_date
+     FROM (
+       SELECT shows.show_date
+       FROM shows
+       WHERE shows.is_current=1 AND shows.show_date>=?
+       GROUP BY shows.show_date
+       HAVING COUNT(*)>0
+         AND SUM(CASE WHEN shows.status='completed' AND EXISTS (
+           SELECT 1 FROM snapshots
+           WHERE snapshots.show_id=shows.id AND snapshots.is_final=1
+         ) THEN 1 ELSE 0 END)=COUNT(*)
+     ) completed`
+  ).bind(ANALYTICS_FIRST_DATE).first();
+
+  return {
+    firstLiveDate: ANALYTICS_FIRST_DATE,
+    latestCompletedDate: row?.latest_completed_date || null,
+    generatedAt: now.toISOString()
+  };
+}
+
 export async function analyticsSummary(db, filters, now = new Date()) {
   const result = await db.prepare(
     `SELECT

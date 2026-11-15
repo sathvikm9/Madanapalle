@@ -10,7 +10,7 @@ import {
   saveCapture,
   showForCapture
 } from "./database.js";
-import { analyticsCatalog, analyticsSummary } from "./analytics.js";
+import { analyticsCatalog, analyticsReportStatus, analyticsSummary } from "./analytics.js";
 import { interpretChatQuestion } from "./ai-chat.js";
 import {
   normalizeCapture,
@@ -215,6 +215,10 @@ async function route(request, env, origin, context) {
 
   if (request.method === "GET" && url.pathname === "/api/analytics/catalog") {
     return json(await analyticsCatalog(env.DB), 200, origin);
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/analytics/report-status") {
+    return json(await analyticsReportStatus(env.DB), 200, origin);
   }
 
   if (request.method === "GET" && url.pathname === "/api/analytics/summary") {

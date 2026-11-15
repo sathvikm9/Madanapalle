@@ -1,6 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { analyticsCatalog, buildAnalyticsCatalogMovies, buildCapacityProfiles, summarizeAnalyticsRows } from "../src/analytics.js";
+import {
+  analyticsCatalog,
+  analyticsReportStatus,
+  buildAnalyticsCatalogMovies,
+  buildCapacityProfiles,
+  summarizeAnalyticsRows
+} from "../src/analytics.js";
 
 function row(overrides = {}) {
   return {
@@ -66,6 +72,31 @@ test("builds the movie catalogue in highest-gross-first order", () => {
   assert.equal(movies[1].capturedShows, 2);
   assert.equal(movies[1].ticketsSold, 600);
   assert.equal(movies[1].collectionPaise, 3_000_000);
+});
+
+test("theatre report status advances only to a fully finalized date", async () => {
+  const db = {
+    prepare(sql) {
+      assert.match(sql, /snapshots\.is_final=1/);
+      assert.match(sql, /SUM\(CASE WHEN shows\.status='completed'/);
+      return {
+        bind(firstLiveDate) {
+          assert.equal(firstLiveDate, "2026-08-21");
+          return {
+            async first() {
+              return { latest_completed_date: "2026-10-22" };
+            }
+          };
+        }
+      };
+    }
+  };
+
+  assert.deepEqual(await analyticsReportStatus(db, new Date("2026-10-22T18:00:00.000Z")), {
+    firstLiveDate: "2026-08-21",
+    latestCompletedDate: "2026-10-22",
+    generatedAt: "2026-10-22T18:00:00.000Z"
+  });
 });
 
 test("keeps a movie running when today's detected shows have not started yet", () => {
