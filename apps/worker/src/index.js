@@ -10,7 +10,7 @@ import {
   saveCapture,
   showForCapture
 } from "./database.js";
-import { analyticsCatalog, analyticsSummary } from "./analytics.js";
+import { analyticsCatalog, analyticsReportStatus, analyticsSummary } from "./analytics.js";
 import { interpretChatQuestion } from "./ai-chat.js";
 import {
   normalizeCapture,
@@ -44,6 +44,11 @@ import {
   recordPwaInstallation,
   savePushSubscription
 } from "./notifications.js";
+import {
+  bmsTestingDashboard,
+  isBmsTestingVenue,
+  runBmsTestingScheduler
+} from "./bms-testing.js";
 
 const DASHBOARD_CACHE_TTL_SECONDS = 45;
 
@@ -213,8 +218,22 @@ async function route(request, env, origin, context) {
     return json(await cachedDashboard(env.DB, date, venueCode), 200, origin);
   }
 
+  if (request.method === "GET" && url.pathname === "/api/testing/bms-dashboard") {
+    const date = String(url.searchParams.get("date") || "");
+    const venueCode = String(url.searchParams.get("venueCode") || "ALL").toUpperCase();
+    if (!validDate(date)) throw new RequestError("date must be a real YYYY-MM-DD date");
+    if (venueCode !== "ALL" && !isBmsTestingVenue(venueCode)) {
+      throw new RequestError(`Venue ${venueCode || "missing"} is not available for BMS testing`);
+    }
+    return json(await bmsTestingDashboard(env, { date, venueCode }), 200, origin);
+  }
+
   if (request.method === "GET" && url.pathname === "/api/analytics/catalog") {
     return json(await analyticsCatalog(env.DB), 200, origin);
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/analytics/report-status") {
+    return json(await analyticsReportStatus(env.DB), 200, origin);
   }
 
   if (request.method === "GET" && url.pathname === "/api/analytics/summary") {
@@ -449,6 +468,10 @@ async function handleFetch(request, env, context) {
 export default {
   fetch: handleFetch,
   async scheduled(_controller, env, context) {
+    context.waitUntil(
+      runBmsTestingScheduler(env)
+        .catch((error) => console.error("BMS testing scheduler failed", error))
+    );
     context.waitUntil((async () => {
       await finalizeExpiredShows(env.DB);
       await evaluateCollectorHealth(env.DB);

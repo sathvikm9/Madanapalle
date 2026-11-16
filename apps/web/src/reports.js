@@ -106,6 +106,13 @@ export function previousReportDate(currentDate, firstDate = "2026-08-21") {
   return previousDate < firstDate ? firstDate : previousDate;
 }
 
+export function completedTheatreReportDate(currentDate, latestCompletedDate, firstDate = "2026-08-21") {
+  const fallback = previousReportDate(currentDate, firstDate);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(latestCompletedDate || ""))) return fallback;
+  if (latestCompletedDate < firstDate) return firstDate;
+  return latestCompletedDate > currentDate ? currentDate : latestCompletedDate;
+}
+
 export function movieReportStartDate(movie, firstDate) {
   const candidates = [movie?.premiereDate, movie?.dayOneDate, movie?.firstTrackedDate];
   return candidates.find((date) => /^\d{4}-\d{2}-\d{2}$/.test(String(date || ""))) || firstDate;

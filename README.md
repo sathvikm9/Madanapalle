@@ -80,6 +80,8 @@ Set at minimum:
 
 The health endpoint is `GET /health`. The Worker cron finalizes received snapshots but never accesses a booking platform. See the Cloudflare deployment guide for database creation, migrations, secrets and backup commands.
 
+The dashboard's local-only **Testing** tab is an isolated automatic server experiment. When `BMS_TESTING_ENABLED=true`, migration `0019` has been applied locally, and a 32-character `BMS_LAYOUT_KEY` is present in the Worker's local `.dev.vars`, the minute cron mirrors already-known BMS session IDs into separate testing tables, creates initial/final jobs at the same venue timings as the extension, performs the seat read on the server, and compares it with collector snapshots. It never writes to production `shows` or `snapshots`, stops rather than bypassing a BMS 403/429, and remains disabled by default. If a session was not already discovered, the scheduler makes one rate-limited theatre-page discovery attempt; a server-side 403 is recorded and backed off for six hours rather than bypassed.
+
 ## Install the local Chrome agent
 
 1. Open `chrome://extensions`, enable **Developer mode**, and choose **Load unpacked**.

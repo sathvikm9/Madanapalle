@@ -490,6 +490,7 @@ export async function saveCapture(db, show, capture) {
         createdAt,
         createdAt,
         JSON.stringify({
+          source: capture.source,
           sold: capture.sold,
           collectionPaise: capture.collectionPaise,
           capturedAt: capture.capturedAt,

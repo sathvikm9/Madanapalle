@@ -3,6 +3,7 @@ import {
   buildMovieDailyTrend,
   buildReportModel,
   completedReportEndDate,
+  completedTheatreReportDate,
   movieMatchesSearch,
   movieReportRange,
   orderMoviesForPicker,
@@ -616,9 +617,10 @@ export default function ReportsView({ apiBase, demo, initialVenue, maxDate, thea
   const initialDemoMovie = demo ? demoMovies.find((movie) => movie.title === storedMovieTitle)
     || demoMovies.find((movie) => movie.title === "The Paradise")
     || demoMovies[0] : null;
-  const theatreReportMaxDate = useMemo(() => previousReportDate(maxDate), [maxDate]);
+  const initialTheatreReportMaxDate = useMemo(() => previousReportDate(maxDate), [maxDate]);
   const [startDate, setStartDate] = useState("2026-08-21");
   const [endDate, setEndDate] = useState(() => previousReportDate(maxDate));
+  const [theatreReportMaxDate, setTheatreReportMaxDate] = useState(initialTheatreReportMaxDate);
   const [selectedCodes, setSelectedCodes] = useState(() => initialVenue === "ALL" ? allCodes : [initialVenue]);
   const [reportType, setReportType] = useState("movie");
   const [movieOptions, setMovieOptions] = useState(() => demo ? demoMovies : []);
@@ -634,6 +636,47 @@ export default function ReportsView({ apiBase, demo, initialVenue, maxDate, thea
   const autoMovieReportRef = useRef("");
   const movieOverviewRef = useRef(null);
   const reportRequestRef = useRef(0);
+  const theatreReportMaxDateRef = useRef(initialTheatreReportMaxDate);
+
+  useEffect(() => {
+    if (demo) {
+      theatreReportMaxDateRef.current = initialTheatreReportMaxDate;
+      setTheatreReportMaxDate(initialTheatreReportMaxDate);
+      return undefined;
+    }
+
+    let cancelled = false;
+    async function refreshCompletedReportDate() {
+      if (document.visibilityState === "hidden") return;
+      try {
+        const response = await fetch(`${apiBase}/api/analytics/report-status`, { cache: "no-store" });
+        if (!response.ok) throw new Error(`Report status returned ${response.status}`);
+        const status = await response.json();
+        if (cancelled) return;
+        const nextMaxDate = completedTheatreReportDate(maxDate, status.latestCompletedDate);
+        const previousMaxDate = theatreReportMaxDateRef.current;
+        theatreReportMaxDateRef.current = nextMaxDate;
+        setTheatreReportMaxDate(nextMaxDate);
+        setEndDate((current) => current === previousMaxDate ? nextMaxDate : current);
+      } catch (statusError) {
+        console.warn("Theatre report completion refresh failed", statusError);
+      }
+    }
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") void refreshCompletedReportDate();
+    };
+    const timer = window.setInterval(() => void refreshCompletedReportDate(), 60_000);
+    void refreshCompletedReportDate();
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("online", refreshCompletedReportDate);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("online", refreshCompletedReportDate);
+    };
+  }, [apiBase, demo, initialTheatreReportMaxDate, maxDate]);
 
   useEffect(() => {
     if (demo || movieOptions.length) return undefined;

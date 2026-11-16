@@ -6,6 +6,7 @@ import { buildMoviesCopyText, buildShowsCopyText } from "./copyData.js";
 import AnalyticsAssistant from "./AnalyticsAssistant.jsx";
 import NotificationSettings from "./NotificationSettings.jsx";
 import ReportsView from "./ReportsView.jsx";
+import BmsTestingView from "./BmsTestingView.jsx";
 import { reportPwaInstallation, syncPushSubscription } from "./notifications.js";
 import {
   collectorIndicatorLabel,
@@ -34,6 +35,7 @@ const inDemoMode = pageParams.get("demo") === "1";
 const installRequested = pageParams.get("install") === "1";
 const installPreview = import.meta.env.DEV ? pageParams.get("installPreview") : "";
 const notificationsPreview = import.meta.env.DEV && pageParams.get("notificationsPreview") === "1";
+const BMS_TESTING_TAB_ENABLED = true;
 // Keep Ask MPLTalkies implemented but hidden until the feature is ready to return.
 const ASK_MPLTALKIES_ENABLED = false;
 const INSTALL_DISMISSED_KEY = "mpltalkies-install-dismissed-at";
@@ -442,7 +444,11 @@ export default function App() {
   const [collectorHealth, setCollectorHealth] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [viewMode, setViewMode] = useState(() => pageParams.get("view") === "reports" ? "reports" : "shows");
+  const [viewMode, setViewMode] = useState(() => {
+    if (pageParams.get("view") === "reports") return "reports";
+    if (BMS_TESTING_TAB_ENABLED && pageParams.get("view") === "testing") return "testing";
+    return "shows";
+  });
   const [movieSort, setMovieSort] = useState("gross");
   const [copyStatus, setCopyStatus] = useState("idle");
   const [installPrompt, setInstallPrompt] = useState(null);
@@ -465,8 +471,13 @@ export default function App() {
   }
 
   function openReports() {
-    if (viewMode !== "reports") lastDailyViewRef.current = viewMode;
+    if (viewMode === "shows" || viewMode === "movies") lastDailyViewRef.current = viewMode;
     setViewMode("reports");
+  }
+
+  function openTesting() {
+    if (viewMode === "shows" || viewMode === "movies") lastDailyViewRef.current = viewMode;
+    setViewMode("testing");
   }
 
   const load = useCallback(async ({ silent = false } = {}) => {
@@ -718,6 +729,7 @@ export default function App() {
   const capturedShows = useMemo(() => currentShows.filter((show) => show.snapshot).length, [currentShows]);
   const selectedVenueName = data?.venue?.shortName || THEATRE_OPTIONS.find((venue) => venue.code === selectedVenue)?.shortName;
   const missedNote = `${data?.summary?.missedShows || 0} missed · ${data?.summary?.totalShows || 0} total`;
+  const isDailyView = viewMode === "shows" || viewMode === "movies";
 
   return (
     <div className="app-shell">
@@ -745,8 +757,8 @@ export default function App() {
         <nav className="primary-view-switch" aria-label="Main views">
           <button
             type="button"
-            className={viewMode !== "reports" ? "is-active" : ""}
-            aria-pressed={viewMode !== "reports"}
+            className={isDailyView ? "is-active" : ""}
+            aria-pressed={isDailyView}
             onClick={() => openDailyView(lastDailyViewRef.current)}
           >
             Daily Dashboard
@@ -759,11 +771,21 @@ export default function App() {
           >
             Movie Reports
           </button>
+          {BMS_TESTING_TAB_ENABLED && (
+            <button
+              type="button"
+              className={viewMode === "testing" ? "is-active" : ""}
+              aria-pressed={viewMode === "testing"}
+              onClick={openTesting}
+            >
+              Testing
+            </button>
+          )}
         </nav>
 
-        {!inDemoMode && <CollectorNotice health={collectorHealth} />}
+        {!inDemoMode && viewMode !== "testing" && <CollectorNotice health={collectorHealth} />}
 
-        {viewMode !== "reports" && <section className="date-control" aria-label="Dashboard filters">
+        {isDailyView && <section className="date-control" aria-label="Dashboard filters">
           <div className="control-field">
             <label htmlFor="theatre">Theatre</label>
             <select id="theatre" value={selectedVenue} onChange={(event) => setSelectedVenue(event.target.value)}>
@@ -817,7 +839,16 @@ export default function App() {
         {error && <div className="notice notice--error"><strong>Unable to load the tracker.</strong> {error} <button onClick={() => load()}>Try again</button></div>}
         {loading && !data && <DashboardSkeleton />}
 
-        {data && (
+        {viewMode === "testing" && (
+          <BmsTestingView
+            apiBase={API_BASE}
+            demo={inDemoMode}
+            maxDate={latestDate}
+            theatres={THEATRE_OPTIONS}
+          />
+        )}
+
+        {data && viewMode !== "testing" && (
           <>
             {viewMode !== "reports" && <>
               <section className="metrics" aria-label="Daily totals">

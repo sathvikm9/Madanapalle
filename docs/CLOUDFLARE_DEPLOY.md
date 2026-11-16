@@ -1,6 +1,6 @@
 # Cloudflare Worker and D1 deployment
 
-The Worker is the always-online API and D1 is the database. Neither accesses BookMyShow; only the local Chrome extension does that.
+The Worker is the always-online API and D1 is the database. Neither accesses BookMyShow automatically; only the local Chrome extension does that.
 
 ## Requirements
 
