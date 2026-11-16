@@ -4,6 +4,7 @@ import {
   buildMovieDailyTrend,
   buildReportModel,
   completedReportEndDate,
+  completedTheatreReportDate,
   defaultReportStartDate,
   movieReportRange,
   movieMatchesSearch,
@@ -50,6 +51,13 @@ test("defaults theatre reports to the previous completed India date", () => {
   assert.equal(previousReportDate("2026-10-07"), "2026-10-06");
   assert.equal(previousReportDate("2026-08-21"), "2026-08-21");
   assert.equal(previousReportDate("invalid"), "2026-08-21");
+});
+
+test("advances theatre reports to today only after the final report is complete", () => {
+  assert.equal(completedTheatreReportDate("2026-10-22", "2026-10-22"), "2026-10-22");
+  assert.equal(completedTheatreReportDate("2026-10-22", "2026-10-21"), "2026-10-21");
+  assert.equal(completedTheatreReportDate("2026-10-22", null), "2026-10-21");
+  assert.equal(completedTheatreReportDate("2026-10-22", "2026-10-23"), "2026-10-22");
 });
 
 test("starts a movie report at its premiere or day-one date", () => {
