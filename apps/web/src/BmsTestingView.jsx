@@ -89,7 +89,7 @@ export default function BmsTestingView({ apiBase, demo, maxDate, theatres }) {
         <div className="bms-testing__rules"><span>Cloudflare scheduled</span><span>Separate tables</span><span>Bounded retries</span><span>Stops on rate limits</span></div>
       </div>
       {error && <div className="bms-testing__message bms-testing__message--error" role="alert"><strong>Testing data could not load</strong><span>{error}</span></div>}
-      {data && !data.enabled && <div className="bms-testing__empty"><strong>Server testing is safely disabled.</strong><span>Add the local testing flag and layout key, apply migration 0019, then restart the local Worker.</span></div>}
+      {data && !data.enabled && <div className="bms-testing__empty"><strong>Server testing is not active yet.</strong><span>The required BMS layout key has not been configured on the server, so no API capture will run or show false data.</span></div>}
       {data?.enabled && <div className="bms-testing__results">
         <header><div><p className="eyebrow">Automatic server results · {date}</p><h2>{data.summary.shows} BMS shows scheduled</h2><span>{data.refreshedAt ? `Updated ${time.format(new Date(data.refreshedAt))}` : "Waiting for the first scheduler cycle"}</span></div>
           <dl><div><dt>Final captures</dt><dd>{data.summary.finalCaptured}</dd></div><div><dt>Tickets</dt><dd>{number.format(data.summary.tickets)}</dd></div><div><dt>Collection</dt><dd>{money.format(data.summary.collectionPaise / 100)}</dd></div><div><dt>Needs review</dt><dd>{data.summary.failed}</dd></div></dl>

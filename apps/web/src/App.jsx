@@ -836,8 +836,8 @@ export default function App() {
         )}
 
         {inDemoMode && <div className="notice notice--demo">Demo preview — these are illustrative numbers, not live BookMyShow data.</div>}
-        {error && <div className="notice notice--error"><strong>Unable to load the tracker.</strong> {error} <button onClick={() => load()}>Try again</button></div>}
-        {loading && !data && <DashboardSkeleton />}
+        {viewMode !== "testing" && error && <div className="notice notice--error"><strong>Unable to load the tracker.</strong> {error} <button onClick={() => load()}>Try again</button></div>}
+        {viewMode !== "testing" && loading && !data && <DashboardSkeleton />}
 
         {viewMode === "testing" && (
           <BmsTestingView
