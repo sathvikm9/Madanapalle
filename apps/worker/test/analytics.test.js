@@ -74,6 +74,41 @@ test("builds the movie catalogue in highest-gross-first order", () => {
   assert.equal(movies[1].collectionPaise, 3_000_000);
 });
 
+test("merges punctuation-only movie title variants in the catalogue and reports", () => {
+  const rows = [
+    row({ movie_title: "O.M:", movie_variant: "O.M:", event_code: "OM1", sold: 100, collection_paise: 1_000_000 }),
+    row({
+      movie_title: "O.M",
+      movie_variant: "O.M",
+      event_code: "OM2",
+      venue_code: "ASRM",
+      show_date: "2026-08-22",
+      start_at: "2026-08-22T02:00:00.000Z",
+      sold: 200,
+      collection_paise: 2_000_000
+    })
+  ];
+
+  const movies = buildAnalyticsCatalogMovies(rows);
+  assert.equal(movies.length, 1);
+  assert.equal(movies[0].title, "O.M");
+  assert.equal(movies[0].capturedShows, 2);
+  assert.equal(movies[0].ticketsSold, 300);
+  assert.equal(movies[0].collectionPaise, 3_000_000);
+
+  const summary = summarizeAnalyticsRows(rows, {
+    movieTitle: "O.M",
+    venueCode: "ALL",
+    startDate: "2026-08-21",
+    endDate: "2026-08-22",
+    now: new Date("2026-08-23T00:00:00.000Z")
+  });
+  assert.equal(summary.movieTitle, "O.M");
+  assert.equal(summary.total.screenedShows, 2);
+  assert.equal(summary.total.ticketsSold, 300);
+  assert.deepEqual(summary.venues.map((venue) => venue.movies[0].title), ["O.M", "O.M"]);
+});
+
 test("theatre report status advances only to a fully finalized date", async () => {
   const db = {
     prepare(sql) {

@@ -15,7 +15,15 @@ function canonicalShows(rows) {
 }
 
 function normalizedTitle(value) {
-  return String(value || "").trim().toLocaleLowerCase("en-IN");
+  return String(value || "")
+    .normalize("NFKC")
+    .toLocaleLowerCase("en-IN")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+function displayTitle(value) {
+  return String(value || "").trim().replace(/:+$/u, "").trim();
 }
 
 function emptyTotals() {
@@ -73,7 +81,7 @@ export function buildAnalyticsCatalogMovies(rows, releaseDates = new Map()) {
     const key = normalizedTitle(show.movieTitle);
     if (!key) continue;
     const movie = movies.get(key) || {
-      title: show.movieTitle,
+      title: displayTitle(show.movieTitle),
       firstTrackedDate: show.show_date,
       firstTrackedStartAt: show.start_at,
       lastTrackedDate: show.show_date,
@@ -160,7 +168,7 @@ export function summarizeAnalyticsRows(rows, {
     if (completeDaysOnly && show.show_date === endDate && !latestDateIsComplete) continue;
     if (new Date(show.start_at).getTime() > nowMs) continue;
 
-    if (!allMovies) resolvedTitle = show.movieTitle;
+    if (!allMovies) resolvedTitle = displayTitle(show.movieTitle);
     const venue = venues.get(show.venue_code) || {
       code: show.venue_code,
       name: venueForCode(show.venue_code)?.shortName || show.venue_code,
@@ -169,7 +177,7 @@ export function summarizeAnalyticsRows(rows, {
     };
     const movieKey = normalizedTitle(show.movieTitle);
     const venueMovie = venue.movies.get(movieKey) || {
-      title: show.movieTitle,
+      title: displayTitle(show.movieTitle),
       ...emptyTotals()
     };
     const day = days.get(show.show_date) || {
@@ -265,7 +273,7 @@ export async function analyticsCatalog(db, now = new Date()) {
      FROM movie_releases
      WHERE status='verified' AND release_date IS NOT NULL`
   ).all();
-  const releaseDates = new Map((releaseResult.results || []).map((row) => [row.movie_key, row.release_date]));
+  const releaseDates = new Map((releaseResult.results || []).map((row) => [normalizedTitle(row.movie_key), row.release_date]));
 
   return {
     firstLiveDate: ANALYTICS_FIRST_DATE,
