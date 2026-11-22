@@ -1,3 +1,5 @@
+import { canonicalMovieTitle, movieTitleKey } from "./movie-run.js";
+
 const currency = new Intl.NumberFormat("en-IN", {
   style: "currency",
   currency: "INR",
@@ -83,11 +85,12 @@ export function buildDailySummaryNotification({ showDate, theatreLabel, shows })
   const groups = new Map();
   for (const show of shows) {
     if (show.status !== "completed" || !show.snapshot) continue;
-    const movie = String(show.movieTitle || "Movie unavailable");
-    const current = groups.get(movie) || { title: movie, shows: 0, collectionPaise: 0 };
+    const movie = canonicalMovieTitle(show.movieTitle || "Movie unavailable");
+    const key = movieTitleKey(movie);
+    const current = groups.get(key) || { title: movie, shows: 0, collectionPaise: 0 };
     current.shows += 1;
     current.collectionPaise += Number(show.snapshot.collectionPaise || 0);
-    groups.set(movie, current);
+    groups.set(key, current);
   }
   const movies = [...groups.values()].sort((left, right) => (
     right.collectionPaise - left.collectionPaise || left.title.localeCompare(right.title)

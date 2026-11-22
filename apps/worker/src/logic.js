@@ -1,6 +1,7 @@
 import {
   bmsCodeToIso,
   calculateCollection,
+  canonicalMovieTitle,
   captureAtFromStart,
   isoDateFromCode
 } from "@skct/core";
@@ -208,7 +209,10 @@ export function normalizeDiscovery(body) {
     venueCode,
     dateCode,
     showDate: isoDateFromCode(dateCode),
-    shows: resolveInternalMovieCodes(shows)
+    shows: resolveInternalMovieCodes(shows).map((show) => ({
+      ...show,
+      movieTitle: canonicalMovieTitle(show.movieTitle)
+    }))
   };
 }
 

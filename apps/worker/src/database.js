@@ -1,4 +1,11 @@
-import { classifyScheduleChanges, movieRunForDate, movieRunIsAvailable, reconcileHistoricalScheduleChanges } from "@skct/core";
+import {
+  canonicalMovieTitle,
+  classifyScheduleChanges,
+  movieRunForDate,
+  movieRunIsAvailable,
+  movieTitleKey,
+  reconcileHistoricalScheduleChanges
+} from "@skct/core";
 import { parseJson, RequestError, resolveInternalMovieCodes } from "./logic.js";
 import { dashboardVenueForCode, publicVenues, venueForCode } from "./venues.js";
 
@@ -72,7 +79,7 @@ function coreShow(row) {
 }
 
 function normalizedMovieTitle(value) {
-  return String(value || "").trim().toLocaleLowerCase("en-IN");
+  return movieTitleKey(value);
 }
 
 function bmsEventCode(value) {
@@ -729,7 +736,10 @@ export async function dashboardData(db, date, venueCode, now = new Date()) {
       isEstimated: String(row.source || "").includes("ticketnew-summary-estimate"),
       categories: parseJson(row.categories_json, [])
     } : null
-  })));
+  }))).map((show) => ({
+    ...show,
+    movieTitle: canonicalMovieTitle(show.movieTitle)
+  }));
   const firstStartByMovie = await firstTrackedStartByMovie(db, resolvedShows);
   const releaseDateByTitle = await releaseDateByMovie(db, resolvedShows);
   const shows = resolvedShows.map((show) => {

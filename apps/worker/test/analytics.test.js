@@ -109,6 +109,50 @@ test("merges punctuation-only movie title variants in the catalogue and reports"
   assert.deepEqual(summary.venues.map((venue) => venue.movies[0].title), ["O.M", "O.M"]);
 });
 
+test("merges AOT title aliases and preserves the original release day", () => {
+  const rows = [
+    row({
+      movie_title: "Aakasamlo Oka Tara",
+      movie_variant: "Aakasamlo Oka Tara - Telugu",
+      event_code: "ET00482388",
+      show_date: "2026-11-20",
+      start_at: "2026-11-20T05:30:00.000Z",
+      sold: 100,
+      collection_paise: 1_000_000
+    }),
+    row({
+      movie_title: "AOT - Aakasamlo Oka Tara",
+      movie_variant: "AOT - Aakasamlo Oka Tara - Telugu",
+      event_code: "ET00482388",
+      venue_code: "ASRM",
+      show_date: "2026-11-22",
+      start_at: "2026-11-22T05:30:00.000Z",
+      sold: 200,
+      collection_paise: 2_000_000
+    })
+  ];
+  const releases = new Map([["aakasamlo oka tara", "2026-11-20"]]);
+  const movies = buildAnalyticsCatalogMovies(rows, releases);
+
+  assert.equal(movies.length, 1);
+  assert.equal(movies[0].title, "Aakasamlo Oka Tara");
+  assert.equal(movies[0].firstTrackedDate, "2026-11-20");
+  assert.equal(movies[0].dayOneDate, "2026-11-20");
+  assert.equal(movies[0].capturedShows, 2);
+  assert.equal(movies[0].ticketsSold, 300);
+
+  const summary = summarizeAnalyticsRows(rows, {
+    movieTitle: "AOT - Aakasamlo Oka Tara",
+    venueCode: "ALL",
+    startDate: "2026-11-20",
+    endDate: "2026-11-22",
+    now: new Date("2026-11-23T00:00:00.000Z")
+  });
+  assert.equal(summary.movieTitle, "Aakasamlo Oka Tara");
+  assert.equal(summary.total.screenedShows, 2);
+  assert.equal(summary.total.ticketsSold, 300);
+});
+
 test("theatre report status advances only to a fully finalized date", async () => {
   const db = {
     prepare(sql) {

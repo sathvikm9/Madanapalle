@@ -54,3 +54,16 @@ test("daily summary groups movies and orders them by gross", () => {
   assert.equal(notification.title, "27th September - All theatres");
   assert.equal(notification.body, "The Paradise - 2 Shows - 6,69,040/-\nIrumudi - 1 Show - 72,620/-");
 });
+
+test("daily summary groups AOT aliases as one movie", () => {
+  const notification = buildDailySummaryNotification({
+    showDate: "2026-11-22",
+    theatreLabel: "All theatres",
+    shows: [
+      { movieTitle: "Aakasamlo Oka Tara", status: "completed", snapshot: { collectionPaise: 1_000_000 } },
+      { movieTitle: "AOT - Aakasamlo Oka Tara", status: "completed", snapshot: { collectionPaise: 2_000_000 } }
+    ]
+  });
+
+  assert.equal(notification.body, "Aakasamlo Oka Tara - 2 Shows - 30,000/-");
+});

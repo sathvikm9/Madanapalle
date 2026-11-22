@@ -134,6 +134,24 @@ test("replaces a TicketNew event code title from matching movie sessions", () =>
   assert.equal(shows[1].movieVariant, "Irumudi");
 });
 
+test("stores the AOT abbreviation under the canonical movie title", () => {
+  const result = normalizeDiscovery({
+    ...discoveryBody,
+    dateCode: "20261122",
+    shows: [{
+      ...discoveryBody.shows[0],
+      eventCode: "ET00482388",
+      showDateTime: "202611221100",
+      cutoffDateTime: "202611221115",
+      movieTitle: "AOT - Aakasamlo Oka Tara",
+      movieVariant: "AOT - Aakasamlo Oka Tara - Telugu"
+    }]
+  });
+
+  assert.equal(result.shows[0].movieTitle, "Aakasamlo Oka Tara");
+  assert.equal(result.shows[0].movieVariant, "AOT - Aakasamlo Oka Tara - Telugu");
+});
+
 test("rejects discoveries for unconfigured theatres", () => {
   assert.throws(() => normalizeDiscovery({ ...discoveryBody, venueCode: "UNKNOWN" }), /not configured/);
 });

@@ -3,16 +3,26 @@ import test from "node:test";
 
 import {
   calculateCollection,
+  canonicalMovieTitle,
   captureAtFromStart,
   captureAtFromCutoff,
   classifyScheduleChanges,
   extractAssignedJson,
   movieReleaseSchedule,
+  movieTitleKey,
   movieRunIsAvailable,
   movieRunForDate,
   parseVenueShowsFromHtml,
   reconcileHistoricalScheduleChanges
 } from "../src/index.js";
+
+test("canonicalizes Aakasamlo Oka Tara title aliases", () => {
+  const canonical = "Aakasamlo Oka Tara";
+  assert.equal(canonicalMovieTitle(canonical), canonical);
+  assert.equal(canonicalMovieTitle("AOT - Aakasamlo Oka Tara"), canonical);
+  assert.equal(canonicalMovieTitle("Aakasam Lo Oka Tara"), canonical);
+  assert.equal(movieTitleKey("AOT - Aakasam Lo Oka Tara"), movieTitleKey(canonical));
+});
 
 test("subtracts exactly five rupees from each category price", () => {
   const result = calculateCollection([

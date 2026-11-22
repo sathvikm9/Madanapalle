@@ -1,4 +1,4 @@
-import { movieReleaseSchedule } from "@skct/core";
+import { canonicalMovieTitle, movieReleaseSchedule, movieTitleKey } from "@skct/core";
 import { parseJson, resolveInternalMovieCodes } from "./logic.js";
 import { publicVenues, venueForCode } from "./venues.js";
 
@@ -11,19 +11,10 @@ function canonicalShows(rows) {
     eventCode: row.event_code,
     movieTitle: row.movie_title,
     movieVariant: row.movie_variant
-  })));
-}
-
-function normalizedTitle(value) {
-  return String(value || "")
-    .normalize("NFKC")
-    .toLocaleLowerCase("en-IN")
-    .replace(/[^\p{L}\p{N}]+/gu, " ")
-    .trim();
-}
-
-function displayTitle(value) {
-  return String(value || "").trim().replace(/:+$/u, "").trim();
+  }))).map((show) => ({
+    ...show,
+    movieTitle: canonicalMovieTitle(show.movieTitle)
+  }));
 }
 
 function emptyTotals() {
@@ -78,10 +69,10 @@ export function buildCapacityProfiles(rows) {
 export function buildAnalyticsCatalogMovies(rows, releaseDates = new Map()) {
   const movies = new Map();
   for (const show of canonicalShows(rows || [])) {
-    const key = normalizedTitle(show.movieTitle);
+    const key = movieTitleKey(show.movieTitle);
     if (!key) continue;
     const movie = movies.get(key) || {
-      title: displayTitle(show.movieTitle),
+      title: canonicalMovieTitle(show.movieTitle),
       firstTrackedDate: show.show_date,
       firstTrackedStartAt: show.start_at,
       lastTrackedDate: show.show_date,
@@ -105,7 +96,7 @@ export function buildAnalyticsCatalogMovies(rows, releaseDates = new Map()) {
   return Array.from(movies.values())
     .map((movie) => ({
       ...movie,
-      ...movieReleaseSchedule(movie.firstTrackedStartAt, releaseDates.get(normalizedTitle(movie.title)))
+      ...movieReleaseSchedule(movie.firstTrackedStartAt, releaseDates.get(movieTitleKey(movie.title)))
     }))
     .sort((left, right) =>
       right.collectionPaise - left.collectionPaise
@@ -135,7 +126,7 @@ export function summarizeAnalyticsRows(rows, {
   now = new Date()
 }) {
   const shows = canonicalShows(rows);
-  const wantedTitle = normalizedTitle(movieTitle);
+  const wantedTitle = movieTitleKey(movieTitle);
   const allMovies = movieTitle === "ALL";
   const nowMs = now.getTime();
   const venues = new Map();
@@ -162,22 +153,22 @@ export function summarizeAnalyticsRows(rows, {
   const excludedIncompleteDates = completeDaysOnly && !latestDateIsComplete ? [endDate] : [];
 
   for (const show of shows) {
-    if (!allMovies && normalizedTitle(show.movieTitle) !== wantedTitle) continue;
+    if (!allMovies && movieTitleKey(show.movieTitle) !== wantedTitle) continue;
     if (show.show_date < startDate || show.show_date > endDate) continue;
     if (venueCode !== "ALL" && show.venue_code !== venueCode) continue;
     if (completeDaysOnly && show.show_date === endDate && !latestDateIsComplete) continue;
     if (new Date(show.start_at).getTime() > nowMs) continue;
 
-    if (!allMovies) resolvedTitle = displayTitle(show.movieTitle);
+    if (!allMovies) resolvedTitle = canonicalMovieTitle(show.movieTitle);
     const venue = venues.get(show.venue_code) || {
       code: show.venue_code,
       name: venueForCode(show.venue_code)?.shortName || show.venue_code,
       movies: new Map(),
       ...emptyTotals()
     };
-    const movieKey = normalizedTitle(show.movieTitle);
+    const movieKey = movieTitleKey(show.movieTitle);
     const venueMovie = venue.movies.get(movieKey) || {
-      title: displayTitle(show.movieTitle),
+      title: canonicalMovieTitle(show.movieTitle),
       ...emptyTotals()
     };
     const day = days.get(show.show_date) || {
@@ -273,7 +264,7 @@ export async function analyticsCatalog(db, now = new Date()) {
      FROM movie_releases
      WHERE status='verified' AND release_date IS NOT NULL`
   ).all();
-  const releaseDates = new Map((releaseResult.results || []).map((row) => [normalizedTitle(row.movie_key), row.release_date]));
+  const releaseDates = new Map((releaseResult.results || []).map((row) => [movieTitleKey(row.movie_key), row.release_date]));
 
   return {
     firstLiveDate: ANALYTICS_FIRST_DATE,

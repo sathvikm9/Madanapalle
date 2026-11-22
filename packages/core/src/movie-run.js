@@ -7,6 +7,13 @@ const MOVIE_RUN_EXCLUDED_TITLES = new Set([
   "vishwanath and sons"
 ]);
 
+const MOVIE_TITLE_ALIASES = new Map([
+  ["aakasamlo oka tara", { key: "aakasamlo oka tara", title: "Aakasamlo Oka Tara" }],
+  ["aakasam lo oka tara", { key: "aakasamlo oka tara", title: "Aakasamlo Oka Tara" }],
+  ["aot aakasamlo oka tara", { key: "aakasamlo oka tara", title: "Aakasamlo Oka Tara" }],
+  ["aot aakasam lo oka tara", { key: "aakasamlo oka tara", title: "Aakasamlo Oka Tara" }]
+]);
+
 const indiaDateFormatter = new Intl.DateTimeFormat("en-CA", {
   timeZone: INDIA_TIME_ZONE,
   year: "numeric",
@@ -38,15 +45,27 @@ function calendarDayDifference(startDate, endDate) {
   return Math.round((new Date(`${endDate}T00:00:00.000Z`) - new Date(`${startDate}T00:00:00.000Z`)) / 86_400_000);
 }
 
-function normalizedMovieTitle(value) {
+function rawMovieTitleKey(value) {
   return String(value || "")
+    .normalize("NFKC")
     .toLocaleLowerCase("en-IN")
-    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 }
 
+export function movieTitleKey(value) {
+  const key = rawMovieTitleKey(value);
+  return MOVIE_TITLE_ALIASES.get(key)?.key || key;
+}
+
+export function canonicalMovieTitle(value) {
+  const alias = MOVIE_TITLE_ALIASES.get(rawMovieTitleKey(value));
+  if (alias) return alias.title;
+  return String(value || "").trim().replace(/:+$/u, "").trim();
+}
+
 export function movieRunIsAvailable(movieTitle) {
-  return !MOVIE_RUN_EXCLUDED_TITLES.has(normalizedMovieTitle(movieTitle));
+  return !MOVIE_RUN_EXCLUDED_TITLES.has(movieTitleKey(movieTitle));
 }
 
 export function ordinal(value) {
