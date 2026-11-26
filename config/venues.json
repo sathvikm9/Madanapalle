@@ -58,10 +58,10 @@
       "active": true
     },
     {
-      "name": "Sunil A/C 4K Laser Dolby Surround 7.1: Madanapalle",
+      "name": "Sunil A/C 4K Laser Dolby Atmos: Madanapalle",
       "shortName": "Sunil",
       "venueCode": "SUTD",
-      "slug": "sunil-a-c-4k-laser-dolby-surround-71-madanapalle",
+      "slug": "sunil-a-c-4k-laser-dolby-atmos-madanapalle",
       "platform": "bookmyshow",
       "captureStartAfterShowMinutes": 10,
       "fallbackCutoffMinutes": 15,

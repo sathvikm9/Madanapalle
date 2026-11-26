@@ -25,8 +25,8 @@ const catalog = {
       { listPricePaise: 10500, capacity: 238, classes: ["GOLD CLASS"] },
       { listPricePaise: 8400, capacity: 33, classes: ["SILVER CLASS"] }
     ] },
-    { venueCode: "SUTD", theatreName: "Sunil", capacity: 304, tiers: [
-      { listPricePaise: 10500, capacity: 216, classes: ["RESERVED"] },
+    { venueCode: "SUTD", theatreName: "Sunil", capacity: 327, tiers: [
+      { listPricePaise: 10500, capacity: 239, classes: ["RESERVED"] },
       { listPricePaise: 8400, capacity: 88, classes: ["FIRST CLASS"] }
     ] }
   ]
@@ -114,14 +114,14 @@ test("calculates Mini Siddartha with its verified 238 Gold and 33 Silver seats",
   assert.match(answer, /One full show: ₹26,407/);
 });
 
-test("calculates Sunil with its verified 216 Reserved and 88 First Class seats", () => {
+test("calculates Sunil with its verified 239 Reserved and 88 First Class seats", () => {
   const parsed = parseFullGrossQuestion("su 105 84 full", catalog).request;
   const answer = formatFullGrossAnswer(parsed, catalog);
   assert.deepEqual(parsed.venueCodes, ["SUTD"]);
-  assert.match(answer, /Sunil · 304 seats/);
-  assert.match(answer, /216 × ₹100 = ₹21,600/);
+  assert.match(answer, /Sunil · 327 seats/);
+  assert.match(answer, /239 × ₹100 = ₹23,900/);
   assert.match(answer, /88 × ₹79 = ₹6,952/);
-  assert.match(answer, /One full show: ₹28,552/);
+  assert.match(answer, /One full show: ₹30,852/);
 });
 
 test("does not steal ordinary movie analytics questions", () => {

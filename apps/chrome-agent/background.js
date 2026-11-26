@@ -92,7 +92,7 @@ const VENUES = [
   {
     venueCode: "SUTD",
     shortName: "Sunil",
-    slug: "sunil-a-c-4k-laser-dolby-surround-71-madanapalle",
+    slug: "sunil-a-c-4k-laser-dolby-atmos-madanapalle",
     platform: "bookmyshow",
     captureStartAfterShowMinutes: 10
   }

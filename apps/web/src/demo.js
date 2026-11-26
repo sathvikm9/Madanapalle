@@ -11,7 +11,7 @@ const venues = [
   { code: "RTDM", name: "Ravi A/C 4K Laser Dolby Surround 7.1: Madanapalle", shortName: "Ravi" },
   { code: "ASRM", name: "ASR A/C 4K Laser Dolby Surround 7.1: Madanapalle", shortName: "ASR" },
   { code: "MSDR", name: "Siddartha Cinemas:Screen 2 Dolby Laser,Madanapalle", shortName: "Mini Siddartha" },
-  { code: "SUTD", name: "Sunil A/C 4K Laser Dolby Surround 7.1: Madanapalle", shortName: "Sunil" }
+  { code: "SUTD", name: "Sunil A/C 4K Laser Dolby Atmos: Madanapalle", shortName: "Sunil" }
 ];
 
 export function demoDashboard(date = today, venueCode = "ALL") {
@@ -46,7 +46,7 @@ export function demoDashboard(date = today, venueCode = "ALL") {
     makeShow("14", "MSDR", "Mini Siddartha", "02:00 PM", `${base}14:00:00+05:30`, "Cult", firstShows.Cult, date, "scheduled", 30, 0, 0, 0, releaseDates.Cult),
     makeShow("15", "MSDR", "Mini Siddartha", "06:00 PM", `${base}18:00:00+05:30`, "Cult", firstShows.Cult, date, "scheduled", 30, 0, 0, 0, releaseDates.Cult),
     makeShow("16", "MSDR", "Mini Siddartha", "09:00 PM", `${base}21:00:00+05:30`, "Cult", firstShows.Cult, date, "scheduled", 30, 0, 0, 0, releaseDates.Cult),
-    makeShow("17", "SUTD", "Sunil", "10:45 AM", `${base}10:45:00+05:30`, "Cult", firstShows.Cult, date, "completed", 15, 55, 304, 0, releaseDates.Cult),
+    makeShow("17", "SUTD", "Sunil", "10:45 AM", `${base}10:45:00+05:30`, "Cult", firstShows.Cult, date, "completed", 15, 55, 327, 0, releaseDates.Cult),
     makeShow("18", "SUTD", "Sunil", "02:15 PM", `${base}14:15:00+05:30`, "Cult", firstShows.Cult, date, "scheduled", 15, 0, 0, 0, releaseDates.Cult)
   ];
   const shows = venueCode === "ALL" ? allShows : allShows.filter((show) => show.venueCode === venueCode);
@@ -133,7 +133,7 @@ function makeShow(id, venueCode, venueName, time, startAt, movieTitle, firstMovi
       occupancyPercent: Number(((sold / capacity) * 100).toFixed(2)),
       isFinal: true,
       categories: [
-        { name: upperClassName, listPricePaise: 10500, netPricePaise: 10000, sold: reservedSold, capacity: venueCode === "MSDR" ? Math.min(capacity, 238) : venueCode === "SUTD" ? Math.min(capacity, 216) : Math.max(capacity - 164, 0), collectionPaise: reservedSold * 10000 },
+        { name: upperClassName, listPricePaise: 10500, netPricePaise: 10000, sold: reservedSold, capacity: venueCode === "MSDR" ? Math.min(capacity, 238) : venueCode === "SUTD" ? Math.min(capacity, 239) : Math.max(capacity - 164, 0), collectionPaise: reservedSold * 10000 },
         { name: lowerClassName, listPricePaise: 8400, netPricePaise: 7900, sold: secondClassSold, capacity: venueCode === "MSDR" ? Math.min(capacity, 33) : venueCode === "SUTD" ? Math.min(capacity, 88) : Math.min(capacity, 164), collectionPaise: secondClassSold * 7900 }
       ]
     } : null

@@ -19,7 +19,7 @@
       Object.freeze({ name: "SILVER CLASS", capacity: 33 })
     ]),
     SUTD: Object.freeze([
-      Object.freeze({ name: "RESERVED", capacity: 216 }),
+      Object.freeze({ name: "RESERVED", capacity: 239 }),
       Object.freeze({ name: "FIRST CLASS", capacity: 88 })
     ])
   });
