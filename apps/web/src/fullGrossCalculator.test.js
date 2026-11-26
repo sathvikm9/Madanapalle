@@ -24,6 +24,10 @@ const catalog = {
     { venueCode: "MSDR", theatreName: "Mini Siddartha", capacity: 271, tiers: [
       { listPricePaise: 10500, capacity: 238, classes: ["GOLD CLASS"] },
       { listPricePaise: 8400, capacity: 33, classes: ["SILVER CLASS"] }
+    ] },
+    { venueCode: "SUTD", theatreName: "Sunil", capacity: 304, tiers: [
+      { listPricePaise: 10500, capacity: 216, classes: ["RESERVED"] },
+      { listPricePaise: 8400, capacity: 88, classes: ["FIRST CLASS"] }
     ] }
   ]
 };
@@ -62,7 +66,7 @@ test("understands theatre codes, bare price pairs and x multipliers", () => {
 
 test("understands an all-theatre calculator shortcut", () => {
   const parsed = parseFullGrossQuestion("all 200 150 full", catalog).request;
-  assert.equal(parsed.venueCodes.length, 5);
+  assert.equal(parsed.venueCodes.length, 6);
   assert.deepEqual(parsed.prices, [200, 150]);
 });
 
@@ -94,7 +98,7 @@ test("inherits selected theatres and prices for a five-shows-each follow-up", ()
 test("uses latest recorded prices for an all-theatre full-show question", () => {
   const parsed = parseFullGrossQuestion("What is all theatres each show full gross?", catalog).request;
   const answer = formatFullGrossAnswer(parsed, catalog);
-  assert.equal(parsed.venueCodes.length, 5);
+  assert.equal(parsed.venueCodes.length, 6);
   assert.equal(parsed.prices, null);
   assert.match(answer, /Using the latest listed ticket prices/);
   assert.match(answer, /Ravi · 637 seats/);
@@ -108,6 +112,16 @@ test("calculates Mini Siddartha with its verified 238 Gold and 33 Silver seats",
   assert.match(answer, /238 × ₹100 = ₹23,800/);
   assert.match(answer, /33 × ₹79 = ₹2,607/);
   assert.match(answer, /One full show: ₹26,407/);
+});
+
+test("calculates Sunil with its verified 216 Reserved and 88 First Class seats", () => {
+  const parsed = parseFullGrossQuestion("su 105 84 full", catalog).request;
+  const answer = formatFullGrossAnswer(parsed, catalog);
+  assert.deepEqual(parsed.venueCodes, ["SUTD"]);
+  assert.match(answer, /Sunil · 304 seats/);
+  assert.match(answer, /216 × ₹100 = ₹21,600/);
+  assert.match(answer, /88 × ₹79 = ₹6,952/);
+  assert.match(answer, /One full show: ₹28,552/);
 });
 
 test("does not steal ordinary movie analytics questions", () => {

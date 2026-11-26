@@ -116,7 +116,7 @@ export function buildChatInterpreterMessages({ question, context, catalog }) {
         "For unrelated questions, return unsupported.",
         "For resolved requests, put the rewritten request in canonicalQuestion and leave reply empty.",
         `Tracked movies: ${JSON.stringify(movies)}`,
-        "Theatres: Sai Chitra (SCM), ASR (ASRM), Ravi (RTDM), Sri Krishna (SKMD), Mini Siddartha (MSDR), or All theatres.",
+        "Theatres: Sai Chitra (SCM), ASR (ASRM), Ravi (RTDM), Sri Krishna (SKMD), Mini Siddartha (MSDR), Sunil (SUTD), or All theatres.",
         `Capacity profiles: ${JSON.stringify(capacities)}`,
         `Previous conversation context: ${JSON.stringify(previous)}`
       ].join("\n")

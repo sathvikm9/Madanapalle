@@ -54,7 +54,7 @@ function ShowCard({ show }) {
 }
 
 export default function BmsTestingView({ apiBase, demo, maxDate, theatres }) {
-  const options = useMemo(() => theatres.filter((item) => item.code === "ALL" || ["SKMD", "RTDM", "ASRM", "MSDR"].includes(item.code)), [theatres]);
+  const options = useMemo(() => theatres.filter((item) => item.code === "ALL" || ["SKMD", "RTDM", "ASRM", "MSDR", "SUTD"].includes(item.code)), [theatres]);
   const [venueCode, setVenueCode] = useState("ALL");
   const [date, setDate] = useState(maxDate);
   const [data, setData] = useState(null);

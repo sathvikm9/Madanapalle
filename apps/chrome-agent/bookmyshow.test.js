@@ -165,6 +165,23 @@ test("uses Mini Siddartha's verified 271-seat layout", () => {
   assert.equal(result.reduce((sum, category) => sum + category.capacity, 0), 271);
 });
 
+test("uses Sunil's verified 304-seat layout", () => {
+  const advertised = [
+    { name: "Reserved", listPricePaise: 10500, availabilityStatus: "3" },
+    { name: "First Class", listPricePaise: 8400, availabilityStatus: "3" }
+  ];
+  const result = completeFromVerifiedLayout("SUTD", advertised, [
+    { name: "RESERVED", price: 105, capacity: 216, available: 180, sold: 36, unknown: 0 },
+    { name: "FIRST CLASS", price: 84, capacity: 88, available: 75, sold: 13, unknown: 0 }
+  ]);
+
+  assert.deepEqual(result.map(({ name, capacity, available, sold }) => ({ name, capacity, available, sold })), [
+    { name: "RESERVED", capacity: 216, available: 180, sold: 36 },
+    { name: "FIRST CLASS", capacity: 88, available: 75, sold: 13 }
+  ]);
+  assert.equal(result.reduce((sum, category) => sum + category.capacity, 0), 304);
+});
+
 test("recovery resumes from the furthest usable BookMyShow control", () => {
   assert.equal(recoveryAction({
     quantity: {}, categorySelect: {}, rowSelect: {}, accessibility: {}, selectSeats: {}

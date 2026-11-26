@@ -1,10 +1,13 @@
 export const DEFAULT_NOTIFICATION_PREFERENCES = {
-  venues: ["SKMD", "SCM", "RTDM", "ASRM", "MSDR"],
+  venues: ["SKMD", "SCM", "RTDM", "ASRM", "MSDR", "SUTD"],
   types: ["period_results", "schedule_changes", "daily_summary"]
 };
 
 const PREFERENCES_KEY = "mpltalkies-notification-preferences";
-const LEGACY_ALL_VENUES = ["SKMD", "SCM", "RTDM", "ASRM"];
+const LEGACY_ALL_VENUE_SETS = [
+  ["SKMD", "SCM", "RTDM", "ASRM"],
+  ["SKMD", "SCM", "RTDM", "ASRM", "MSDR"]
+];
 const INSTALLATION_ID_KEY = "mpltalkies-pwa-installation-id";
 const INSTALLATION_REPORTED_KEY = "mpltalkies-pwa-installation-reported-at";
 const INSTALLATION_REPORT_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -94,10 +97,11 @@ export function migrateNotificationPreferences(preferences) {
     return DEFAULT_NOTIFICATION_PREFERENCES;
   }
   const venues = [...new Set(preferences.venues)];
-  const wasLegacyAllVenues = venues.length === LEGACY_ALL_VENUES.length
-    && LEGACY_ALL_VENUES.every((venueCode) => venues.includes(venueCode));
+  const wasLegacyAllVenues = LEGACY_ALL_VENUE_SETS.some((legacy) => (
+    venues.length === legacy.length && legacy.every((venueCode) => venues.includes(venueCode))
+  ));
   return wasLegacyAllVenues
-    ? { ...preferences, venues: [...venues, "MSDR"] }
+    ? { ...preferences, venues: [...DEFAULT_NOTIFICATION_PREFERENCES.venues] }
     : preferences;
 }
 

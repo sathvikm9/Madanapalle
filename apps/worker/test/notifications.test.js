@@ -54,7 +54,7 @@ test("notification config exposes only the public VAPID key", () => {
   assert.equal(config.available, true);
   assert.equal(config.publicKey, "public-key");
   assert.equal("privateKey" in config, false);
-  assert.deepEqual(config.venues.map((venue) => venue.code), ["SKMD", "SCM", "RTDM", "ASRM", "MSDR"]);
+  assert.deepEqual(config.venues.map((venue) => venue.code), ["SKMD", "SCM", "RTDM", "ASRM", "MSDR", "SUTD"]);
 });
 
 test("notification feature switch keeps configured push delivery disabled", async () => {

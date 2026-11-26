@@ -89,6 +89,11 @@ test("understands compact movie, theatre, period and metric shortcuts", () => {
   assert.equal(mini.venueCode, "MSDR");
   assert.equal(mini.theatreName, "Mini Siddartha");
   assert.equal(mini.metric, "gross");
+
+  const sunil = parseAnalyticsQuestion("iru su g", catalog, now).request;
+  assert.equal(sunil.venueCode, "SUTD");
+  assert.equal(sunil.theatreName, "Sunil");
+  assert.equal(sunil.metric, "gross");
 });
 
 test("understands date-only and conversational shortcuts", () => {

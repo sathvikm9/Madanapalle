@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { migrateNotificationPreferences } from "./notifications.js";
 
-test("adds Mini Siddartha to the former all-theatre notification choice", () => {
+test("upgrades the original four-theatre notification choice to all six theatres", () => {
   const migrated = migrateNotificationPreferences({
     venues: ["SKMD", "SCM", "RTDM", "ASRM"],
     types: ["period_results"]
   });
-  assert.deepEqual(migrated.venues, ["SKMD", "SCM", "RTDM", "ASRM", "MSDR"]);
+  assert.deepEqual(migrated.venues, ["SKMD", "SCM", "RTDM", "ASRM", "MSDR", "SUTD"]);
 });
 
 test("preserves an intentionally selected notification subset", () => {
@@ -16,9 +16,17 @@ test("preserves an intentionally selected notification subset", () => {
   assert.equal(migrateNotificationPreferences(preferences), preferences);
 });
 
-test("leaves current five-theatre notification preferences unchanged", () => {
+test("adds Sunil to the former five-theatre all-selection", () => {
   const preferences = {
     venues: ["SKMD", "SCM", "RTDM", "ASRM", "MSDR"],
+    types: ["daily_summary"]
+  };
+  assert.deepEqual(migrateNotificationPreferences(preferences).venues, ["SKMD", "SCM", "RTDM", "ASRM", "MSDR", "SUTD"]);
+});
+
+test("leaves current six-theatre notification preferences unchanged", () => {
+  const preferences = {
+    venues: ["SKMD", "SCM", "RTDM", "ASRM", "MSDR", "SUTD"],
     types: ["daily_summary"]
   };
   assert.equal(migrateNotificationPreferences(preferences), preferences);

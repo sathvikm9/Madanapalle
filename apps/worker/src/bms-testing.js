@@ -5,7 +5,7 @@ const BMS_SEAT_ENDPOINT = "https://services-in.bookmyshow.com/doTrans.aspx";
 const DISCOVERY_INTERVAL_MS = 60 * 60_000;
 const RETRY_MS = 60_000;
 const RATE_LIMIT_RETRY_MS = 30 * 60_000;
-export const BMS_TESTING_VENUE_CODES = Object.freeze(["SKMD", "RTDM", "ASRM", "MSDR"]);
+export const BMS_TESTING_VENUE_CODES = Object.freeze(["SKMD", "RTDM", "ASRM", "MSDR", "SUTD"]);
 const VENUE_SET = new Set(BMS_TESTING_VENUE_CODES);
 
 export class BmsUpstreamError extends Error {
@@ -260,7 +260,7 @@ async function saveDiscovery(db, venue, showDate, shows, now) {
 
 async function mirrorKnownProductionSchedules(db, showDate, now) {
   const source = await db.prepare(`SELECT * FROM shows
-    WHERE show_date=? AND is_current=1 AND venue_code IN ('SKMD', 'RTDM', 'ASRM', 'MSDR')
+    WHERE show_date=? AND is_current=1 AND venue_code IN ('SKMD', 'RTDM', 'ASRM', 'MSDR', 'SUTD')
     ORDER BY venue_code, start_at`).bind(showDate).all();
   const grouped = new Map();
   for (const row of source.results || []) {
@@ -429,7 +429,7 @@ export async function bmsTestingDashboard(env, { date, venueCode = "ALL" }) {
     LEFT JOIN snapshots ps ON ps.id=(SELECT captured.id FROM snapshots captured WHERE captured.show_id=prod.id
       ORDER BY captured.is_final DESC, captured.captured_at DESC LIMIT 1)
     WHERE test.show_date=? AND test.is_current=1 ${filter}
-    ORDER BY test.start_at, CASE test.venue_code WHEN 'RTDM' THEN 1 WHEN 'ASRM' THEN 2 WHEN 'SKMD' THEN 3 WHEN 'MSDR' THEN 4 ELSE 5 END`)
+    ORDER BY test.start_at, CASE test.venue_code WHEN 'RTDM' THEN 1 WHEN 'ASRM' THEN 2 WHEN 'SKMD' THEN 3 WHEN 'MSDR' THEN 4 WHEN 'SUTD' THEN 5 ELSE 6 END`)
     .bind(...(venueCode === "ALL" ? [date] : [date, venueCode])).all();
   const shows = (result.results || []).map((row) => {
     const initial = snapshot(row, "initial"), final = snapshot(row, "final"), collector = snapshot(row, "collector");

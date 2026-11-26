@@ -87,6 +87,33 @@ test("normalizes Mini Siddartha with its verified 25-minute backup and 30-minute
   assert.equal(result.shows[0].cutoffAt, "2026-10-30T06:00:00.000Z");
 });
 
+test("normalizes Sunil with its verified 10-minute backup and live cutoff", () => {
+  const result = normalizeDiscovery({
+    ...discoveryBody,
+    venueCode: "SUTD",
+    dateCode: "20261127",
+    shows: [{
+      ...discoveryBody.shows[0],
+      eventCode: "ET00489093",
+      sessionId: "17100",
+      showTimeCode: "1045",
+      showTimeLabel: "10:45 AM",
+      showDateTime: "202611271045",
+      cutoffDateTime: "202611271100",
+      movieTitle: "Bhogi",
+      movieVariant: "Bhogi (Telugu)",
+      categories: [
+        { name: "Reserved", priceCode: "RES", listPricePaise: 10500 },
+        { name: "First Class", priceCode: "FST", listPricePaise: 8400 }
+      ]
+    }]
+  });
+  assert.equal(result.shows[0].naturalKey, "SUTD:20261127:1045:17100:ET00489093");
+  assert.equal(result.shows[0].venueName, "Sunil A/C 4K Laser Dolby Surround 7.1: Madanapalle");
+  assert.equal(result.shows[0].captureAt, "2026-11-27T05:25:00.000Z");
+  assert.equal(result.shows[0].cutoffAt, "2026-11-27T05:30:00.000Z");
+});
+
 test("normalizes Sai Chitra TicketNew discovery and validates its cinema URL", () => {
   const result = normalizeDiscovery({
     ...discoveryBody,
@@ -211,6 +238,33 @@ test("accepts only Mini Siddartha's verified 271-seat category layout", () => {
     ...body,
     categories: [{ ...body.categories[0], capacity: 237, available: 199 }, body.categories[1]]
   }, show, new Date("2026-10-30T05:59:06.000Z")), /did not match the verified Mini Siddartha seating layout/);
+});
+
+test("accepts only Sunil's verified 304-seat category layout", () => {
+  const show = {
+    natural_key: "SUTD:20261127:1045:17100:ET00489093",
+    venue_code: "SUTD",
+    is_current: 1,
+    capture_at: "2026-11-27T05:25:00.000Z",
+    cutoff_at: "2026-11-27T05:30:00.000Z"
+  };
+  const body = {
+    naturalKey: show.natural_key,
+    capturedAt: "2026-11-27T05:29:05.000Z",
+    categories: [
+      { name: "RESERVED", price: 105, capacity: 216, available: 180, sold: 36, unknown: 0 },
+      { name: "FIRST CLASS", price: 84, capacity: 88, available: 75, sold: 13, unknown: 0 }
+    ]
+  };
+
+  const result = normalizeCapture(body, show, new Date("2026-11-27T05:29:06.000Z"));
+  assert.equal(result.capacity, 304);
+  assert.equal(result.sold, 49);
+  assert.equal(result.collectionPaise, 462_700);
+  assert.throws(() => normalizeCapture({
+    ...body,
+    categories: [{ ...body.categories[0], capacity: 215, available: 179 }, body.categories[1]]
+  }, show, new Date("2026-11-27T05:29:06.000Z")), /did not match the verified Sunil seating layout/);
 });
 
 test("accepts a verified Sai Chitra TicketNew summary as an estimate", () => {

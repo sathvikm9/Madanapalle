@@ -229,3 +229,57 @@ testIfSqlite("Mini Siddartha notification migration upgrades only the former all
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+testIfSqlite("Sunil migration upgrades only the former five-theatre all-selection", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "collection-sunil-notifications-"));
+  const databasePath = path.join(directory, "notifications.sqlite");
+
+  try {
+    const migrationDirectory = path.join(workerDirectory, "migrations");
+    const migrationNames = readdirSync(migrationDirectory)
+      .filter((name) => name.endsWith(".sql"))
+      .sort();
+    const beforeSunilMigration = migrationNames
+      .filter((name) => name < "0020_sunil_everywhere.sql")
+      .map((name) => readFileSync(path.join(migrationDirectory, name), "utf8"))
+      .join("\n");
+    sqlite(databasePath, beforeSunilMigration);
+
+    sqlite(databasePath, `
+      INSERT INTO push_subscriptions (
+        endpoint, p256dh, auth, device_name, venues_json, types_json, enabled,
+        created_at, updated_at, installation_id
+      ) VALUES
+        ('https://example.com/all-six', 'key', 'auth', 'Former all',
+         '["SKMD","SCM","RTDM","ASRM","MSDR"]', '["daily_summary"]', 1,
+         '2026-11-01T00:00:00Z', '2026-11-01T00:00:00Z', 'all-device'),
+        ('https://example.com/subset-six', 'key', 'auth', 'Custom subset',
+         '["SKMD","MSDR"]', '["daily_summary"]', 1,
+         '2026-11-01T00:00:00Z', '2026-11-01T00:00:00Z', 'subset-device');
+    `);
+
+    sqlite(databasePath, readFileSync(
+      path.join(migrationDirectory, "0020_sunil_everywhere.sql"),
+      "utf8"
+    ));
+
+    const migratedAll = JSON.parse(sqlite(
+      databasePath,
+      "SELECT venues_json FROM push_subscriptions WHERE installation_id='all-device';"
+    ));
+    const preservedSubset = JSON.parse(sqlite(
+      databasePath,
+      "SELECT venues_json FROM push_subscriptions WHERE installation_id='subset-device';"
+    ));
+    assert.deepEqual(migratedAll, ["SKMD", "SCM", "RTDM", "ASRM", "MSDR", "SUTD"]);
+    assert.deepEqual(preservedSubset, ["SKMD", "MSDR"]);
+
+    const sunilName = sqlite(
+      databasePath,
+      "SELECT sql FROM sqlite_master WHERE type='view' AND name='report_show_results';"
+    );
+    assert.match(sunilName, /WHEN 'SUTD' THEN 'Sunil'/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

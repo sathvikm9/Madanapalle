@@ -3,7 +3,8 @@ const THEATRES = [
   { code: "ASRM", name: "ASR", aliases: ["asr"] },
   { code: "RTDM", name: "Ravi", aliases: ["ravi", "rv"] },
   { code: "SKMD", name: "Sri Krishna", aliases: ["sri krishna", "srikrishna", "krishna", "sri", "sk"] },
-  { code: "MSDR", name: "Mini Siddartha", aliases: ["mini siddartha", "mini siddarth", "siddartha", "msdr", "ms"] }
+  { code: "MSDR", name: "Mini Siddartha", aliases: ["mini siddartha", "mini siddarth", "siddartha", "msdr", "ms"] },
+  { code: "SUTD", name: "Sunil", aliases: ["sunil", "sutd", "su"] }
 ];
 
 const DAY_ONE_OVERRIDES = new Map([
@@ -47,7 +48,7 @@ export const SHORTCUTS_REPLY = [
   "Shortcut examples",
   "",
   "Movies: iru, tox, vis (or any unique first few letters)",
-  "Theatres: sc, asr, rv, sk, ms, all",
+  "Theatres: sc, asr, rv, sk, ms, su, all",
   "Metrics: g = gross, hf = housefull, sh = shows, tix = tickets, rpt = report",
   "Periods: d1 = Day 1, 1w = first week, 1we = first weekend, 10d = first 10 days",
   "Dates: 28 g, 28 rpt, today g, yday rpt",

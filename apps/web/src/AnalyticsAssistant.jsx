@@ -19,8 +19,9 @@ const MORE_EXAMPLES = [
   "Give day-wise Irumudi gross",
   "Compare Irumudi and Toxic first weekend",
   "Give Mini Siddartha yesterday’s report",
+  "Give Sunil yesterday’s report",
   "Calculate Ravi full show gross and 5 shows with ₹170 and ₹100 prices",
-  "Calculate Ravi, Sai Chitra, ASR, Sri Krishna and Mini Siddartha full show gross with ₹250 and ₹150 prices"
+  "Calculate Ravi, Sai Chitra, ASR, Sri Krishna, Mini Siddartha and Sunil full show gross with ₹250 and ₹150 prices"
 ];
 
 let nextMessageId = 1;

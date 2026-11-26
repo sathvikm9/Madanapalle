@@ -66,6 +66,19 @@ export const VENUES = Object.freeze([
     ]),
     timezone: "Asia/Kolkata",
     captureStartAfterShowMinutes: 25
+  }),
+  Object.freeze({
+    venueCode: "SUTD",
+    name: "Sunil A/C 4K Laser Dolby Surround 7.1: Madanapalle",
+    shortName: "Sunil",
+    slug: "sunil-a-c-4k-laser-dolby-surround-71-madanapalle",
+    platform: "bookmyshow",
+    layoutCategories: Object.freeze([
+      Object.freeze({ name: "RESERVED", capacity: 216 }),
+      Object.freeze({ name: "FIRST CLASS", capacity: 88 })
+    ]),
+    timezone: "Asia/Kolkata",
+    captureStartAfterShowMinutes: 10
   })
 ]);
 
