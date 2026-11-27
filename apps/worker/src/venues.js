@@ -62,7 +62,10 @@ export const VENUES = Object.freeze([
     platform: "bookmyshow",
     layoutCategories: Object.freeze([
       Object.freeze({ name: "GOLD CLASS", capacity: 238 }),
-      Object.freeze({ name: "SILVER CLASS", capacity: 33 })
+      // BMS currently exposes 49 physical Silver positions, but the final 16
+      // are an operationally blocked optional section. They are excluded while
+      // unavailable and become part of capacity if BMS opens that section.
+      Object.freeze({ name: "SILVER CLASS", capacity: 33, physicalCapacity: 49, optionalCapacity: 16 })
     ]),
     timezone: "Asia/Kolkata",
     captureStartAfterShowMinutes: 25

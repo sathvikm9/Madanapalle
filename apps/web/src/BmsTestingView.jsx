@@ -78,7 +78,7 @@ export default function BmsTestingView({ apiBase, demo, maxDate }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const discoveryIssues = (data?.discovery || []).filter((item) =>
-    item.last_status === "failed" && (venueCode === "ALL" || item.venue_code === venueCode)
+    item.actionable === true && (venueCode === "ALL" || item.venue_code === venueCode)
   );
 
   const load = useCallback(async () => {

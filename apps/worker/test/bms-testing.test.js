@@ -6,6 +6,7 @@ import {
   BMS_TESTING_VENUE_CODES,
   bmsCaptureClaimThrough,
   bmsCaptureWaitMs,
+  bmsDiscoveryIsActionable,
   bmsTestingEnabled,
   decryptBmsSeatLayout,
   fetchBmsTestingCapture,
@@ -66,6 +67,13 @@ test("minute cron reserves the next cutoff and waits for its exact due time", ()
   assert.equal(bmsCaptureWaitMs("2026-11-27T08:44:00.000Z", "2026-11-27T08:44:02.000Z"), 0);
 });
 
+test("completed historical dates do not expose stale discovery failures", () => {
+  const completed = [{ jobs: { final: { status: "succeeded", deadlineAt: "2026-11-27T16:20:00.000Z" } } }];
+  assert.equal(bmsDiscoveryIsActionable("2026-11-27", completed, "2026-11-27T23:30:00.000Z"), false);
+  assert.equal(bmsDiscoveryIsActionable("2026-11-28", [], "2026-11-27T23:30:00.000Z"), true);
+  assert.equal(bmsDiscoveryIsActionable("2026-11-28", [{ jobs: { final: { status: "pending" } } }], "2026-11-27T23:30:00.000Z"), true);
+});
+
 test("all five BMS testing theatres require their verified real-seat capacities", () => {
   const expectedCapacities = { RTDM: 637, ASRM: 520, SKMD: 657, MSDR: 271, SUTD: 327 };
   for (const venueCode of BMS_TESTING_VENUE_CODES) {
@@ -89,6 +97,32 @@ test("all five BMS testing theatres require their verified real-seat capacities"
     assert.equal(result.capacity, expectedCapacities[venueCode], venue.shortName);
     assert.equal(result.sold, venue.layoutCategories.length, venue.shortName);
   }
+});
+
+test("Mini Siddartha excludes the blocked Silver section until BMS opens it", () => {
+  const silver = [
+    ...seatTokens("B", 1, 25),
+    ...seatTokens("B", 2, 8, 26),
+    ...seatTokens("B", 2, 16, 34)
+  ];
+  const miniLayout = `GOLD CLASS:A:GO:1|SILVER CLASS:B:SI:2||1:A:${[
+    ...seatTokens("A", 1, 200), ...seatTokens("A", 2, 38, 201)
+  ].join(":")}|2:B:${silver.join(":")}|`;
+  const miniShow = {
+    venue_code: "MSDR",
+    advertised_categories_json: JSON.stringify([
+      { name: "GOLD CLASS", listPricePaise: 10_500 },
+      { name: "SILVER CLASS", listPricePaise: 8_400 }
+    ])
+  };
+  const current = parseBmsSeatCategories(miniLayout, miniShow);
+  assert.equal(current.capacity, 271);
+  assert.equal(current.sold, 46);
+  assert.equal(current.collectionPaise, 443_200);
+
+  const expanded = parseBmsSeatCategories(miniLayout.replace("B234+x", "B134+x"), miniShow);
+  assert.equal(expanded.capacity, 287);
+  assert.equal(expanded.sold, 61);
 });
 
 test("Sunil parser requires its verified 239 plus 88 seat layout", () => {

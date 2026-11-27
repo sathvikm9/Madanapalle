@@ -119,7 +119,7 @@ Live Mini Siddartha inspection on 29 October 2026 confirmed:
 - venue code: `MSDR`
 - the 30 October schedule contains 11:00 AM, 2:00 PM, 6:00 PM and 9:00 PM sessions
 - each session has a 30-minute BookMyShow cutoff
-- the verified layout is 238 Gold Class seats and 33 bookable Silver Class seats (271 total); Silver B15 is a permanently blocked position and is excluded
+- the verified layout is 238 Gold Class seats plus 33 currently saleable Silver Class seats (271 current total); BMS also exposes a 16-seat optional Silver section, which is excluded while operationally blocked and expands the layout to 287 only when that section opens
 - current categories are ₹105 and ₹84, counted as ₹100 and ₹79
 
 Prices are never hard-coded; the ₹5 adjustment is applied to each live category price.

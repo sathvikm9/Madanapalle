@@ -60,6 +60,19 @@ function indiaDate(now = new Date()) {
   return `${value.year}-${value.month}-${value.day}`;
 }
 
+export function bmsDiscoveryIsActionable(showDate, shows = [], now = new Date()) {
+  const current = new Date(now);
+  if (!Number.isFinite(current.getTime())) throw new TypeError("Invalid discovery health time");
+  if (String(showDate || "") < indiaDate(current)) return false;
+  if (!shows.length) return true;
+  return shows.some((show) => {
+    const job = show?.jobs?.final || {};
+    if (job.status === "pending" || job.status === "running") return true;
+    const deadline = new Date(job.deadlineAt || 0).getTime();
+    return Number.isFinite(deadline) && deadline >= current.getTime();
+  });
+}
+
 function codeToDate(code) {
   const value = String(code || "");
   if (!/^\d{12}$/.test(value)) throw new BmsUpstreamError("BMS returned an invalid show timestamp", { code: "schema_changed" });
@@ -147,7 +160,9 @@ export function parseBmsSeatCategories(text, show) {
   const categoryDefinitions = definitions(header);
   const rows = String(body || "").split("|").filter(Boolean);
   if (!rows.length) throw new Error("BMS returned an unknown seat-layout format");
-  const counts = new Map(categoryDefinitions.map((item) => [item.code, { available: 0, sold: 0, unknown: 0 }]));
+  const counts = new Map(categoryDefinitions.map((item) => [item.code, {
+    available: 0, sold: 0, unknown: 0, statuses: []
+  }]));
   for (const row of rows) {
     const [, , ...seats] = row.split(":");
     for (const seat of seats) {
@@ -155,9 +170,9 @@ export function parseBmsSeatCategories(text, show) {
       const count = counts.get(token.charAt(0).toUpperCase());
       const status = Number.parseInt(token.charAt(1), 10);
       if (!count || !Number.isInteger(status)) throw new Error("BMS returned an unrecognized seat token");
-      if (status === 1 || status === 4) count.available += 1;
-      else if (status === 2) count.sold += 1;
-      else if (status !== 0) count.unknown += 1;
+      if (status === 1 || status === 4) { count.available += 1; count.statuses.push(status); }
+      else if (status === 2) { count.sold += 1; count.statuses.push(status); }
+      else if (status !== 0) { count.unknown += 1; count.statuses.push(status); }
     }
   }
   const venue = venueForCode(show.venue_code || show.venueCode);
@@ -168,9 +183,31 @@ export function parseBmsSeatCategories(text, show) {
   const categories = categoryDefinitions.map((item) => {
     const layout = expected.get(item.name);
     if (!layout) throw new Error(`Rejected ${venue.shortName} layout: unknown category ${item.name}`);
-    const count = counts.get(item.code);
+    const observed = counts.get(item.code);
+    const observedCapacity = observed.available + observed.sold + observed.unknown;
+    const physicalCapacity = Number(layout.physicalCapacity || layout.capacity);
+    if (observedCapacity !== layout.capacity && observedCapacity !== physicalCapacity) {
+      throw new Error(`Rejected ${venue.shortName} ${layout.name}: counted ${observedCapacity} real seats, expected ${layout.capacity}${physicalCapacity !== layout.capacity ? ` or ${physicalCapacity}` : ""}`);
+    }
+    let count = observed;
+    // Mini Siddartha's optional Silver block is currently exposed by BMS as
+    // unavailable. Keep it outside the denominator until at least one of those
+    // positions is actually opened; then accept the complete 49-seat section.
+    if (physicalCapacity !== layout.capacity && observedCapacity === physicalCapacity) {
+      const optionalCapacity = Number(layout.optionalCapacity || physicalCapacity - layout.capacity);
+      const baseStatuses = observed.statuses.slice(0, physicalCapacity - optionalCapacity);
+      const optionalStatuses = observed.statuses.slice(-optionalCapacity);
+      const optionalSectionOpen = optionalStatuses.some((status) => status === 1 || status === 4);
+      if (!optionalSectionOpen) {
+        count = baseStatuses.reduce((result, status) => {
+          if (status === 1 || status === 4) result.available += 1;
+          else if (status === 2) result.sold += 1;
+          else result.unknown += 1;
+          return result;
+        }, { available: 0, sold: 0, unknown: 0 });
+      }
+    }
     const capacity = count.available + count.sold + count.unknown;
-    if (capacity !== layout.capacity) throw new Error(`Rejected ${venue.shortName} ${layout.name}: counted ${capacity} real seats, expected ${layout.capacity}`);
     if (count.unknown) throw new Error(`Rejected ${venue.shortName} ${layout.name}: unknown seat state`);
     const listPricePaise = prices.get(item.name);
     if (!Number.isSafeInteger(listPricePaise) || listPricePaise <= 0 || listPricePaise > 100_000) throw new Error(`Rejected ${venue.shortName} ${layout.name}: no verified ticket price was available`);
@@ -542,8 +579,9 @@ export function validateServiceCapture(payload, show) {
     if (!layout || ![capacity, available, unavailable, unknown, listPricePaise].every(Number.isSafeInteger)) {
       throw new BmsUpstreamError(`Rejected ${venue.shortName} layout: invalid category data`, { code: "layout_mismatch" });
     }
-    if (capacity !== layout.capacity || available + unavailable + unknown !== capacity || unknown !== 0) {
-      throw new BmsUpstreamError(`Rejected ${venue.shortName} ${layout.name}: expected ${layout.capacity} known seats`, { code: "layout_mismatch" });
+    const allowedCapacities = new Set([Number(layout.capacity), Number(layout.physicalCapacity || layout.capacity)]);
+    if (!allowedCapacities.has(capacity) || available + unavailable + unknown !== capacity || unknown !== 0) {
+      throw new BmsUpstreamError(`Rejected ${venue.shortName} ${layout.name}: expected ${[...allowedCapacities].join(" or ")} known seats`, { code: "layout_mismatch" });
     }
     if (prices.get(name) !== listPricePaise) {
       throw new BmsUpstreamError(`Rejected ${venue.shortName} ${layout.name}: ticket price changed during capture`, { code: "price_mismatch" });
@@ -911,15 +949,22 @@ export async function bmsTestingDashboard(env, { date, venueCode = "ALL" }) {
   const capacity = finals.reduce((sum, show) => sum + show.final.capacity, 0);
   const collectionPaise = finals.reduce((sum, show) => sum + show.final.collectionPaise, 0);
   const discovery = await env.DB.prepare("SELECT * FROM bms_testing_discovery_state WHERE show_date=? ORDER BY venue_code").bind(date).all();
+  const refreshedAt = new Date();
+  const discoveryActionable = bmsDiscoveryIsActionable(date, shows, refreshedAt);
+  const discoveryRows = (discovery.results || []).map((item) => ({
+    ...item,
+    actionable: discoveryActionable && item.last_status === "failed"
+  }));
   const failedCaptures = shows.filter((show) => show.jobs.final.status === "failed").length;
-  const failedDiscoveries = (discovery.results || []).filter((item) => item.last_status === "failed").length;
+  const failedDiscoveries = discoveryRows.filter((item) => item.actionable &&
+    (venueCode === "ALL" || item.venue_code === venueCode)).length;
   return {
-    enabled: true, mode: "bookmyshow-final-server-testing", date, venueCode, refreshedAt: new Date().toISOString(),
+    enabled: true, mode: "bookmyshow-final-server-testing", date, venueCode, refreshedAt: refreshedAt.toISOString(),
     summary: { shows: shows.length, initialCaptured: shows.filter((show) => show.initial).length,
       finalCaptured: finals.length, failed: failedCaptures + failedDiscoveries,
       unavailable: tickets, tickets, capacity, estimatedCollectionPaise: collectionPaise, collectionPaise,
       occupancyPercent: capacity ? Math.round((tickets / capacity) * 10_000) / 100 : 0,
       exactMatches: shows.filter((show) => show.comparison?.exactTickets).length },
-    discovery: discovery.results || [], shows
+    discovery: discoveryRows, shows
   };
 }
