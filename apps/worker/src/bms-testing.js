@@ -10,6 +10,8 @@ const DISCOVERY_RETRY_MS = 2 * 60 * 60_000;
 const RETRY_MS = 60_000;
 const RATE_LIMIT_RETRY_MS = 30 * 60_000;
 const MAX_CAPTURES_PER_RUN = 8;
+const CAPTURE_LEASE_MS = 180_000;
+const CAPTURE_SPACING_MS = 1_000;
 export const BMS_TESTING_VENUE_CODES = Object.freeze(["RTDM", "ASRM", "SKMD", "MSDR", "SUTD"]);
 const VENUE_SET = new Set(BMS_TESTING_VENUE_CODES);
 
@@ -30,6 +32,25 @@ const elapsedMs = (started, finished) => Math.max(0, new Date(finished).getTime(
 const dateCode = (value) => String(value || "").replaceAll("-", "");
 const normalizedName = (value) => String(value || "").trim().replace(/\s+/g, " ").toUpperCase();
 const sleep = (ms) => ms ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
+
+// Cloudflare's minute cron can arrive near the end of its minute. Reserve a
+// capture due at the next minute boundary, then wait for that exact due time.
+// This preserves the full BMS cutoff minute instead of first starting at :56.
+export function bmsCaptureClaimThrough(now = new Date()) {
+  const value = new Date(now);
+  if (!Number.isFinite(value.getTime())) throw new TypeError("Invalid scheduler time");
+  if (value.getUTCSeconds() || value.getUTCMilliseconds()) {
+    value.setUTCMinutes(value.getUTCMinutes() + 1, 0, 0);
+  }
+  return value.toISOString();
+}
+
+export function bmsCaptureWaitMs(dueAt, now = new Date()) {
+  const due = new Date(dueAt).getTime();
+  const current = new Date(now).getTime();
+  if (!Number.isFinite(due) || !Number.isFinite(current)) throw new TypeError("Invalid capture time");
+  return Math.max(0, due - current);
+}
 
 function indiaDate(now = new Date()) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -676,7 +697,14 @@ async function discoverOne(env, showDate, now, options) {
   }
 }
 
-async function claimCapture(db, now) {
+async function claimCapture(db, now, claimThrough = now) {
+  // A terminated invocation must not strand a show in `running` forever.
+  // Return an expired lease to pending first; the normal deadline check below
+  // will either retry it safely or record that its capture window expired.
+  await db.prepare(`UPDATE bms_testing_capture_jobs SET status='pending', lease_expires_at=NULL,
+    last_error='Previous capture lease expired', updated_at=?
+    WHERE status='running' AND lease_expires_at IS NOT NULL AND lease_expires_at<=?`)
+    .bind(now, now).run();
   const expired = await db.prepare(`SELECT jobs.id AS job_id, jobs.phase AS job_phase,
     jobs.attempts AS job_attempts, jobs.due_at AS job_due_at, jobs.deadline_at AS job_deadline_at,
     shows.id AS show_id, shows.venue_code, shows.show_date
@@ -707,10 +735,12 @@ async function claimCapture(db, now) {
     jobs.attempts AS job_attempts, jobs.due_at AS job_due_at, jobs.deadline_at AS job_deadline_at FROM bms_testing_capture_jobs jobs
     JOIN bms_testing_shows shows ON shows.id=jobs.testing_show_id
     WHERE jobs.status='pending' AND jobs.next_attempt_at<=? AND jobs.deadline_at>=? AND shows.is_current=1
-    ORDER BY CASE jobs.phase WHEN 'final' THEN 0 ELSE 1 END, jobs.due_at LIMIT 1`).bind(now, now).first();
+    ORDER BY CASE jobs.phase WHEN 'final' THEN 0 ELSE 1 END, jobs.due_at,
+      CASE shows.venue_code WHEN 'RTDM' THEN 1 WHEN 'ASRM' THEN 2 WHEN 'SKMD' THEN 3 WHEN 'MSDR' THEN 4 WHEN 'SUTD' THEN 5 ELSE 6 END
+    LIMIT 1`).bind(claimThrough, now).first();
   if (!job) return null;
   const changed = await db.prepare("UPDATE bms_testing_capture_jobs SET status='running', lease_expires_at=?, attempts=attempts+1, updated_at=? WHERE id=? AND status='pending'")
-    .bind(addMs(now, 120_000), now, job.job_id).run();
+    .bind(addMs(now, CAPTURE_LEASE_MS), now, job.job_id).run();
   return Number(changed.meta?.changes || 0) ? job : null;
 }
 
@@ -719,10 +749,17 @@ async function runCaptures(env, nowDate, options) {
   let browser = null;
   try {
     for (let index = 0; index < MAX_CAPTURES_PER_RUN; index += 1) {
-      const now = (index ? new Date() : nowDate).toISOString();
-      const job = await claimCapture(env.DB, now);
+      const claimNow = (index ? new Date() : nowDate).toISOString();
+      // Only the first claim looks ahead to the next minute. Once a browser is
+      // open, consume jobs that are already due (including every theatre that
+      // shares this cutoff) without holding Browser Run idle for a future slot.
+      const claimThrough = index ? claimNow : bmsCaptureClaimThrough(claimNow);
+      const job = await claimCapture(env.DB, claimNow, claimThrough);
       if (!job) break;
-      if (index) await sleep(Number.isFinite(options.captureSpacingMs) ? options.captureSpacingMs : 3_000);
+      const scheduledWaitMs = bmsCaptureWaitMs(job.job_due_at, new Date());
+      if (scheduledWaitMs) await sleep(scheduledWaitMs);
+      if (index) await sleep(Number.isFinite(options.captureSpacingMs) ? options.captureSpacingMs : CAPTURE_SPACING_MS);
+      const started = new Date().toISOString();
       const attempt = Number(job.job_attempts || 0) + 1;
       try {
         if (!browser && internalCaptureService(env) && env.BROWSER) {
@@ -746,14 +783,16 @@ async function runCaptures(env, nowDate, options) {
           .bind(snapshot.id, captured, job.job_id).run();
         await logRun(env.DB, {
           type: "capture", venue: job.venue_code, date: job.show_date, showId: job.id,
-          phase: job.job_phase, status: "succeeded", attempt, started: now, finished: captured,
+          phase: job.job_phase, status: "succeeded", attempt, started, finished: captured,
           details: {
             stage: "completed",
             evidence: result.captureEvidence || "seat_layout",
             unavailable: result.sold,
             capacity: result.capacity,
-            durationMs: elapsedMs(now, captured),
-            dueDelayMs: Math.max(0, elapsedMs(job.job_due_at, now)),
+            durationMs: elapsedMs(started, captured),
+            dueDelayMs: Math.max(0, elapsedMs(job.job_due_at, started)),
+            reservedAt: claimNow,
+            scheduledWaitMs,
             dueAt: job.job_due_at,
             deadlineAt: job.job_deadline_at,
             transport: env.BROWSER ? "cloudflare_browser" : "direct_http"
@@ -770,11 +809,13 @@ async function runCaptures(env, nowDate, options) {
         await logRun(env.DB, {
           type: "capture", venue: job.venue_code, date: job.show_date, showId: job.id,
           phase: job.job_phase, status: retry ? "retrying" : "failed", attempt,
-          started: now, finished, httpStatus: error.status, errorCode: error.code, error: error.message,
+          started, finished, httpStatus: error.status, errorCode: error.code, error: error.message,
           details: {
             stage: error.stage || "capture_request",
-            durationMs: elapsedMs(now, finished),
-            dueDelayMs: Math.max(0, elapsedMs(job.job_due_at, now)),
+            durationMs: elapsedMs(started, finished),
+            dueDelayMs: Math.max(0, elapsedMs(job.job_due_at, started)),
+            reservedAt: claimNow,
+            scheduledWaitMs,
             dueAt: job.job_due_at,
             deadlineAt: job.job_deadline_at,
             retry,

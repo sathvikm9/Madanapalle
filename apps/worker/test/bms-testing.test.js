@@ -4,6 +4,8 @@ import test from "node:test";
 import {
   BMS_DISCOVERY_INTERVAL_MS,
   BMS_TESTING_VENUE_CODES,
+  bmsCaptureClaimThrough,
+  bmsCaptureWaitMs,
   bmsTestingEnabled,
   decryptBmsSeatLayout,
   fetchBmsTestingCapture,
@@ -55,6 +57,13 @@ test("automatic BMS testing remains explicitly disabled by default", () => {
   assert.equal(bmsTestingEnabled({ BMS_TESTING_ENABLED: "true", BMS_CAPTURE_SERVICE_URL: "http://capture.example", BMS_CAPTURE_SERVICE_TOKEN: KEY }), false);
   assert.equal(bmsTestingEnabled({ BMS_TESTING_ENABLED: "true", BMS_CAPTURE_SERVICE_URL: "internal" }), false);
   assert.equal(bmsTestingEnabled({ BMS_TESTING_ENABLED: "true", BMS_CAPTURE_SERVICE_URL: "internal", BMS_LAYOUT_KEY: KEY }), true);
+});
+
+test("minute cron reserves the next cutoff and waits for its exact due time", () => {
+  assert.equal(bmsCaptureClaimThrough("2026-11-27T08:43:56.800Z"), "2026-11-27T08:44:00.000Z");
+  assert.equal(bmsCaptureClaimThrough("2026-11-27T08:44:00.000Z"), "2026-11-27T08:44:00.000Z");
+  assert.equal(bmsCaptureWaitMs("2026-11-27T08:44:00.000Z", "2026-11-27T08:43:56.800Z"), 3_200);
+  assert.equal(bmsCaptureWaitMs("2026-11-27T08:44:00.000Z", "2026-11-27T08:44:02.000Z"), 0);
 });
 
 test("all five BMS testing theatres require their verified real-seat capacities", () => {
