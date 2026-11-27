@@ -5,10 +5,14 @@ const money = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR
 const number = new Intl.NumberFormat("en-IN");
 const time = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" });
 const TESTING_VENUES = Object.freeze([
-  { code: "ALL", name: "Ravi + Sunil" },
+  { code: "ALL", name: "All theatres" },
   { code: "RTDM", name: "Ravi" },
+  { code: "ASRM", name: "ASR" },
+  { code: "SKMD", name: "Sri Krishna" },
+  { code: "MSDR", name: "Mini Siddartha" },
   { code: "SUTD", name: "Sunil" }
 ]);
+const TESTING_VENUE_NAMES = Object.freeze(Object.fromEntries(TESTING_VENUES.map((venue) => [venue.code, venue.name])));
 
 const DEMO = {
   enabled: true,
@@ -95,7 +99,7 @@ export default function BmsTestingView({ apiBase, demo, maxDate }) {
   return (
     <section className="bms-testing" aria-label="Automatic BMS server testing">
       <header className="bms-testing__hero">
-        <div><p className="eyebrow">Ravi + Sunil · isolated experiment</p><h1>Server Collection Test</h1></div>
+        <div><p className="eyebrow">5 BMS theatres · isolated experiment</p><h1>Server Collection Test</h1></div>
         <span>Does not alter production</span>
       </header>
       <div className="bms-testing__filters">
@@ -110,8 +114,8 @@ export default function BmsTestingView({ apiBase, demo, maxDate }) {
         <header><div><p className="eyebrow">Automatic server results · {date}</p><h2>{data.summary.shows} BMS shows scheduled</h2><span>{data.refreshedAt ? `Updated ${time.format(new Date(data.refreshedAt))}` : "Waiting for the first scheduler cycle"}</span></div>
           <dl><div><dt>Final captures</dt><dd>{data.summary.finalCaptured}</dd></div><div><dt>Unavailable seats</dt><dd>{data.summary.finalCaptured ? number.format(data.summary.unavailable ?? data.summary.tickets) : "—"}</dd></div><div><dt>Estimated collection</dt><dd>{data.summary.finalCaptured ? money.format((data.summary.estimatedCollectionPaise ?? data.summary.collectionPaise) / 100) : "—"}</dd></div><div><dt>Needs review</dt><dd>{data.summary.failed}</dd></div></dl>
         </header>
-        {discoveryIssues.map((issue) => <div key={issue.venue_code} className="bms-testing__message bms-testing__message--error" role="status"><strong>{issue.venue_code === "SUTD" ? "Sunil" : "Ravi"} server discovery needs attention</strong><span>{issue.last_error || "The server could not read the current BMS schedule."}</span></div>)}
-        {data.shows.length ? <div className="bms-testing__show-list">{data.shows.map((show) => <ShowCard key={show.id} show={show} />)}</div> : <div className="bms-testing__empty"><strong>No matching BMS sessions are known for this date yet.</strong><span>The server keeps isolated Ravi and Sunil schedules and records provider rejections without changing production data.</span></div>}
+        {discoveryIssues.map((issue) => <div key={issue.venue_code} className="bms-testing__message bms-testing__message--error" role="status"><strong>{TESTING_VENUE_NAMES[issue.venue_code] || issue.venue_code} server discovery needs attention</strong><span>{issue.last_error || "The server could not read the current BMS schedule."}</span></div>)}
+        {data.shows.length ? <div className="bms-testing__show-list">{data.shows.map((show) => <ShowCard key={show.id} show={show} />)}</div> : <div className="bms-testing__empty"><strong>No matching BMS sessions are known for this date yet.</strong><span>The server keeps five isolated BMS theatre schedules and records provider rejections without changing production data.</span></div>}
       </div>}
     </section>
   );

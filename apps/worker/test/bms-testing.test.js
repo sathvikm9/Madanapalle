@@ -48,13 +48,38 @@ async function encryptedLayout() {
 }
 
 test("automatic BMS testing remains explicitly disabled by default", () => {
-  assert.deepEqual(BMS_TESTING_VENUE_CODES, ["RTDM", "SUTD"]);
+  assert.deepEqual(BMS_TESTING_VENUE_CODES, ["RTDM", "ASRM", "SKMD", "MSDR", "SUTD"]);
   assert.equal(BMS_DISCOVERY_INTERVAL_MS, 12 * 60 * 60_000);
   assert.equal(bmsTestingEnabled({ BMS_CAPTURE_SERVICE_URL: "https://capture.example", BMS_CAPTURE_SERVICE_TOKEN: KEY }), false);
   assert.equal(bmsTestingEnabled({ BMS_TESTING_ENABLED: "true", BMS_CAPTURE_SERVICE_URL: "https://capture.example", BMS_CAPTURE_SERVICE_TOKEN: KEY }), true);
   assert.equal(bmsTestingEnabled({ BMS_TESTING_ENABLED: "true", BMS_CAPTURE_SERVICE_URL: "http://capture.example", BMS_CAPTURE_SERVICE_TOKEN: KEY }), false);
   assert.equal(bmsTestingEnabled({ BMS_TESTING_ENABLED: "true", BMS_CAPTURE_SERVICE_URL: "internal" }), false);
   assert.equal(bmsTestingEnabled({ BMS_TESTING_ENABLED: "true", BMS_CAPTURE_SERVICE_URL: "internal", BMS_LAYOUT_KEY: KEY }), true);
+});
+
+test("all five BMS testing theatres require their verified real-seat capacities", () => {
+  const expectedCapacities = { RTDM: 637, ASRM: 520, SKMD: 657, MSDR: 271, SUTD: 327 };
+  for (const venueCode of BMS_TESTING_VENUE_CODES) {
+    const venue = venueForCode(venueCode);
+    const definitions = venue.layoutCategories.map((category, index) => `${category.name}:${String.fromCharCode(65 + index)}:X:${index + 1}`);
+    const rows = venue.layoutCategories.map((category, index) => {
+      const code = String.fromCharCode(65 + index);
+      return `${index + 1}:${code}:${[
+        ...seatTokens(code, 1, category.capacity - 1),
+        ...seatTokens(code, 2, 1, category.capacity)
+      ].join(":")}`;
+    });
+    const venueShow = {
+      venue_code: venueCode,
+      advertised_categories_json: JSON.stringify(venue.layoutCategories.map((category) => ({
+        name: category.name,
+        listPricePaise: 10_500
+      })))
+    };
+    const result = parseBmsSeatCategories(`${definitions.join("|")}||${rows.join("|")}|`, venueShow);
+    assert.equal(result.capacity, expectedCapacities[venueCode], venue.shortName);
+    assert.equal(result.sold, venue.layoutCategories.length, venue.shortName);
+  }
 });
 
 test("Sunil parser requires its verified 239 plus 88 seat layout", () => {

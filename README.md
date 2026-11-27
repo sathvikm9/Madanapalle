@@ -80,7 +80,7 @@ Set at minimum:
 
 The health endpoint is `GET /health`. The Worker cron finalizes received snapshots but never accesses a booking platform. See the Cloudflare deployment guide for database creation, migrations, secrets and backup commands.
 
-The **Testing** tab is a Ravi-and-Sunil server experiment. Migration `0019` keeps its schedules, jobs, snapshots and audit runs in separate `bms_testing_*` tables. The minute Worker cron uses Cloudflare Browser Rendering to discover both theatres twice daily, schedules only the final read for one minute before each live BookMyShow cutoff, validates Ravi's complete 637-seat layout and Sunil's complete 327-seat layout, and compares accepted test results with the extension collector. Due captures always take priority over routine discovery so the free browser allowance is preserved. It never writes to production `shows` or `snapshots`, and it records a provider 403/429 as missing data rather than zero seats.
+The **Testing** tab is a five-theatre BookMyShow server experiment for Ravi, ASR, Sri Krishna, Mini Siddartha and Sunil. Migration `0019` keeps its schedules, jobs, snapshots and audit runs in separate `bms_testing_*` tables. The minute Worker cron uses Cloudflare Browser Rendering to discover each theatre twice daily, schedules only the final read for one minute before each live BookMyShow cutoff, validates every complete configured seating layout, and compares accepted test results with the extension collector. Due captures always take priority over routine discovery so the free browser allowance is preserved. It never writes to production `shows` or `snapshots`, and it records a provider 403/429 as missing data rather than zero seats.
 
 ## Install the local Chrome agent
 

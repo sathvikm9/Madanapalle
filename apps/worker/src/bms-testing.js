@@ -10,7 +10,7 @@ const DISCOVERY_RETRY_MS = 2 * 60 * 60_000;
 const RETRY_MS = 60_000;
 const RATE_LIMIT_RETRY_MS = 30 * 60_000;
 const MAX_CAPTURES_PER_RUN = 8;
-export const BMS_TESTING_VENUE_CODES = Object.freeze(["RTDM", "SUTD"]);
+export const BMS_TESTING_VENUE_CODES = Object.freeze(["RTDM", "ASRM", "SKMD", "MSDR", "SUTD"]);
 const VENUE_SET = new Set(BMS_TESTING_VENUE_CODES);
 
 export class BmsUpstreamError extends Error {
