@@ -2066,6 +2066,7 @@ main { max-width: 1120px; margin: 0 auto; padding: 26px 24px 88px; }
 .bms-test-value b { font-size: 12px; }
 .bms-test-value small { color: var(--muted); font-size: 8px; }
 .bms-test-jobs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--line); border-top: 1px solid var(--line); }
+.bms-test-jobs--single { grid-template-columns: 1fr; }
 .bms-job { display: grid; grid-template-columns: auto 1fr; gap: 3px 8px; padding: 11px 14px; background: var(--paper); }
 .bms-job span { color: var(--muted); font-size: 8px; font-weight: 800; text-transform: uppercase; }
 .bms-job strong { justify-self: end; font-size: 9px; text-transform: capitalize; }

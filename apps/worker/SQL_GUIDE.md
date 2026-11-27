@@ -138,3 +138,19 @@ The underlying tables remain intentionally normalized:
 
 These tables are for the application. The `report_*` views are the supported
 human-facing SQL interface.
+
+## Isolated Ravi server testing
+
+The Testing tab never writes to the production tables above. Its migration
+creates a separate namespace:
+
+- `bms_testing_shows`: Ravi schedules discovered by the server adapter
+- `bms_testing_capture_jobs`: final reads due one minute before BMS cutoff
+- `bms_testing_snapshots`: validated unavailable-seat snapshots and estimates
+- `bms_testing_discovery_state`: bounded Ravi schedule polling state
+- `bms_testing_runs`: discovery/capture success and failure audit
+
+The historical column name `sold` in `bms_testing_snapshots` means
+**unavailable seat count**, not verified paid ticket sales. The Testing UI
+labels its money value **estimated collection**. Do not join or copy these
+rows into `shows` or `snapshots` while the experiment is being evaluated.

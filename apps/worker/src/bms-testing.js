@@ -2,10 +2,10 @@ import { calculateCollection } from "@skct/core";
 import { venueForCode } from "./venues.js";
 
 const BMS_SEAT_ENDPOINT = "https://services-in.bookmyshow.com/doTrans.aspx";
-const DISCOVERY_INTERVAL_MS = 60 * 60_000;
+const DISCOVERY_INTERVAL_MS = 30 * 60_000;
 const RETRY_MS = 60_000;
 const RATE_LIMIT_RETRY_MS = 30 * 60_000;
-export const BMS_TESTING_VENUE_CODES = Object.freeze(["SKMD", "RTDM", "ASRM", "MSDR", "SUTD"]);
+export const BMS_TESTING_VENUE_CODES = Object.freeze(["RTDM"]);
 const VENUE_SET = new Set(BMS_TESTING_VENUE_CODES);
 
 export class BmsUpstreamError extends Error {
@@ -48,7 +48,47 @@ function retryAfterMs(response) {
 
 export function isBmsTestingVenue(code) { return VENUE_SET.has(String(code || "").toUpperCase()); }
 export function bmsTestingEnabled(env) {
-  return String(env.BMS_TESTING_ENABLED || "").toLowerCase() === "true" && String(env.BMS_LAYOUT_KEY || "").length === 32;
+  if (String(env.BMS_TESTING_ENABLED || "").toLowerCase() !== "true") return false;
+  if (String(env.BMS_CAPTURE_SERVICE_URL || "").trim() === "internal") {
+    return String(env.BMS_LAYOUT_KEY || "").length === 32;
+  }
+  if (String(env.BMS_CAPTURE_SERVICE_TOKEN || "").trim().length < 24) return false;
+  try {
+    const url = new URL(String(env.BMS_CAPTURE_SERVICE_URL || ""));
+    return url.protocol === "https:" || ["127.0.0.1", "localhost"].includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function internalCaptureService(env) {
+  return String(env.BMS_CAPTURE_SERVICE_URL || "").trim() === "internal";
+}
+
+function captureServiceUrl(env, path) {
+  return new URL(path, `${String(env.BMS_CAPTURE_SERVICE_URL).replace(/\/$/, "")}/`).toString();
+}
+
+async function callCaptureService(env, path, payload, options = {}) {
+  const response = await (options.fetchImpl || fetch)(captureServiceUrl(env, path), {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      authorization: `Bearer ${env.BMS_CAPTURE_SERVICE_TOKEN}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(payload),
+    signal: options.signal || AbortSignal.timeout(25_000)
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new BmsUpstreamError(result.message || `Ravi capture service returned HTTP ${response.status}`, {
+      status: response.status,
+      code: result.code || (response.status === 429 ? "rate_limited" : response.status === 403 ? "forbidden" : "capture_service_error"),
+      retryAfterMs: retryAfterMs(response)
+    });
+  }
+  return result;
 }
 
 export async function decryptBmsSeatLayout(encryptedText, keyText, cryptoImpl = crypto) {
@@ -84,7 +124,7 @@ export function parseBmsSeatCategories(text, show) {
       const count = counts.get(token.charAt(0).toUpperCase());
       const status = Number.parseInt(token.charAt(1), 10);
       if (!count || !Number.isInteger(status)) throw new Error("BMS returned an unrecognized seat token");
-      if (status === 1) count.available += 1;
+      if (status === 1 || status === 4) count.available += 1;
       else if (status === 2) count.sold += 1;
       else if (status !== 0) count.unknown += 1;
     }
@@ -109,20 +149,24 @@ export function parseBmsSeatCategories(text, show) {
 }
 
 export async function fetchBmsTestingCapture(show, options = {}) {
-  const body = new URLSearchParams({
-    strAppCode: "WEBV2", lngTransactionIdentifier: "0", strCommand: "GETSEATLAYOUT",
+  const body = new FormData();
+  for (const [name, value] of Object.entries({
+    strAppCode: "WEB", lngTransactionIdentifier: "0", strCommand: "GETSEATLAYOUT",
     strVenueCode: show.venue_code, strParam1: show.session_id, strParam2: "WEB",
     strParam3: "", strParam4: "", strParam5: "Y", strParam6: "N", strParam7: "N",
     strParam8: "", strParam9: "", strParam10: "", strFormat: "json"
-  });
+  })) body.append(name, value);
   const response = await (options.fetchImpl || fetch)(BMS_SEAT_ENDPOINT, {
-    method: "POST", headers: {
+    method: "POST",
+    headers: {
       accept: "application/json, text/plain, */*",
-      "content-type": "application/x-www-form-urlencoded;charset=UTF-8",
       origin: "https://in.bookmyshow.com",
       referer: "https://in.bookmyshow.com/",
-      "user-agent": "MPLTalkies-BMSTesting/1.0"
-    }, signal: options.signal || AbortSignal.timeout(8_000), body
+      "x-app-code": "WEB",
+      "x-bms-id": `1.${Date.now()}.${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`
+    },
+    signal: options.signal || AbortSignal.timeout(10_000),
+    body
   });
   if (!response.ok) throw new BmsUpstreamError(`BMS seat API returned HTTP ${response.status}`, {
     status: response.status,
@@ -130,7 +174,9 @@ export async function fetchBmsTestingCapture(show, options = {}) {
     retryAfterMs: retryAfterMs(response)
   });
   const result = (await response.json())?.BookMyShow;
-  if (String(result?.blnSuccess).toLowerCase() !== "true" || !result?.strData) throw new BmsUpstreamError(result?.strException || "BMS returned no seat data", { code: "no_seat_data" });
+  if (String(result?.blnSuccess).toLowerCase() !== "true" || !result?.strData) {
+    throw new BmsUpstreamError(result?.strException || "BMS returned no seat data", { code: "no_seat_data" });
+  }
   const plaintext = await decryptBmsSeatLayout(result.strData, options.keyText, options.cryptoImpl || crypto);
   return parseBmsSeatCategories(plaintext, show);
 }
@@ -202,6 +248,121 @@ export async function fetchBmsTheatreSchedule(venue, showDate, options = {}) {
   return parseBmsTheatreSchedule(await response.text(), venue, showDate, options.now || new Date());
 }
 
+export function normalizeServiceShows(payload, venue, showDate, now) {
+  if (String(payload?.venueCode || "").toUpperCase() !== venue.venueCode) {
+    throw new BmsUpstreamError("Capture service returned a different theatre", { code: "service_schema_changed" });
+  }
+  if (String(payload?.showDate || "") !== showDate || !Array.isArray(payload?.shows)) {
+    throw new BmsUpstreamError("Capture service returned an invalid schedule", { code: "service_schema_changed" });
+  }
+  return payload.shows.map((show) => {
+    const sessionId = String(show.sessionId || "").trim();
+    const eventCode = String(show.eventCode || "").trim();
+    const showTimeCode = String(show.showTimeCode || "").trim();
+    const startAt = new Date(show.startAt);
+    const cutoffAt = new Date(show.cutoffAt);
+    const categories = Array.isArray(show.categories) ? show.categories.map((category) => ({
+      name: String(category.name || "Category"),
+      priceCode: String(category.priceCode || ""),
+      listPricePaise: Number(category.listPricePaise || 0),
+      availabilityStatus: String(category.availabilityStatus ?? "")
+    })) : [];
+    if (!sessionId || !eventCode || !showTimeCode || !Number.isFinite(startAt.getTime()) || !Number.isFinite(cutoffAt.getTime())) {
+      throw new BmsUpstreamError("Capture service returned an incomplete show", { code: "service_schema_changed" });
+    }
+    if (cutoffAt <= startAt || !categories.length || categories.some((category) => !Number.isSafeInteger(category.listPricePaise) || category.listPricePaise <= 0)) {
+      throw new BmsUpstreamError("Capture service returned unsafe show metadata", { code: "service_schema_changed" });
+    }
+    const finalCaptureAt = addMs(cutoffAt.toISOString(), -60_000);
+    return {
+      naturalKey: [venue.venueCode, dateCode(showDate), showTimeCode, sessionId, eventCode].join(":"),
+      venueCode: venue.venueCode,
+      venueName: venue.name,
+      showDate,
+      showDateCode: dateCode(showDate),
+      showTimeCode,
+      showTimeLabel: String(show.showTimeLabel || ""),
+      startAt: startAt.toISOString(),
+      cutoffAt: cutoffAt.toISOString(),
+      captureAt: finalCaptureAt,
+      finalCaptureAt,
+      sessionId,
+      eventCode,
+      movieTitle: String(show.movieTitle || "Untitled movie"),
+      movieVariant: String(show.movieVariant || ""),
+      language: String(show.language || ""),
+      format: String(show.format || ""),
+      screenName: String(show.screenName || ""),
+      discoveredAt: now,
+      categories
+    };
+  });
+}
+
+export function validateServiceCapture(payload, show) {
+  if (String(payload?.venueCode || "").toUpperCase() !== show.venue_code || String(payload?.sessionId || "") !== show.session_id) {
+    throw new BmsUpstreamError("Capture service response did not match the requested Ravi show", { code: "service_schema_changed" });
+  }
+  const venue = venueForCode(show.venue_code);
+  const expected = new Map(venue.layoutCategories.map((item) => [normalizedName(item.name), item]));
+  const prices = new Map(jsonValue(show.advertised_categories_json, []).map((item) => [normalizedName(item.name), Number(item.listPricePaise || 0)]));
+  if (!Array.isArray(payload?.categories) || payload.categories.length !== expected.size) {
+    throw new BmsUpstreamError(`Rejected Ravi layout: expected ${expected.size} categories`, { code: "layout_mismatch" });
+  }
+  const categories = payload.categories.map((category) => {
+    const name = normalizedName(category.name);
+    const layout = expected.get(name);
+    const capacity = Number(category.capacity);
+    const available = Number(category.available);
+    const unavailable = Number(category.unavailable);
+    const unknown = Number(category.unknown || 0);
+    const listPricePaise = Number(category.listPricePaise || 0);
+    if (!layout || ![capacity, available, unavailable, unknown, listPricePaise].every(Number.isSafeInteger)) {
+      throw new BmsUpstreamError("Rejected Ravi layout: invalid category data", { code: "layout_mismatch" });
+    }
+    if (capacity !== layout.capacity || available + unavailable + unknown !== capacity || unknown !== 0) {
+      throw new BmsUpstreamError(`Rejected Ravi ${layout.name}: expected ${layout.capacity} known seats`, { code: "layout_mismatch" });
+    }
+    if (prices.get(name) !== listPricePaise) {
+      throw new BmsUpstreamError(`Rejected Ravi ${layout.name}: ticket price changed during capture`, { code: "price_mismatch" });
+    }
+    return { name: layout.name, capacity, available, sold: unavailable, unknown, listPricePaise };
+  });
+  return calculateCollection(categories);
+}
+
+async function discoverRaviFromService(env, showDate, now, options = {}) {
+  const venue = venueForCode("RTDM");
+  if (internalCaptureService(env)) {
+    return fetchBmsTheatreSchedule(venue, showDate, { ...options, now: new Date(now) });
+  }
+  const payload = await callCaptureService(env, "v1/ravi/discover", {
+    venueCode: venue.venueCode,
+    venueSlug: venue.slug,
+    showDate
+  }, options);
+  return normalizeServiceShows(payload, venue, showDate, now);
+}
+
+async function captureRaviFromService(env, show, options = {}) {
+  const venue = venueForCode("RTDM");
+  if (internalCaptureService(env)) {
+    const result = await fetchBmsTestingCapture(show, { ...options, keyText: env.BMS_LAYOUT_KEY });
+    return { result, capturedAt: new Date().toISOString() };
+  }
+  const payload = await callCaptureService(env, "v1/ravi/capture", {
+    venueCode: venue.venueCode,
+    venueSlug: venue.slug,
+    showDate: show.show_date,
+    showDateCode: show.show_date_code,
+    sessionId: show.session_id,
+    eventCode: show.event_code,
+    movieTitle: show.movie_title,
+    categories: jsonValue(show.advertised_categories_json, [])
+  }, options);
+  return { result: validateServiceCapture(payload, show), capturedAt: payload.capturedAt };
+}
+
 async function ensureStates(db, showDate, now) {
   await db.batch(BMS_TESTING_VENUE_CODES.map((code) => db.prepare(
     "INSERT OR IGNORE INTO bms_testing_discovery_state (venue_code, show_date, next_attempt_at, updated_at) VALUES (?, ?, ?, ?)"
@@ -243,46 +404,16 @@ async function saveDiscovery(db, venue, showDate, shows, now) {
   for (const show of rows.results || []) {
     jobs.push(db.prepare(`INSERT INTO bms_testing_capture_jobs
       (testing_show_id, phase, due_at, deadline_at, next_attempt_at, created_at, updated_at)
-      VALUES (?, 'initial', ?, ?, ?, ?, ?) ON CONFLICT(testing_show_id, phase) DO UPDATE SET
-      due_at=excluded.due_at, deadline_at=excluded.deadline_at,
-      next_attempt_at=CASE WHEN status='pending' THEN excluded.next_attempt_at ELSE next_attempt_at END,
-      updated_at=excluded.updated_at`).bind(show.id, show.capture_at, addMs(show.final_capture_at, -60_000), show.capture_at, now, now));
-    jobs.push(db.prepare(`INSERT INTO bms_testing_capture_jobs
-      (testing_show_id, phase, due_at, deadline_at, next_attempt_at, created_at, updated_at)
       VALUES (?, 'final', ?, ?, ?, ?, ?) ON CONFLICT(testing_show_id, phase) DO UPDATE SET
       due_at=excluded.due_at, deadline_at=excluded.deadline_at,
       next_attempt_at=CASE WHEN status='pending' THEN excluded.next_attempt_at ELSE next_attempt_at END,
-      updated_at=excluded.updated_at`).bind(show.id, show.final_capture_at, addMs(show.cutoff_at, 240_000), show.final_capture_at, now, now));
+      updated_at=excluded.updated_at`).bind(show.id, show.final_capture_at, show.cutoff_at, show.final_capture_at, now, now));
   }
+  await db.prepare(`UPDATE bms_testing_capture_jobs SET status='failed', last_error='Ravi server testing captures final state only', updated_at=?
+    WHERE phase='initial' AND status IN ('pending', 'running') AND testing_show_id IN
+    (SELECT id FROM bms_testing_shows WHERE venue_code='RTDM' AND show_date=?)`).bind(now, showDate).run();
   if (jobs.length) await db.batch(jobs);
   return rows.results?.length || 0;
-}
-
-async function mirrorKnownProductionSchedules(db, showDate, now) {
-  const source = await db.prepare(`SELECT * FROM shows
-    WHERE show_date=? AND is_current=1 AND venue_code IN ('SKMD', 'RTDM', 'ASRM', 'MSDR', 'SUTD')
-    ORDER BY venue_code, start_at`).bind(showDate).all();
-  const grouped = new Map();
-  for (const row of source.results || []) {
-    if (!grouped.has(row.venue_code)) grouped.set(row.venue_code, []);
-    grouped.get(row.venue_code).push({
-      naturalKey: row.natural_key, venueCode: row.venue_code, venueName: row.venue_name,
-      showDate: row.show_date, showDateCode: row.show_date_code, showTimeCode: row.show_time_code,
-      showTimeLabel: row.show_time_label, startAt: row.start_at, cutoffAt: row.cutoff_at,
-      captureAt: row.capture_at, finalCaptureAt: addMs(row.cutoff_at, -60_000),
-      sessionId: row.session_id, eventCode: row.event_code, movieTitle: row.movie_title,
-      movieVariant: row.movie_variant, language: row.language, format: row.format,
-      screenName: row.screen_name, categories: jsonValue(row.advertised_categories_json, []),
-      discoveredAt: now
-    });
-  }
-  for (const [venueCode, shows] of grouped) {
-    await saveDiscovery(db, venueForCode(venueCode), showDate, shows, now);
-    await db.prepare(`UPDATE bms_testing_discovery_state SET lease_expires_at=NULL,
-      last_status='succeeded', last_error=NULL, last_finished_at=?, next_attempt_at=?, updated_at=?
-      WHERE venue_code=? AND show_date=?`).bind(now, addMs(now, DISCOVERY_INTERVAL_MS), now, venueCode, showDate).run();
-  }
-  return [...grouped.keys()];
 }
 
 async function logRun(db, run) {
@@ -299,7 +430,7 @@ async function discoverOne(env, showDate, now, options) {
   if (!state) return null;
   const venue = venueForCode(state.venue_code);
   try {
-    const shows = await fetchBmsTheatreSchedule(venue, showDate, { fetchImpl: options.fetchImpl, signal: options.signal, now: new Date(now) });
+    const shows = await discoverRaviFromService(env, showDate, now, options);
     const count = await saveDiscovery(env.DB, venue, showDate, shows, now);
     await env.DB.prepare(`UPDATE bms_testing_discovery_state SET lease_expires_at=NULL, last_status='succeeded',
       last_error=NULL, last_finished_at=?, next_attempt_at=?, updated_at=? WHERE venue_code=? AND show_date=?`)
@@ -339,8 +470,10 @@ async function runCaptures(env, nowDate, options) {
     if (index) await sleep(Number.isFinite(options.captureSpacingMs) ? options.captureSpacingMs : 3_000);
     const attempt = Number(job.job_attempts || 0) + 1;
     try {
-      const result = await fetchBmsTestingCapture(job, { keyText: env.BMS_LAYOUT_KEY, fetchImpl: options.fetchImpl, cryptoImpl: options.cryptoImpl, signal: options.signal });
-      const captured = new Date().toISOString();
+      const serviceCapture = await captureRaviFromService(env, job, options);
+      const result = serviceCapture.result;
+      const serviceCapturedAt = new Date(serviceCapture.capturedAt);
+      const captured = Number.isFinite(serviceCapturedAt.getTime()) ? serviceCapturedAt.toISOString() : new Date().toISOString();
       const snapshot = await env.DB.prepare(`INSERT INTO bms_testing_snapshots
         (testing_show_id, phase, captured_at, capacity, available, sold, unknown, collection_paise,
          occupancy_percent, categories_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -352,7 +485,7 @@ async function runCaptures(env, nowDate, options) {
           result.occupancyPercent, JSON.stringify(result.categories), captured).first();
       await env.DB.prepare("UPDATE bms_testing_capture_jobs SET status='succeeded', lease_expires_at=NULL, snapshot_id=?, last_error=NULL, updated_at=? WHERE id=?")
         .bind(snapshot.id, captured, job.job_id).run();
-      await logRun(env.DB, { type: "capture", venue: job.venue_code, date: job.show_date, showId: job.id, phase: job.job_phase, status: "succeeded", attempt, started: now, finished: captured, details: { sold: result.sold } });
+      await logRun(env.DB, { type: "capture", venue: job.venue_code, date: job.show_date, showId: job.id, phase: job.job_phase, status: "succeeded", attempt, started: now, finished: captured, details: { unavailable: result.sold } });
       output.push({ showId: job.id, phase: job.job_phase, status: "succeeded" });
     } catch (error) {
       const finished = new Date().toISOString();
@@ -374,12 +507,9 @@ export async function runBmsTestingScheduler(env, options = {}) {
   const now = options.now || new Date();
   const showDate = indiaDate(now);
   await ensureStates(env.DB, showDate, now.toISOString());
-  // Reuse session IDs already known to MPLTalkies. This keeps the cutoff capture
-  // laptop-independent and avoids unnecessary BMS theatre-page requests.
-  const mirroredVenues = await mirrorKnownProductionSchedules(env.DB, showDate, now.toISOString());
-  const captures = await runCaptures(env, now, options);
   const discovery = await discoverOne(env, showDate, now.toISOString(), options);
-  return { enabled: true, showDate, mirroredVenues, discovery, captures };
+  const captures = await runCaptures(env, now, options);
+  return { enabled: true, showDate, discovery, captures };
 }
 
 function snapshot(row, prefix) {
@@ -448,10 +578,11 @@ export async function bmsTestingDashboard(env, { date, venueCode = "ALL" }) {
   const collectionPaise = finals.reduce((sum, show) => sum + show.final.collectionPaise, 0);
   const discovery = await env.DB.prepare("SELECT * FROM bms_testing_discovery_state WHERE show_date=? ORDER BY venue_code").bind(date).all();
   return {
-    enabled: true, mode: "automatic-server-testing", date, venueCode, refreshedAt: new Date().toISOString(),
+    enabled: true, mode: "ravi-final-server-testing", date, venueCode, refreshedAt: new Date().toISOString(),
     summary: { shows: shows.length, initialCaptured: shows.filter((show) => show.initial).length,
-      finalCaptured: finals.length, failed: shows.filter((show) => [show.jobs.initial.status, show.jobs.final.status].includes("failed")).length,
-      tickets, capacity, collectionPaise, occupancyPercent: capacity ? Math.round((tickets / capacity) * 10_000) / 100 : 0,
+      finalCaptured: finals.length, failed: shows.filter((show) => show.jobs.final.status === "failed").length,
+      unavailable: tickets, tickets, capacity, estimatedCollectionPaise: collectionPaise, collectionPaise,
+      occupancyPercent: capacity ? Math.round((tickets / capacity) * 10_000) / 100 : 0,
       exactMatches: shows.filter((show) => show.comparison?.exactTickets).length },
     discovery: discovery.results || [], shows
   };

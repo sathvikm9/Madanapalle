@@ -5,21 +5,27 @@ import {
   bmsTestingEnabled,
   decryptBmsSeatLayout,
   fetchBmsTestingCapture,
+  normalizeServiceShows,
   parseBmsSeatCategories,
-  parseBmsTheatreSchedule
+  parseBmsTheatreSchedule,
+  validateServiceCapture
 } from "../src/bms-testing.js";
 import { venueForCode } from "../src/venues.js";
 
 const KEY = "12345678901234567890123456789012";
 const seatTokens = (code, status, count, start = 1) => Array.from({ length: count }, (_, index) => `${code}${status}${start + index}+x`);
-const layout = () => `RESERVED CLASS:A:x|SECOND CLASS:B:x||1:A:${[
-  ...seatTokens("A", 1, 400), ...seatTokens("A", 2, 93, 401), ...seatTokens("A", 0, 3, 900)
-].join(":")}|1:A:${[...seatTokens("B", 1, 100), ...seatTokens("B", 2, 64, 101)].join(":")}|`;
+const layout = () => `BALCONY:A:BA:1|RESERVED:B:RE:2|FIRST CLASS:C:FC:3|SECOND CLASS:D:SC:4||1:A:${[
+  ...seatTokens("A", 1, 100), ...seatTokens("A", 2, 32, 101), ...seatTokens("A", 0, 3, 900)
+].join(":")}|2:B:${[...seatTokens("B", 4, 200), ...seatTokens("B", 2, 13, 201)].join(":")}|3:C:${[
+  ...seatTokens("C", 1, 90), ...seatTokens("C", 2, 22, 91)
+].join(":")}|4:D:${[...seatTokens("D", 1, 150), ...seatTokens("D", 2, 30, 151)].join(":")}|`;
 const show = {
-  venue_code: "SKMD", session_id: "6624",
+  venue_code: "RTDM", session_id: "6624",
   advertised_categories_json: JSON.stringify([
-    { name: "RESERVED CLASS", listPricePaise: 10_500 },
-    { name: "SECOND CLASS", listPricePaise: 8_400 }
+    { name: "BALCONY", listPricePaise: 10_500 },
+    { name: "RESERVED", listPricePaise: 10_500 },
+    { name: "FIRST CLASS", listPricePaise: 10_500 },
+    { name: "SECOND CLASS", listPricePaise: 10_500 }
   ])
 };
 
@@ -30,53 +36,81 @@ async function encryptedLayout() {
 }
 
 test("automatic BMS testing remains explicitly disabled by default", () => {
-  assert.equal(bmsTestingEnabled({ BMS_LAYOUT_KEY: KEY }), false);
-  assert.equal(bmsTestingEnabled({ BMS_TESTING_ENABLED: "true", BMS_LAYOUT_KEY: KEY }), true);
+  assert.equal(bmsTestingEnabled({ BMS_CAPTURE_SERVICE_URL: "https://capture.example", BMS_CAPTURE_SERVICE_TOKEN: KEY }), false);
+  assert.equal(bmsTestingEnabled({ BMS_TESTING_ENABLED: "true", BMS_CAPTURE_SERVICE_URL: "https://capture.example", BMS_CAPTURE_SERVICE_TOKEN: KEY }), true);
+  assert.equal(bmsTestingEnabled({ BMS_TESTING_ENABLED: "true", BMS_CAPTURE_SERVICE_URL: "http://capture.example", BMS_CAPTURE_SERVICE_TOKEN: KEY }), false);
+  assert.equal(bmsTestingEnabled({ BMS_TESTING_ENABLED: "true", BMS_CAPTURE_SERVICE_URL: "internal" }), false);
+  assert.equal(bmsTestingEnabled({ BMS_TESTING_ENABLED: "true", BMS_CAPTURE_SERVICE_URL: "internal", BMS_LAYOUT_KEY: KEY }), true);
 });
 
 test("seat parser ignores phantom positions and preserves verified capacities", () => {
   const result = parseBmsSeatCategories(layout(), show);
-  assert.equal(result.capacity, 657);
-  assert.equal(result.sold, 157);
-  assert.equal(result.collectionPaise, 1_435_600);
+  assert.equal(result.capacity, 637);
+  assert.equal(result.sold, 97);
+  assert.equal(result.collectionPaise, 970_000);
 });
 
 test("seat parser rejects partial layouts instead of saving incorrect counts", () => {
-  assert.throws(() => parseBmsSeatCategories(layout().replace("B2101+x", "B0101+x"), show), /expected 164/);
+  assert.throws(() => parseBmsSeatCategories(layout().replace("B2201+x", "B0201+x"), show), /expected 213/);
 });
 
-test("encrypted response is decoded and parsed without a browser", async () => {
+test("historical encrypted fixture decoding remains available for offline verification", async () => {
   const encoded = await encryptedLayout();
   assert.equal(await decryptBmsSeatLayout(encoded, KEY, webcrypto), layout());
   const result = await fetchBmsTestingCapture(show, {
     keyText: KEY,
     cryptoImpl: webcrypto,
     fetchImpl: async (_url, options) => {
-      assert.equal(options.body.get("strVenueCode"), "SKMD");
+      assert.equal(options.body.get("strVenueCode"), "RTDM");
       assert.equal(options.body.get("strParam1"), "6624");
       return { ok: true, async json() { return { BookMyShow: { blnSuccess: "true", strData: encoded } }; } };
     }
   });
-  assert.equal(result.sold, 157);
+  assert.equal(result.sold, 97);
 });
 
 test("theatre page discovery produces server capture timings", () => {
   const state = {
     venueShowtimesFunctionalApi: { queries: {
-      "getShowtimesByVenue-SKMD-20261116": { data: { showDetailsTransformed: { Event: [{
+      "getShowtimesByVenue-RTDM-20261116": { data: { showDetailsTransformed: { Event: [{
         EventTitle: "Test Movie",
         ChildEvents: [{ EventCode: "ET001", EventName: "Test Movie - Telugu", EventLanguage: "Telugu", EventDimension: "2D", ShowTimes: [{
           SessionId: "6624", ShowTimeCode: "1100", ShowTime: "11:00 AM",
           ShowDateTime: "202611161100", CutOffDateTime: "202611161115",
-          Categories: [{ PriceDesc: "RESERVED CLASS", PriceCode: "A", CurPrice: 105 }, { PriceDesc: "SECOND CLASS", PriceCode: "B", CurPrice: 84 }]
+          Categories: [{ PriceDesc: "BALCONY", PriceCode: "A", CurPrice: 105 }]
         }] }]
       }] } } }
     } }
   };
   const html = `<script>window.__INITIAL_STATE__ = ${JSON.stringify(state)};</script>`;
-  const shows = parseBmsTheatreSchedule(html, venueForCode("SKMD"), "2026-11-16", new Date("2026-11-15T23:00:00.000Z"));
+  const shows = parseBmsTheatreSchedule(html, venueForCode("RTDM"), "2026-11-16", new Date("2026-11-15T23:00:00.000Z"));
   assert.equal(shows.length, 1);
-  assert.equal(shows[0].captureAt, "2026-11-16T05:40:00.000Z");
+  assert.equal(shows[0].captureAt, "2026-11-16T05:45:00.000Z");
   assert.equal(shows[0].finalCaptureAt, "2026-11-16T05:44:00.000Z");
   assert.equal(shows[0].categories[0].listPricePaise, 10_500);
+});
+
+test("capture-service discovery schedules only the nineteenth-minute Ravi read", () => {
+  const shows = normalizeServiceShows({
+    venueCode: "RTDM",
+    showDate: "2026-11-27",
+    shows: [{
+      showTimeCode: "1100", showTimeLabel: "11:00 AM", startAt: "2026-11-27T05:30:00.000Z",
+      cutoffAt: "2026-11-27T05:50:00.000Z", sessionId: "1234", eventCode: "ET001",
+      movieTitle: "Test Movie", categories: [{ name: "BALCONY", listPricePaise: 10_500 }]
+    }]
+  }, venueForCode("RTDM"), "2026-11-27", "2026-11-26T23:00:00.000Z");
+  assert.equal(shows[0].finalCaptureAt, "2026-11-27T05:49:00.000Z");
+  assert.equal(shows[0].captureAt, shows[0].finalCaptureAt);
+});
+
+test("Worker accepts only a complete Ravi service result", () => {
+  const categories = [
+    ["BALCONY", 132, 100, 32], ["RESERVED", 213, 200, 13],
+    ["FIRST CLASS", 112, 90, 22], ["SECOND CLASS", 180, 150, 30]
+  ].map(([name, capacity, available, unavailable]) => ({ name, capacity, available, unavailable, unknown: 0, listPricePaise: 10_500 }));
+  const result = validateServiceCapture({ venueCode: "RTDM", sessionId: "6624", categories }, show);
+  assert.equal(result.capacity, 637);
+  assert.equal(result.sold, 97);
+  assert.throws(() => validateServiceCapture({ venueCode: "RTDM", sessionId: "6624", categories: categories.map((item, index) => index ? item : { ...item, capacity: 131 }) }, show), /expected 132/);
 });

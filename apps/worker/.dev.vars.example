@@ -1,6 +1,7 @@
 AGENT_TOKEN=replace-with-a-long-random-token
 BMS_TESTING_ENABLED=false
-BMS_LAYOUT_KEY=replace-with-the-32-character-seat-layout-key
+BMS_CAPTURE_SERVICE_URL=http://127.0.0.1:8791
+BMS_CAPTURE_SERVICE_TOKEN=replace-with-the-same-long-token-used-by-the-capture-service
 VAPID_SUBJECT=mailto:replace-with-your-email@example.com
 VAPID_PUBLIC_KEY=replace-with-a-url-safe-base64-public-key
 VAPID_PRIVATE_KEY=replace-with-a-url-safe-base64-private-key

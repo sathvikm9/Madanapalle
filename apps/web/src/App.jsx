@@ -35,9 +35,8 @@ const inDemoMode = pageParams.get("demo") === "1";
 const installRequested = pageParams.get("install") === "1";
 const installPreview = import.meta.env.DEV ? pageParams.get("installPreview") : "";
 const notificationsPreview = import.meta.env.DEV && pageParams.get("notificationsPreview") === "1";
-// Keep the isolated BMS server experiment available in source without exposing
-// it in production navigation or through the `?view=testing` route.
-const BMS_TESTING_TAB_ENABLED = false;
+// Ravi server testing is isolated from the production collector and database tables.
+const BMS_TESTING_TAB_ENABLED = true;
 // Keep Ask MPLTalkies implemented but hidden until the feature is ready to return.
 const ASK_MPLTALKIES_ENABLED = false;
 const INSTALL_DISMISSED_KEY = "mpltalkies-install-dismissed-at";

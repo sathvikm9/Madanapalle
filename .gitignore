@@ -5,6 +5,9 @@ dist/
 playwright-data/
 test-results/
 coverage/
+__pycache__/
+*.egg-info/
+.pytest_cache/
 npm-debug.log*
 .wrangler/
 apps/worker/dist/
