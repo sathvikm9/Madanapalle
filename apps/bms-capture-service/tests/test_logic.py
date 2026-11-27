@@ -1,4 +1,6 @@
-from mpltalkies_bms.app import parse_layout, parse_schedule
+import pytest
+
+from mpltalkies_bms.app import BmsBrowserSession, UpstreamError, parse_layout, parse_schedule
 
 
 def _seats(area: str, status: int, count: int, start: int = 1) -> list[str]:
@@ -31,4 +33,17 @@ def test_schedule_parser_returns_ravi_session_metadata() -> None:
     assert len(shows) == 1
     assert shows[0]["sessionId"] == "1234"
     assert shows[0]["cutoffAt"] == "2026-11-27T05:45:00Z"
+
+
+def test_browser_transport_reports_provider_blocks() -> None:
+    with pytest.raises(UpstreamError, match="Chromium with HTTP 403") as blocked:
+        BmsBrowserSession._assert_page_status(403, "Ravi schedule request")
+    assert blocked.value.code == "forbidden"
+    assert blocked.value.status == 403
+
+
+def test_browser_transport_rejects_verification_pages() -> None:
+    with pytest.raises(UpstreamError, match="verification page") as blocked:
+        BmsBrowserSession._assert_not_challenge("<title>Just a moment...</title>", "browser warm-up")
+    assert blocked.value.code == "browser_verification_required"
 

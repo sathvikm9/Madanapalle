@@ -18,5 +18,7 @@ export BMS_LAYOUT_KEY='replace-with-the-32-byte-key'
 uvicorn mpltalkies_bms.app:app --reload --port 8791
 ```
 
-The adapter uses ordinary HTTPS requests, keeps one short-lived cookie session, and stops on HTTP 403/429. It does not rotate fingerprints or proxies. A provider rejection is reported as missing test data, never as zero seats.
+The adapter uses one real persistent Chromium context for schedule discovery and seat-layout requests. It warms the normal BookMyShow and Madanapalle pages once, preserves cookies between discovery and final capture, and sends the seat request from inside that same browser page. It stops on HTTP 403/429 or a browser-verification page; it does not rotate identities, solve challenges, or use proxies. A provider rejection is reported as missing test data, never as zero seats.
+
+The Cloudflare Worker must point `BMS_CAPTURE_SERVICE_URL` to this deployed HTTPS service. Setting it to `internal` bypasses Chromium and uses the Worker's plain `fetch()`, which is retained only for unit testing.
 

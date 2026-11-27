@@ -78,7 +78,10 @@ async function callCaptureService(env, path, payload, options = {}) {
       "content-type": "application/json"
     },
     body: JSON.stringify(payload),
-    signal: options.signal || AbortSignal.timeout(25_000)
+    // A cold Chromium adapter may need time to start and warm the normal BMS
+    // pages before returning schedule data. The D1 lease remains the outer
+    // bound, so this timeout only protects a genuinely stalled adapter.
+    signal: options.signal || AbortSignal.timeout(90_000)
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -457,7 +460,7 @@ async function claimCapture(db, now) {
     ORDER BY CASE jobs.phase WHEN 'final' THEN 0 ELSE 1 END, jobs.due_at LIMIT 1`).bind(now, now).first();
   if (!job) return null;
   const changed = await db.prepare("UPDATE bms_testing_capture_jobs SET status='running', lease_expires_at=?, attempts=attempts+1, updated_at=? WHERE id=? AND status='pending'")
-    .bind(addMs(now, 90_000), now, job.job_id).run();
+    .bind(addMs(now, 120_000), now, job.job_id).run();
   return Number(changed.meta?.changes || 0) ? job : null;
 }
 

@@ -1,21 +1,24 @@
 from __future__ import annotations
 
 import base64
+import asyncio
 import json
 import os
 import secrets
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 
-import httpx
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.padding import PKCS7
 from fastapi import Depends, FastAPI, Header, HTTPException
+from playwright.async_api import BrowserContext, Error as PlaywrightError, Playwright, async_playwright
 
 RAVI_CODE = "RTDM"
 RAVI_SLUG = "ravi-a-c-4k-laser-dolby-surround-71-madanapalle"
 BMS_BASE = "https://in.bookmyshow.com"
 BMS_SEAT_ENDPOINT = "https://services-in.bookmyshow.com/doTrans.aspx"
+BMS_HOME = f"{BMS_BASE}/explore/home/madanapalle"
 RAVI_CAPACITIES = {
     "BALCONY": 132,
     "RESERVED": 213,
@@ -196,6 +199,169 @@ def _settings() -> tuple[str, str]:
     return token, key
 
 
+class BmsBrowserSession:
+    """One genuine Chromium session shared by all testing requests.
+
+    The persistent context keeps BookMyShow cookies and browser state between
+    discovery and final capture. It deliberately does not solve challenges,
+    rotate identities, or retry through proxies.
+    """
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._playwright: Playwright | None = None
+        self._context: BrowserContext | None = None
+        self._warmed = False
+
+    async def close(self) -> None:
+        if self._context is not None:
+            await self._context.close()
+            self._context = None
+        if self._playwright is not None:
+            await self._playwright.stop()
+            self._playwright = None
+        self._warmed = False
+
+    async def _context_or_start(self) -> BrowserContext:
+        if self._context is not None:
+            return self._context
+        profile_dir = os.environ.get("BMS_BROWSER_PROFILE_DIR", "/tmp/mpltalkies-bms-profile")
+        os.makedirs(profile_dir, exist_ok=True)
+        self._playwright = await async_playwright().start()
+        self._context = await self._playwright.chromium.launch_persistent_context(
+            profile_dir,
+            headless=True,
+            locale="en-IN",
+            timezone_id="Asia/Kolkata",
+            viewport={"width": 1440, "height": 1000},
+            args=["--disable-dev-shm-usage"],
+        )
+        return self._context
+
+    @staticmethod
+    def _assert_page_status(status: int | None, action: str) -> None:
+        if status in (403, 429):
+            code = "forbidden" if status == 403 else "rate_limited"
+            raise UpstreamError(
+                f"BMS blocked {action} in Chromium with HTTP {status}",
+                status=status,
+                code=code,
+            )
+        if status is None or status >= 400:
+            raise UpstreamError(
+                f"BMS {action} returned HTTP {status or 'unknown'} in Chromium",
+                code="http_error",
+            )
+
+    @staticmethod
+    def _assert_not_challenge(html: str, action: str) -> None:
+        lowered = html.lower()
+        markers = ("cf-chl-", "just a moment", "attention required", "access denied")
+        if any(marker in lowered for marker in markers):
+            raise UpstreamError(
+                f"BMS presented a browser verification page during {action}",
+                status=403,
+                code="browser_verification_required",
+            )
+
+    async def _goto(self, page: Any, url: str, action: str) -> str:
+        response = await page.goto(url, wait_until="domcontentloaded", timeout=45_000)
+        self._assert_page_status(response.status if response else None, action)
+        html = await page.content()
+        self._assert_not_challenge(html, action)
+        return html
+
+    async def _warm(self, page: Any) -> None:
+        if self._warmed:
+            return
+        await self._goto(page, BMS_BASE, "browser warm-up")
+        await page.wait_for_timeout(500)
+        await self._goto(page, BMS_HOME, "Madanapalle warm-up")
+        await page.wait_for_timeout(500)
+        self._warmed = True
+
+    async def schedule_html(self, url: str) -> str:
+        async with self._lock:
+            context = await self._context_or_start()
+            page = await context.new_page()
+            try:
+                await self._warm(page)
+                return await self._goto(page, url, "Ravi schedule request")
+            except UpstreamError:
+                raise
+            except PlaywrightError as error:
+                raise UpstreamError(
+                    f"Chromium could not complete Ravi schedule discovery: {error}",
+                    code="browser_navigation_failed",
+                ) from error
+            finally:
+                await page.close()
+
+    async def seat_layout(self, page_url: str, fields: dict[str, str]) -> dict[str, Any]:
+        async with self._lock:
+            context = await self._context_or_start()
+            page = await context.new_page()
+            try:
+                await self._warm(page)
+                html = await self._goto(page, page_url, "show warm-up request")
+                if "window.__INITIAL_STATE__" not in html:
+                    raise UpstreamError(
+                        "BMS show warm-up page did not expose schedule state",
+                        code="verification_or_schema_changed",
+                    )
+                request_id = f"1.{secrets.randbelow(1_000_000_000)}.{secrets.randbelow(10**13)}"
+                result = await page.evaluate(
+                    """
+                    async ({ endpoint, fields, requestId }) => {
+                      const body = new FormData();
+                      for (const [name, value] of Object.entries(fields)) body.append(name, value);
+                      const response = await fetch(endpoint, {
+                        method: "POST",
+                        body,
+                        credentials: "include",
+                        headers: {
+                          accept: "application/json, text/plain, */*",
+                          "x-app-code": "WEB",
+                          "x-bms-id": requestId
+                        }
+                      });
+                      return {
+                        status: response.status,
+                        text: await response.text()
+                      };
+                    }
+                    """,
+                    {"endpoint": BMS_SEAT_ENDPOINT, "fields": fields, "requestId": request_id},
+                )
+                status = int(result.get("status") or 0)
+                self._assert_page_status(status, "seat-layout request")
+                try:
+                    payload = json.loads(str(result.get("text") or ""))
+                except json.JSONDecodeError as error:
+                    raise UpstreamError("BMS seat response was not JSON", code="schema_changed") from error
+                if not isinstance(payload, dict):
+                    raise UpstreamError("BMS seat response was not an object", code="schema_changed")
+                return payload
+            except UpstreamError:
+                raise
+            except PlaywrightError as error:
+                raise UpstreamError(
+                    f"Chromium could not complete the seat-layout request: {error}",
+                    code="browser_request_failed",
+                ) from error
+            finally:
+                await page.close()
+
+
+browser_session = BmsBrowserSession()
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    yield
+    await browser_session.close()
+
+
 def authorize(authorization: str = Header(default="")) -> None:
     token, _ = _settings()
     supplied = authorization.removeprefix("Bearer ").strip()
@@ -208,23 +374,7 @@ def _assert_ravi(payload: dict[str, Any]) -> None:
         raise HTTPException(status_code=400, detail="This testing service accepts Ravi only")
 
 
-def _headers() -> dict[str, str]:
-    return {
-        "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-IN,en;q=0.9",
-        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36",
-    }
-
-
-async def _checked(response: httpx.Response, action: str) -> httpx.Response:
-    if response.status_code in (403, 429):
-        raise UpstreamError(f"BMS blocked {action} with HTTP {response.status_code}", status=response.status_code, code="forbidden" if response.status_code == 403 else "rate_limited")
-    if response.status_code >= 400:
-        raise UpstreamError(f"BMS {action} returned HTTP {response.status_code}", status=502, code="http_error")
-    return response
-
-
-app = FastAPI(title="MPLTalkies Ravi BMS Testing", docs_url=None, redoc_url=None)
+app = FastAPI(title="MPLTalkies Ravi BMS Testing", docs_url=None, redoc_url=None, lifespan=lifespan)
 
 
 @app.exception_handler(UpstreamError)
@@ -235,7 +385,7 @@ async def upstream_error_handler(_request: Any, error: UpstreamError):
 
 @app.get("/healthz")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "venueCode": RAVI_CODE}
+    return {"status": "ok", "venueCode": RAVI_CODE, "transport": "persistent-chromium"}
 
 
 @app.post("/v1/ravi/discover", dependencies=[Depends(authorize)])
@@ -244,9 +394,8 @@ async def discover(payload: dict[str, Any]) -> dict[str, Any]:
     show_date = str(payload.get("showDate") or "")
     code = _date_code(show_date)
     url = f"{BMS_BASE}/cinemas/mdnp/{RAVI_SLUG}/buytickets/{RAVI_CODE}/{code}"
-    async with httpx.AsyncClient(headers=_headers(), follow_redirects=True, timeout=15) as client:
-        response = await _checked(await client.get(url), "Ravi schedule request")
-    return {"venueCode": RAVI_CODE, "showDate": show_date, "shows": parse_schedule(response.text, show_date)}
+    html = await browser_session.schedule_html(url)
+    return {"venueCode": RAVI_CODE, "showDate": show_date, "shows": parse_schedule(html, show_date)}
 
 
 @app.post("/v1/ravi/capture", dependencies=[Depends(authorize)])
@@ -278,18 +427,7 @@ async def capture(payload: dict[str, Any]) -> dict[str, Any]:
         "strParam10": "",
         "strFormat": "json",
     }
-    request_id = f"1.{secrets.randbelow(1_000_000_000)}.{secrets.randbelow(10**13)}"
-    async with httpx.AsyncClient(headers=_headers(), follow_redirects=True, timeout=15) as client:
-        await _checked(await client.get(page_url), "show warm-up request")
-        response = await _checked(await client.post(
-            BMS_SEAT_ENDPOINT,
-            headers={"Accept": "application/json, text/plain, */*", "Origin": BMS_BASE, "Referer": f"{BMS_BASE}/", "x-app-code": "WEB", "x-bms-id": request_id},
-            files={name: (None, value) for name, value in fields.items()},
-        ), "seat-layout request")
-    try:
-        envelope = response.json().get("BookMyShow", {})
-    except ValueError as error:
-        raise UpstreamError("BMS seat response was not JSON", code="schema_changed") from error
+    envelope = (await browser_session.seat_layout(page_url, fields)).get("BookMyShow", {})
     if str(envelope.get("blnSuccess")).lower() != "true" or not envelope.get("strData"):
         raise UpstreamError(str(envelope.get("strException") or "BMS returned no seat layout"), code="no_seat_data")
     _, key = _settings()
