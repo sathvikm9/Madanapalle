@@ -80,7 +80,7 @@ Set at minimum:
 
 The health endpoint is `GET /health`. The Worker cron finalizes received snapshots but never accesses a booking platform. See the Cloudflare deployment guide for database creation, migrations, secrets and backup commands.
 
-The **Testing** tab is a Ravi-only server experiment. Migration `0019` keeps its schedules, jobs, snapshots and audit runs in separate `bms_testing_*` tables. The minute Worker cron asks the private Python capture service to discover Ravi sessions, schedules only the final read for one minute before BookMyShow's cutoff, validates the complete 637-seat category layout, and compares the accepted test result with the extension collector. It never writes to production `shows` or `snapshots`. Configure the Worker with `BMS_TESTING_ENABLED=true`, `BMS_CAPTURE_SERVICE_URL` and the secret `BMS_CAPTURE_SERVICE_TOKEN`; keep `BMS_LAYOUT_KEY` only in the capture service. Both layers stop and record missing data on a provider 403/429 instead of treating a failure as zero seats. See `apps/bms-capture-service/README.md`.
+The **Testing** tab is a Ravi-and-Sunil server experiment. Migration `0019` keeps its schedules, jobs, snapshots and audit runs in separate `bms_testing_*` tables. The minute Worker cron uses Cloudflare Browser Rendering to discover both theatres, schedules only the final read for one minute before each live BookMyShow cutoff, validates Ravi's complete 637-seat layout and Sunil's complete 327-seat layout, and compares accepted test results with the extension collector. It never writes to production `shows` or `snapshots`, and it records a provider 403/429 as missing data rather than zero seats.
 
 ## Install the local Chrome agent
 

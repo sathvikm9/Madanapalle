@@ -8,7 +8,7 @@ const BMS_SEAT_ENDPOINT = "https://services-in.bookmyshow.com/doTrans.aspx";
 const DISCOVERY_INTERVAL_MS = 30 * 60_000;
 const RETRY_MS = 60_000;
 const RATE_LIMIT_RETRY_MS = 30 * 60_000;
-export const BMS_TESTING_VENUE_CODES = Object.freeze(["RTDM"]);
+export const BMS_TESTING_VENUE_CODES = Object.freeze(["RTDM", "SUTD"]);
 const VENUE_SET = new Set(BMS_TESTING_VENUE_CODES);
 
 export class BmsUpstreamError extends Error {
@@ -88,7 +88,7 @@ async function callCaptureService(env, path, payload, options = {}) {
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new BmsUpstreamError(result.message || `Ravi capture service returned HTTP ${response.status}`, {
+    throw new BmsUpstreamError(result.message || `BMS capture service returned HTTP ${response.status}`, {
       status: response.status,
       code: result.code || (response.status === 429 ? "rate_limited" : response.status === 403 ? "forbidden" : "capture_service_error"),
       retryAfterMs: retryAfterMs(response)
@@ -238,7 +238,7 @@ async function withBmsBrowser(env, task) {
 async function fetchBmsTheatreScheduleBrowser(env, venue, showDate, options = {}) {
   const url = `${BMS_BASE}/cinemas/mdnp/${venue.slug}/buytickets/${venue.venueCode}/${dateCode(showDate)}`;
   return withBmsBrowser(env, async (page) => {
-    const html = await gotoInBrowser(page, url, "Ravi schedule request");
+    const html = await gotoInBrowser(page, url, `${venue.shortName} schedule request`);
     return parseBmsTheatreSchedule(html, venue, showDate, options.now || new Date());
   });
 }
@@ -402,13 +402,13 @@ export function normalizeServiceShows(payload, venue, showDate, now) {
 
 export function validateServiceCapture(payload, show) {
   if (String(payload?.venueCode || "").toUpperCase() !== show.venue_code || String(payload?.sessionId || "") !== show.session_id) {
-    throw new BmsUpstreamError("Capture service response did not match the requested Ravi show", { code: "service_schema_changed" });
+    throw new BmsUpstreamError("Capture service response did not match the requested testing show", { code: "service_schema_changed" });
   }
   const venue = venueForCode(show.venue_code);
   const expected = new Map(venue.layoutCategories.map((item) => [normalizedName(item.name), item]));
   const prices = new Map(jsonValue(show.advertised_categories_json, []).map((item) => [normalizedName(item.name), Number(item.listPricePaise || 0)]));
   if (!Array.isArray(payload?.categories) || payload.categories.length !== expected.size) {
-    throw new BmsUpstreamError(`Rejected Ravi layout: expected ${expected.size} categories`, { code: "layout_mismatch" });
+    throw new BmsUpstreamError(`Rejected ${venue.shortName} layout: expected ${expected.size} categories`, { code: "layout_mismatch" });
   }
   const categories = payload.categories.map((category) => {
     const name = normalizedName(category.name);
@@ -419,24 +419,27 @@ export function validateServiceCapture(payload, show) {
     const unknown = Number(category.unknown || 0);
     const listPricePaise = Number(category.listPricePaise || 0);
     if (!layout || ![capacity, available, unavailable, unknown, listPricePaise].every(Number.isSafeInteger)) {
-      throw new BmsUpstreamError("Rejected Ravi layout: invalid category data", { code: "layout_mismatch" });
+      throw new BmsUpstreamError(`Rejected ${venue.shortName} layout: invalid category data`, { code: "layout_mismatch" });
     }
     if (capacity !== layout.capacity || available + unavailable + unknown !== capacity || unknown !== 0) {
-      throw new BmsUpstreamError(`Rejected Ravi ${layout.name}: expected ${layout.capacity} known seats`, { code: "layout_mismatch" });
+      throw new BmsUpstreamError(`Rejected ${venue.shortName} ${layout.name}: expected ${layout.capacity} known seats`, { code: "layout_mismatch" });
     }
     if (prices.get(name) !== listPricePaise) {
-      throw new BmsUpstreamError(`Rejected Ravi ${layout.name}: ticket price changed during capture`, { code: "price_mismatch" });
+      throw new BmsUpstreamError(`Rejected ${venue.shortName} ${layout.name}: ticket price changed during capture`, { code: "price_mismatch" });
     }
     return { name: layout.name, capacity, available, sold: unavailable, unknown, listPricePaise };
   });
   return calculateCollection(categories);
 }
 
-async function discoverRaviFromService(env, showDate, now, options = {}) {
-  const venue = venueForCode("RTDM");
+async function discoverVenueFromService(env, venueCode, showDate, now, options = {}) {
+  const venue = venueForCode(venueCode);
   if (internalCaptureService(env)) {
     if (env.BROWSER) return fetchBmsTheatreScheduleBrowser(env, venue, showDate, { ...options, now: new Date(now) });
     return fetchBmsTheatreSchedule(venue, showDate, { ...options, now: new Date(now) });
+  }
+  if (venue.venueCode !== "RTDM") {
+    throw new BmsUpstreamError("The external legacy capture service supports Ravi only", { code: "service_venue_unsupported" });
   }
   const payload = await callCaptureService(env, "v1/ravi/discover", {
     venueCode: venue.venueCode,
@@ -446,14 +449,17 @@ async function discoverRaviFromService(env, showDate, now, options = {}) {
   return normalizeServiceShows(payload, venue, showDate, now);
 }
 
-async function captureRaviFromService(env, show, options = {}) {
-  const venue = venueForCode("RTDM");
+async function captureVenueFromService(env, show, options = {}) {
+  const venue = venueForCode(show.venue_code);
   if (internalCaptureService(env)) {
     const captureOptions = { ...options, keyText: env.BMS_LAYOUT_KEY };
     const result = env.BROWSER
       ? await fetchBmsTestingCaptureBrowser(env, show, captureOptions)
       : await fetchBmsTestingCapture(show, captureOptions);
     return { result, capturedAt: new Date().toISOString() };
+  }
+  if (venue.venueCode !== "RTDM") {
+    throw new BmsUpstreamError("The external legacy capture service supports Ravi only", { code: "service_venue_unsupported" });
   }
   const payload = await callCaptureService(env, "v1/ravi/capture", {
     venueCode: venue.venueCode,
@@ -514,9 +520,9 @@ async function saveDiscovery(db, venue, showDate, shows, now) {
       next_attempt_at=CASE WHEN status='pending' THEN excluded.next_attempt_at ELSE next_attempt_at END,
       updated_at=excluded.updated_at`).bind(show.id, show.final_capture_at, show.cutoff_at, show.final_capture_at, now, now));
   }
-  await db.prepare(`UPDATE bms_testing_capture_jobs SET status='failed', last_error='Ravi server testing captures final state only', updated_at=?
+  await db.prepare(`UPDATE bms_testing_capture_jobs SET status='failed', last_error='Server testing captures final state only', updated_at=?
     WHERE phase='initial' AND status IN ('pending', 'running') AND testing_show_id IN
-    (SELECT id FROM bms_testing_shows WHERE venue_code='RTDM' AND show_date=?)`).bind(now, showDate).run();
+    (SELECT id FROM bms_testing_shows WHERE venue_code=? AND show_date=?)`).bind(now, venue.venueCode, showDate).run();
   if (jobs.length) await db.batch(jobs);
   return rows.results?.length || 0;
 }
@@ -535,7 +541,7 @@ async function discoverOne(env, showDate, now, options) {
   if (!state) return null;
   const venue = venueForCode(state.venue_code);
   try {
-    const shows = await discoverRaviFromService(env, showDate, now, options);
+    const shows = await discoverVenueFromService(env, venue.venueCode, showDate, now, options);
     const count = await saveDiscovery(env.DB, venue, showDate, shows, now);
     await env.DB.prepare(`UPDATE bms_testing_discovery_state SET lease_expires_at=NULL, last_status='succeeded',
       last_error=NULL, last_finished_at=?, next_attempt_at=?, updated_at=? WHERE venue_code=? AND show_date=?`)
@@ -575,7 +581,7 @@ async function runCaptures(env, nowDate, options) {
     if (index) await sleep(Number.isFinite(options.captureSpacingMs) ? options.captureSpacingMs : 3_000);
     const attempt = Number(job.job_attempts || 0) + 1;
     try {
-      const serviceCapture = await captureRaviFromService(env, job, options);
+      const serviceCapture = await captureVenueFromService(env, job, options);
       const result = serviceCapture.result;
       const serviceCapturedAt = new Date(serviceCapture.capturedAt);
       const captured = Number.isFinite(serviceCapturedAt.getTime()) ? serviceCapturedAt.toISOString() : new Date().toISOString();
@@ -685,7 +691,7 @@ export async function bmsTestingDashboard(env, { date, venueCode = "ALL" }) {
   const failedCaptures = shows.filter((show) => show.jobs.final.status === "failed").length;
   const failedDiscoveries = (discovery.results || []).filter((item) => item.last_status === "failed").length;
   return {
-    enabled: true, mode: "ravi-final-server-testing", date, venueCode, refreshedAt: new Date().toISOString(),
+    enabled: true, mode: "bookmyshow-final-server-testing", date, venueCode, refreshedAt: new Date().toISOString(),
     summary: { shows: shows.length, initialCaptured: shows.filter((show) => show.initial).length,
       finalCaptured: finals.length, failed: failedCaptures + failedDiscoveries,
       unavailable: tickets, tickets, capacity, estimatedCollectionPaise: collectionPaise, collectionPaise,

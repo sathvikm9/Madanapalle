@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
 import test from "node:test";
 import {
+  BMS_TESTING_VENUE_CODES,
   bmsTestingEnabled,
   decryptBmsSeatLayout,
   fetchBmsTestingCapture,
@@ -28,6 +29,16 @@ const show = {
     { name: "SECOND CLASS", listPricePaise: 10_500 }
   ])
 };
+const sunilLayout = () => `RESERVED:A:RE:1|FIRST CLASS:B:FC:2||1:A:${[
+  ...seatTokens("A", 1, 200), ...seatTokens("A", 2, 39, 201)
+].join(":")}|2:B:${[...seatTokens("B", 1, 80), ...seatTokens("B", 2, 8, 81)].join(":")}|`;
+const sunilShow = {
+  venue_code: "SUTD", session_id: "7788",
+  advertised_categories_json: JSON.stringify([
+    { name: "RESERVED", listPricePaise: 10_500 },
+    { name: "FIRST CLASS", listPricePaise: 8_400 }
+  ])
+};
 
 async function encryptedLayout() {
   const key = await webcrypto.subtle.importKey("raw", new TextEncoder().encode(KEY), { name: "AES-CBC" }, false, ["encrypt"]);
@@ -36,11 +47,20 @@ async function encryptedLayout() {
 }
 
 test("automatic BMS testing remains explicitly disabled by default", () => {
+  assert.deepEqual(BMS_TESTING_VENUE_CODES, ["RTDM", "SUTD"]);
   assert.equal(bmsTestingEnabled({ BMS_CAPTURE_SERVICE_URL: "https://capture.example", BMS_CAPTURE_SERVICE_TOKEN: KEY }), false);
   assert.equal(bmsTestingEnabled({ BMS_TESTING_ENABLED: "true", BMS_CAPTURE_SERVICE_URL: "https://capture.example", BMS_CAPTURE_SERVICE_TOKEN: KEY }), true);
   assert.equal(bmsTestingEnabled({ BMS_TESTING_ENABLED: "true", BMS_CAPTURE_SERVICE_URL: "http://capture.example", BMS_CAPTURE_SERVICE_TOKEN: KEY }), false);
   assert.equal(bmsTestingEnabled({ BMS_TESTING_ENABLED: "true", BMS_CAPTURE_SERVICE_URL: "internal" }), false);
   assert.equal(bmsTestingEnabled({ BMS_TESTING_ENABLED: "true", BMS_CAPTURE_SERVICE_URL: "internal", BMS_LAYOUT_KEY: KEY }), true);
+});
+
+test("Sunil parser requires its verified 239 plus 88 seat layout", () => {
+  const result = parseBmsSeatCategories(sunilLayout(), sunilShow);
+  assert.equal(result.capacity, 327);
+  assert.equal(result.sold, 47);
+  assert.equal(result.collectionPaise, 453_200);
+  assert.throws(() => parseBmsSeatCategories(sunilLayout().replace("A2239+x", "A0239+x"), sunilShow), /expected 239/);
 });
 
 test("seat parser ignores phantom positions and preserves verified capacities", () => {
@@ -113,4 +133,15 @@ test("Worker accepts only a complete Ravi service result", () => {
   assert.equal(result.capacity, 637);
   assert.equal(result.sold, 97);
   assert.throws(() => validateServiceCapture({ venueCode: "RTDM", sessionId: "6624", categories: categories.map((item, index) => index ? item : { ...item, capacity: 131 }) }, show), /expected 132/);
+});
+
+test("Worker accepts only Sunil's verified 327-seat service result", () => {
+  const categories = [
+    { name: "RESERVED", capacity: 239, available: 200, unavailable: 39, unknown: 0, listPricePaise: 10_500 },
+    { name: "FIRST CLASS", capacity: 88, available: 80, unavailable: 8, unknown: 0, listPricePaise: 8_400 }
+  ];
+  const result = validateServiceCapture({ venueCode: "SUTD", sessionId: "7788", categories }, sunilShow);
+  assert.equal(result.capacity, 327);
+  assert.equal(result.sold, 47);
+  assert.throws(() => validateServiceCapture({ venueCode: "SUTD", sessionId: "7788", categories: categories.map((item, index) => index ? item : { ...item, capacity: 238 }) }, sunilShow), /expected 239/);
 });
