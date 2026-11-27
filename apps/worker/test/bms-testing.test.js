@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
 import test from "node:test";
 import {
+  BMS_DISCOVERY_INTERVAL_MS,
   BMS_TESTING_VENUE_CODES,
   bmsTestingEnabled,
   decryptBmsSeatLayout,
@@ -48,6 +49,7 @@ async function encryptedLayout() {
 
 test("automatic BMS testing remains explicitly disabled by default", () => {
   assert.deepEqual(BMS_TESTING_VENUE_CODES, ["RTDM", "SUTD"]);
+  assert.equal(BMS_DISCOVERY_INTERVAL_MS, 12 * 60 * 60_000);
   assert.equal(bmsTestingEnabled({ BMS_CAPTURE_SERVICE_URL: "https://capture.example", BMS_CAPTURE_SERVICE_TOKEN: KEY }), false);
   assert.equal(bmsTestingEnabled({ BMS_TESTING_ENABLED: "true", BMS_CAPTURE_SERVICE_URL: "https://capture.example", BMS_CAPTURE_SERVICE_TOKEN: KEY }), true);
   assert.equal(bmsTestingEnabled({ BMS_TESTING_ENABLED: "true", BMS_CAPTURE_SERVICE_URL: "http://capture.example", BMS_CAPTURE_SERVICE_TOKEN: KEY }), false);

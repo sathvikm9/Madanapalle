@@ -5,24 +5,28 @@ import { venueForCode } from "./venues.js";
 const BMS_BASE = "https://in.bookmyshow.com";
 const BMS_HOME = `${BMS_BASE}/explore/home/madanapalle`;
 const BMS_SEAT_ENDPOINT = "https://services-in.bookmyshow.com/doTrans.aspx";
-const DISCOVERY_INTERVAL_MS = 30 * 60_000;
+export const BMS_DISCOVERY_INTERVAL_MS = 12 * 60 * 60_000;
+const DISCOVERY_RETRY_MS = 2 * 60 * 60_000;
 const RETRY_MS = 60_000;
 const RATE_LIMIT_RETRY_MS = 30 * 60_000;
+const MAX_CAPTURES_PER_RUN = 8;
 export const BMS_TESTING_VENUE_CODES = Object.freeze(["RTDM", "SUTD"]);
 const VENUE_SET = new Set(BMS_TESTING_VENUE_CODES);
 
 export class BmsUpstreamError extends Error {
-  constructor(message, { status = null, code = "bms_upstream_error", retryAfterMs = null } = {}) {
+  constructor(message, { status = null, code = "bms_upstream_error", retryAfterMs = null, stage = null } = {}) {
     super(message);
     this.name = "BmsUpstreamError";
     this.status = status;
     this.code = code;
     this.retryAfterMs = retryAfterMs;
+    this.stage = stage;
   }
 }
 
 const jsonValue = (value, fallback) => { try { return value ? JSON.parse(value) : fallback; } catch { return fallback; } };
 const addMs = (value, ms) => new Date(new Date(value).getTime() + ms).toISOString();
+const elapsedMs = (started, finished) => Math.max(0, new Date(finished).getTime() - new Date(started).getTime());
 const dateCode = (value) => String(value || "").replaceAll("-", "");
 const normalizedName = (value) => String(value || "").trim().replace(/\s+/g, " ").toUpperCase();
 const sleep = (ms) => ms ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
@@ -191,36 +195,54 @@ function assertBrowserPage(html, status, stage) {
   if (status === 403 || status === 429) {
     throw new BmsUpstreamError(`BMS blocked ${stage} in Chromium with HTTP ${status}`, {
       status,
-      code: status === 403 ? "forbidden" : "rate_limited"
+      code: status === 403 ? "forbidden" : "rate_limited",
+      stage
     });
   }
   if (!status || status >= 400) {
     throw new BmsUpstreamError(`BMS ${stage} returned HTTP ${status || "unknown"} in Chromium`, {
       status: status || null,
-      code: "http_error"
+      code: "http_error",
+      stage
     });
   }
   const lower = String(html || "").toLowerCase();
   if (["cf-chl-", "just a moment", "attention required", "access denied"].some((marker) => lower.includes(marker))) {
     throw new BmsUpstreamError(`BMS presented a browser verification page during ${stage}`, {
       status: 403,
-      code: "browser_verification_required"
+      code: "browser_verification_required",
+      stage
+    });
+  }
+}
+
+async function launchBmsBrowser(env) {
+  try {
+    return await puppeteer.launch(env.BROWSER, { keep_alive: 120_000 });
+  } catch (error) {
+    throw new BmsUpstreamError(`Cloudflare could not start the BMS browser: ${error.message || error}`, {
+      code: "browser_launch_failed",
+      stage: "browser_launch"
     });
   }
 }
 
 async function gotoInBrowser(page, url, stage) {
-  const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
+  const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20_000 });
   const html = await page.content();
   assertBrowserPage(html, response?.status(), stage);
   return html;
 }
 
 async function withBmsBrowser(env, task, sharedBrowser = null) {
-  if (!env.BROWSER) throw new BmsUpstreamError("Cloudflare Browser Rendering is not configured", { code: "browser_not_configured" });
-  const browser = sharedBrowser || await puppeteer.launch(env.BROWSER, { keep_alive: 120_000 });
+  if (!env.BROWSER) throw new BmsUpstreamError("Cloudflare Browser Rendering is not configured", {
+    code: "browser_not_configured",
+    stage: "browser_configuration"
+  });
+  const browser = sharedBrowser || await launchBmsBrowser(env);
+  let page = null;
   try {
-    const page = await browser.newPage();
+    page = await browser.newPage();
     await page.setViewport({ width: 1440, height: 1000, deviceScaleFactor: 1 });
     await page.setExtraHTTPHeaders({ "accept-language": "en-IN,en;q=0.9" });
     await gotoInBrowser(page, BMS_HOME, "Madanapalle browser warm-up");
@@ -228,9 +250,11 @@ async function withBmsBrowser(env, task, sharedBrowser = null) {
   } catch (error) {
     if (error instanceof BmsUpstreamError) throw error;
     throw new BmsUpstreamError(`Chromium could not complete the BMS request: ${error.message || error}`, {
-      code: "browser_request_failed"
+      code: "browser_request_failed",
+      stage: "browser_request"
     });
   } finally {
+    if (page) await page.close().catch(() => {});
     if (!sharedBrowser) await browser.close();
   }
 }
@@ -249,7 +273,10 @@ async function fetchBmsTestingCaptureBrowser(env, show, options = {}) {
   return withBmsBrowser(env, async (page) => {
     const html = await gotoInBrowser(page, pageUrl, "show warm-up request");
     if (!html.includes("window.__INITIAL_STATE__")) {
-      throw new BmsUpstreamError("BMS show warm-up page did not expose schedule state", { code: "verification_or_schema_changed" });
+      throw new BmsUpstreamError("BMS show warm-up page did not expose schedule state", {
+        code: "verification_or_schema_changed",
+        stage: "show_warmup"
+      });
     }
     const fields = {
       strAppCode: "WEB", lngTransactionIdentifier: "0", strCommand: "GETSEATLAYOUT",
@@ -280,13 +307,36 @@ async function fetchBmsTestingCaptureBrowser(env, show, options = {}) {
     assertBrowserPage(browserResult.text, browserResult.status, "seat-layout request");
     let response;
     try { response = JSON.parse(browserResult.text); }
-    catch { throw new BmsUpstreamError("BMS seat response was not JSON", { code: "schema_changed" }); }
+    catch {
+      throw new BmsUpstreamError("BMS seat response was not JSON", {
+        code: "schema_changed",
+        stage: "seat_layout_response"
+      });
+    }
     const result = response?.BookMyShow;
     if (String(result?.blnSuccess).toLowerCase() !== "true" || !result?.strData) {
-      throw new BmsUpstreamError(result?.strException || "BMS returned no seat data", { code: "no_seat_data" });
+      throw new BmsUpstreamError(result?.strException || "BMS returned no seat data", {
+        code: "no_seat_data",
+        stage: "seat_layout_response"
+      });
     }
-    const plaintext = await decryptBmsSeatLayout(result.strData, options.keyText, options.cryptoImpl || crypto);
-    return parseBmsSeatCategories(plaintext, show);
+    let plaintext;
+    try {
+      plaintext = await decryptBmsSeatLayout(result.strData, options.keyText, options.cryptoImpl || crypto);
+    } catch (error) {
+      throw new BmsUpstreamError(`BMS seat layout could not be decoded: ${error.message || error}`, {
+        code: "seat_layout_decode_failed",
+        stage: "seat_layout_decode"
+      });
+    }
+    try {
+      return parseBmsSeatCategories(plaintext, show);
+    } catch (error) {
+      throw new BmsUpstreamError(error.message || "BMS seat layout validation failed", {
+        code: "seat_layout_validation_failed",
+        stage: "seat_layout_validation"
+      });
+    }
   }, options.browser);
 }
 
@@ -548,29 +598,71 @@ async function discoverOne(env, showDate, now, options) {
   const state = await claimDiscovery(env.DB, showDate, now);
   if (!state) return null;
   const venue = venueForCode(state.venue_code);
+  const started = new Date().toISOString();
   try {
     const shows = await discoverVenueFromService(env, venue.venueCode, showDate, now, options);
     const count = await saveDiscovery(env.DB, venue, showDate, shows, now);
+    const finished = new Date().toISOString();
     await env.DB.prepare(`UPDATE bms_testing_discovery_state SET lease_expires_at=NULL, last_status='succeeded',
       last_error=NULL, last_finished_at=?, next_attempt_at=?, updated_at=? WHERE venue_code=? AND show_date=?`)
-      .bind(now, addMs(now, DISCOVERY_INTERVAL_MS), now, venue.venueCode, showDate).run();
-    await logRun(env.DB, { type: "discovery", venue: venue.venueCode, date: showDate, status: "succeeded", started: now, finished: now, details: { shows: count } });
+      .bind(finished, addMs(finished, BMS_DISCOVERY_INTERVAL_MS), finished, venue.venueCode, showDate).run();
+    await logRun(env.DB, {
+      type: "discovery", venue: venue.venueCode, date: showDate, status: "succeeded",
+      started, finished,
+      details: { shows: count, durationMs: elapsedMs(started, finished), transport: env.BROWSER ? "cloudflare_browser" : "direct_http" }
+    });
     return { venueCode: venue.venueCode, status: "succeeded", shows: count };
   } catch (error) {
-    const wait = error.status === 429 ? Math.max(error.retryAfterMs || 0, RATE_LIMIT_RETRY_MS) : error.status === 403 ? 21_600_000 : 900_000;
+    const finished = new Date().toISOString();
+    const wait = error.status === 429
+      ? Math.max(error.retryAfterMs || 0, DISCOVERY_RETRY_MS)
+      : error.status === 403 ? 21_600_000 : DISCOVERY_RETRY_MS;
     await env.DB.prepare(`UPDATE bms_testing_discovery_state SET lease_expires_at=NULL, last_status='failed',
       last_error=?, last_finished_at=?, next_attempt_at=?, updated_at=? WHERE venue_code=? AND show_date=?`)
-      .bind(error.message, now, addMs(now, wait), now, venue.venueCode, showDate).run();
-    await logRun(env.DB, { type: "discovery", venue: venue.venueCode, date: showDate, status: "failed", started: now, finished: now, httpStatus: error.status, errorCode: error.code, error: error.message });
+      .bind(error.message, finished, addMs(finished, wait), finished, venue.venueCode, showDate).run();
+    await logRun(env.DB, {
+      type: "discovery", venue: venue.venueCode, date: showDate, status: "failed",
+      started, finished, httpStatus: error.status, errorCode: error.code, error: error.message,
+      details: {
+        stage: error.stage || "schedule_discovery",
+        durationMs: elapsedMs(started, finished),
+        nextAttemptAt: addMs(finished, wait),
+        transport: env.BROWSER ? "cloudflare_browser" : "direct_http"
+      }
+    });
     return { venueCode: venue.venueCode, status: "failed", error: error.message };
   }
 }
 
 async function claimCapture(db, now) {
-  await db.prepare("UPDATE bms_testing_capture_jobs SET status='failed', last_error='Capture window expired', updated_at=? WHERE status='pending' AND deadline_at<?")
-    .bind(now, now).run();
+  const expired = await db.prepare(`SELECT jobs.id AS job_id, jobs.phase AS job_phase,
+    jobs.attempts AS job_attempts, jobs.due_at AS job_due_at, jobs.deadline_at AS job_deadline_at,
+    shows.id AS show_id, shows.venue_code, shows.show_date
+    FROM bms_testing_capture_jobs jobs
+    JOIN bms_testing_shows shows ON shows.id=jobs.testing_show_id
+    WHERE jobs.status='pending' AND jobs.deadline_at<?`).bind(now).all();
+  for (const job of expired.results || []) {
+    const changed = await db.prepare(`UPDATE bms_testing_capture_jobs SET status='failed',
+      lease_expires_at=NULL, last_error='Capture window expired', updated_at=?
+      WHERE id=? AND status='pending'`).bind(now, job.job_id).run();
+    if (!Number(changed.meta?.changes || 0)) continue;
+    await logRun(db, {
+      type: "capture", venue: job.venue_code, date: job.show_date, showId: job.show_id,
+      phase: job.job_phase, status: "failed", attempt: Number(job.job_attempts || 0) + 1,
+      started: now, finished: now, errorCode: "capture_window_expired", error: "Capture window expired",
+      details: {
+        stage: "scheduler_window",
+        durationMs: 0,
+        dueDelayMs: Math.max(0, elapsedMs(job.job_due_at, now)),
+        dueAt: job.job_due_at,
+        deadlineAt: job.job_deadline_at,
+        retry: false,
+        nextAttemptAt: null
+      }
+    });
+  }
   const job = await db.prepare(`SELECT shows.*, jobs.id AS job_id, jobs.phase AS job_phase,
-    jobs.attempts AS job_attempts, jobs.deadline_at AS job_deadline_at FROM bms_testing_capture_jobs jobs
+    jobs.attempts AS job_attempts, jobs.due_at AS job_due_at, jobs.deadline_at AS job_deadline_at FROM bms_testing_capture_jobs jobs
     JOIN bms_testing_shows shows ON shows.id=jobs.testing_show_id
     WHERE jobs.status='pending' AND jobs.next_attempt_at<=? AND jobs.deadline_at>=? AND shows.is_current=1
     ORDER BY CASE jobs.phase WHEN 'final' THEN 0 ELSE 1 END, jobs.due_at LIMIT 1`).bind(now, now).first();
@@ -584,7 +676,7 @@ async function runCaptures(env, nowDate, options) {
   const output = [];
   let browser = null;
   try {
-    for (let index = 0; index < 4; index += 1) {
+    for (let index = 0; index < MAX_CAPTURES_PER_RUN; index += 1) {
       const now = (index ? new Date() : nowDate).toISOString();
       const job = await claimCapture(env.DB, now);
       if (!job) break;
@@ -592,7 +684,7 @@ async function runCaptures(env, nowDate, options) {
       const attempt = Number(job.job_attempts || 0) + 1;
       try {
         if (!browser && internalCaptureService(env) && env.BROWSER) {
-          browser = await puppeteer.launch(env.BROWSER, { keep_alive: 120_000 });
+          browser = await launchBmsBrowser(env);
         }
         const serviceCapture = await captureVenueFromService(env, job, { ...options, browser });
         const result = serviceCapture.result;
@@ -609,7 +701,20 @@ async function runCaptures(env, nowDate, options) {
             result.occupancyPercent, JSON.stringify(result.categories), captured).first();
         await env.DB.prepare("UPDATE bms_testing_capture_jobs SET status='succeeded', lease_expires_at=NULL, snapshot_id=?, last_error=NULL, updated_at=? WHERE id=?")
           .bind(snapshot.id, captured, job.job_id).run();
-        await logRun(env.DB, { type: "capture", venue: job.venue_code, date: job.show_date, showId: job.id, phase: job.job_phase, status: "succeeded", attempt, started: now, finished: captured, details: { unavailable: result.sold } });
+        await logRun(env.DB, {
+          type: "capture", venue: job.venue_code, date: job.show_date, showId: job.id,
+          phase: job.job_phase, status: "succeeded", attempt, started: now, finished: captured,
+          details: {
+            stage: "completed",
+            unavailable: result.sold,
+            capacity: result.capacity,
+            durationMs: elapsedMs(now, captured),
+            dueDelayMs: Math.max(0, elapsedMs(job.job_due_at, now)),
+            dueAt: job.job_due_at,
+            deadlineAt: job.job_deadline_at,
+            transport: env.BROWSER ? "cloudflare_browser" : "direct_http"
+          }
+        });
         output.push({ showId: job.id, phase: job.job_phase, status: "succeeded" });
       } catch (error) {
         const finished = new Date().toISOString();
@@ -618,7 +723,21 @@ async function runCaptures(env, nowDate, options) {
         const retry = attempt < 3 && next <= job.job_deadline_at && error.status !== 403;
         await env.DB.prepare("UPDATE bms_testing_capture_jobs SET status=?, lease_expires_at=NULL, next_attempt_at=?, last_error=?, updated_at=? WHERE id=?")
           .bind(retry ? "pending" : "failed", next, error.message, finished, job.job_id).run();
-        await logRun(env.DB, { type: "capture", venue: job.venue_code, date: job.show_date, showId: job.id, phase: job.job_phase, status: retry ? "retrying" : "failed", attempt, started: now, finished, httpStatus: error.status, errorCode: error.code, error: error.message });
+        await logRun(env.DB, {
+          type: "capture", venue: job.venue_code, date: job.show_date, showId: job.id,
+          phase: job.job_phase, status: retry ? "retrying" : "failed", attempt,
+          started: now, finished, httpStatus: error.status, errorCode: error.code, error: error.message,
+          details: {
+            stage: error.stage || "capture_request",
+            durationMs: elapsedMs(now, finished),
+            dueDelayMs: Math.max(0, elapsedMs(job.job_due_at, now)),
+            dueAt: job.job_due_at,
+            deadlineAt: job.job_deadline_at,
+            retry,
+            nextAttemptAt: retry ? next : null,
+            transport: env.BROWSER ? "cloudflare_browser" : "direct_http"
+          }
+        });
         output.push({ showId: job.id, phase: job.job_phase, status: retry ? "retrying" : "failed" });
         if (error.status === 429) break;
       }
@@ -634,8 +753,11 @@ export async function runBmsTestingScheduler(env, options = {}) {
   const now = options.now || new Date();
   const showDate = indiaDate(now);
   await ensureStates(env.DB, showDate, now.toISOString());
-  const discovery = await discoverOne(env, showDate, now.toISOString(), options);
   const captures = await runCaptures(env, now, options);
+  // A due final capture always owns the browser invocation. This prevents a
+  // routine discovery launch from consuming the Free-plan launch slot or
+  // browser minutes immediately before the one-minute capture window.
+  const discovery = captures.length ? null : await discoverOne(env, showDate, now.toISOString(), options);
   return { enabled: true, showDate, discovery, captures };
 }
 
