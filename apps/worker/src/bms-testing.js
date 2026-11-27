@@ -1,6 +1,9 @@
 import { calculateCollection } from "@skct/core";
+import puppeteer from "@cloudflare/puppeteer";
 import { venueForCode } from "./venues.js";
 
+const BMS_BASE = "https://in.bookmyshow.com";
+const BMS_HOME = `${BMS_BASE}/explore/home/madanapalle`;
 const BMS_SEAT_ENDPOINT = "https://services-in.bookmyshow.com/doTrans.aspx";
 const DISCOVERY_INTERVAL_MS = 30 * 60_000;
 const RETRY_MS = 60_000;
@@ -184,6 +187,101 @@ export async function fetchBmsTestingCapture(show, options = {}) {
   return parseBmsSeatCategories(plaintext, show);
 }
 
+function assertBrowserPage(html, status, stage) {
+  if (status === 403 || status === 429) {
+    throw new BmsUpstreamError(`BMS blocked ${stage} in Chromium with HTTP ${status}`, {
+      status,
+      code: status === 403 ? "forbidden" : "rate_limited"
+    });
+  }
+  if (!status || status >= 400) {
+    throw new BmsUpstreamError(`BMS ${stage} returned HTTP ${status || "unknown"} in Chromium`, {
+      status: status || null,
+      code: "http_error"
+    });
+  }
+  const lower = String(html || "").toLowerCase();
+  if (["cf-chl-", "just a moment", "attention required", "access denied"].some((marker) => lower.includes(marker))) {
+    throw new BmsUpstreamError(`BMS presented a browser verification page during ${stage}`, {
+      status: 403,
+      code: "browser_verification_required"
+    });
+  }
+}
+
+async function gotoInBrowser(page, url, stage) {
+  const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45_000 });
+  const html = await page.content();
+  assertBrowserPage(html, response?.status(), stage);
+  return html;
+}
+
+async function withBmsBrowser(env, task) {
+  if (!env.BROWSER) throw new BmsUpstreamError("Cloudflare Browser Rendering is not configured", { code: "browser_not_configured" });
+  const browser = await puppeteer.launch(env.BROWSER, { keep_alive: 120_000 });
+  try {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1440, height: 1000, deviceScaleFactor: 1 });
+    await page.setExtraHTTPHeaders({ "accept-language": "en-IN,en;q=0.9" });
+    await gotoInBrowser(page, BMS_HOME, "Madanapalle browser warm-up");
+    return await task(page);
+  } catch (error) {
+    if (error instanceof BmsUpstreamError) throw error;
+    throw new BmsUpstreamError(`Chromium could not complete the BMS request: ${error.message || error}`, {
+      code: "browser_request_failed"
+    });
+  } finally {
+    await browser.close();
+  }
+}
+
+async function fetchBmsTheatreScheduleBrowser(env, venue, showDate, options = {}) {
+  const url = `${BMS_BASE}/cinemas/mdnp/${venue.slug}/buytickets/${venue.venueCode}/${dateCode(showDate)}`;
+  return withBmsBrowser(env, async (page) => {
+    const html = await gotoInBrowser(page, url, "Ravi schedule request");
+    return parseBmsTheatreSchedule(html, venue, showDate, options.now || new Date());
+  });
+}
+
+async function fetchBmsTestingCaptureBrowser(env, show, options = {}) {
+  const venue = venueForCode(show.venue_code || show.venueCode);
+  const pageUrl = `${BMS_BASE}/cinemas/mdnp/${venue.slug}/buytickets/${venue.venueCode}/${show.show_date_code || dateCode(show.show_date)}`;
+  return withBmsBrowser(env, async (page) => {
+    const html = await gotoInBrowser(page, pageUrl, "show warm-up request");
+    if (!html.includes("window.__INITIAL_STATE__")) {
+      throw new BmsUpstreamError("BMS show warm-up page did not expose schedule state", { code: "verification_or_schema_changed" });
+    }
+    const fields = {
+      strAppCode: "WEB", lngTransactionIdentifier: "0", strCommand: "GETSEATLAYOUT",
+      strVenueCode: show.venue_code, strParam1: show.session_id, strParam2: "WEB",
+      strParam3: "", strParam4: "", strParam5: "Y", strParam6: "N", strParam7: "N",
+      strParam8: "", strParam9: "", strParam10: "", strFormat: "json"
+    };
+    const requestId = `1.${Date.now()}.${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+    const browserResult = await page.evaluate(async ({ endpoint, fields: formFields, requestId: id }) => {
+      const body = new FormData();
+      for (const [name, value] of Object.entries(formFields)) body.append(name, value);
+      const response = await fetch(endpoint, {
+        method: "POST",
+        body,
+        credentials: "include",
+        headers: { accept: "application/json, text/plain, */*", "x-app-code": "WEB", "x-bms-id": id }
+      });
+      return { status: response.status, text: await response.text() };
+    }, { endpoint: BMS_SEAT_ENDPOINT, fields, requestId });
+    assertBrowserPage(browserResult.text, Number(browserResult.status), "seat-layout request");
+    let response;
+    try { response = JSON.parse(browserResult.text); }
+    catch { throw new BmsUpstreamError("BMS seat response was not JSON", { code: "schema_changed" }); }
+    const result = response?.BookMyShow;
+    if (String(result?.blnSuccess).toLowerCase() !== "true" || !result?.strData) {
+      throw new BmsUpstreamError(result?.strException || "BMS returned no seat data", { code: "no_seat_data" });
+    }
+    const plaintext = await decryptBmsSeatLayout(result.strData, options.keyText, options.cryptoImpl || crypto);
+    return parseBmsSeatCategories(plaintext, show);
+  });
+}
+
 function extractJson(text, marker) {
   const start = text.indexOf("{", marker);
   let depth = 0, inString = false, escaped = false;
@@ -337,6 +435,7 @@ export function validateServiceCapture(payload, show) {
 async function discoverRaviFromService(env, showDate, now, options = {}) {
   const venue = venueForCode("RTDM");
   if (internalCaptureService(env)) {
+    if (env.BROWSER) return fetchBmsTheatreScheduleBrowser(env, venue, showDate, { ...options, now: new Date(now) });
     return fetchBmsTheatreSchedule(venue, showDate, { ...options, now: new Date(now) });
   }
   const payload = await callCaptureService(env, "v1/ravi/discover", {
@@ -350,7 +449,10 @@ async function discoverRaviFromService(env, showDate, now, options = {}) {
 async function captureRaviFromService(env, show, options = {}) {
   const venue = venueForCode("RTDM");
   if (internalCaptureService(env)) {
-    const result = await fetchBmsTestingCapture(show, { ...options, keyText: env.BMS_LAYOUT_KEY });
+    const captureOptions = { ...options, keyText: env.BMS_LAYOUT_KEY };
+    const result = env.BROWSER
+      ? await fetchBmsTestingCaptureBrowser(env, show, captureOptions)
+      : await fetchBmsTestingCapture(show, captureOptions);
     return { result, capturedAt: new Date().toISOString() };
   }
   const payload = await callCaptureService(env, "v1/ravi/capture", {

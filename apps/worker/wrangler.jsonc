@@ -3,6 +3,7 @@
   "name": "sri-krishna-tracker-api",
   "main": "src/index.js",
   "compatibility_date": "2026-08-19",
+  "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "observability": {
     "enabled": true,
@@ -18,6 +19,9 @@
   },
   "ai": {
     "binding": "AI"
+  },
+  "browser": {
+    "binding": "BROWSER"
   },
   "d1_databases": [
     {

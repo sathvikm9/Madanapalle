@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@block65/webcrypto-web-push": "^2.0.0",
+    "@cloudflare/puppeteer": "^2.0.1",
     "@skct/core": "1.0.0"
   },
   "devDependencies": {
