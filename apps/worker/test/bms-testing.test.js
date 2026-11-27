@@ -91,6 +91,41 @@ test("historical encrypted fixture decoding remains available for offline verifi
   assert.equal(result.sold, 97);
 });
 
+test("explicit BMS sold-out responses become verified full-capacity captures", async () => {
+  const soldOutResponse = (message) => async () => ({
+    ok: true,
+    async json() { return { BookMyShow: { blnSuccess: "false", strException: message } }; }
+  });
+  const ravi = await fetchBmsTestingCapture(show, {
+    fetchImpl: soldOutResponse("It seems seats are sold out hence we can't proceed further. Please check another show. (#159)")
+  });
+  assert.equal(ravi.capacity, 637);
+  assert.equal(ravi.available, 0);
+  assert.equal(ravi.sold, 637);
+  assert.equal(ravi.occupancyPercent, 100);
+  assert.equal(ravi.collectionPaise, 6_370_000);
+  assert.equal(ravi.captureEvidence, "provider_sold_out");
+
+  const sunil = await fetchBmsTestingCapture(sunilShow, {
+    fetchImpl: soldOutResponse("No available seats for this show")
+  });
+  assert.equal(sunil.capacity, 327);
+  assert.equal(sunil.available, 0);
+  assert.equal(sunil.sold, 327);
+  assert.equal(sunil.occupancyPercent, 100);
+  assert.equal(sunil.collectionPaise, 3_085_200);
+  assert.equal(sunil.captureEvidence, "provider_sold_out");
+});
+
+test("generic missing BMS data is never treated as sold out", async () => {
+  await assert.rejects(() => fetchBmsTestingCapture(show, {
+    fetchImpl: async () => ({
+      ok: true,
+      async json() { return { BookMyShow: { blnSuccess: "false", strException: "Seat data is temporarily unavailable" } }; }
+    })
+  }), /temporarily unavailable/);
+});
+
 test("theatre page discovery produces server capture timings", () => {
   const state = {
     venueShowtimesFunctionalApi: { queries: {

@@ -158,6 +158,44 @@ export function parseBmsSeatCategories(text, show) {
   return calculateCollection(categories);
 }
 
+function isExplicitSoldOutMessage(message) {
+  const normalized = String(message || "").trim().toLowerCase().replace(/\s+/g, " ");
+  return /\b(?:seats?|show)\s+(?:are|is)\s+sold\s*out\b/.test(normalized)
+    || /\bno\s+(?:available\s+)?seats?\b/.test(normalized)
+    || /\bno\s+seats?\s+(?:are\s+)?available\b/.test(normalized);
+}
+
+function fullCapacityCapture(show, providerMessage) {
+  if (!isExplicitSoldOutMessage(providerMessage)) return null;
+  const venue = venueForCode(show.venue_code || show.venueCode);
+  if (!venue || !isBmsTestingVenue(venue.venueCode)) {
+    throw new BmsUpstreamError("Venue is not approved for BMS testing", {
+      code: "venue_not_approved",
+      stage: "sold_out_validation"
+    });
+  }
+  const prices = new Map(jsonValue(show.advertised_categories_json, [])
+    .map((item) => [normalizedName(item.name), Number(item.listPricePaise || 0)]));
+  const categories = venue.layoutCategories.map((layout) => {
+    const listPricePaise = prices.get(normalizedName(layout.name));
+    if (!Number.isSafeInteger(listPricePaise) || listPricePaise <= 0 || listPricePaise > 100_000) {
+      throw new BmsUpstreamError(`Rejected ${venue.shortName} ${layout.name}: no verified ticket price was available`, {
+        code: "price_mismatch",
+        stage: "sold_out_validation"
+      });
+    }
+    return {
+      name: layout.name,
+      listPricePaise,
+      capacity: layout.capacity,
+      available: 0,
+      sold: layout.capacity,
+      unknown: 0
+    };
+  });
+  return { ...calculateCollection(categories), captureEvidence: "provider_sold_out" };
+}
+
 export async function fetchBmsTestingCapture(show, options = {}) {
   const body = new FormData();
   for (const [name, value] of Object.entries({
@@ -185,6 +223,8 @@ export async function fetchBmsTestingCapture(show, options = {}) {
   });
   const result = (await response.json())?.BookMyShow;
   if (String(result?.blnSuccess).toLowerCase() !== "true" || !result?.strData) {
+    const full = fullCapacityCapture(show, result?.strException);
+    if (full) return full;
     throw new BmsUpstreamError(result?.strException || "BMS returned no seat data", { code: "no_seat_data" });
   }
   const plaintext = await decryptBmsSeatLayout(result.strData, options.keyText, options.cryptoImpl || crypto);
@@ -315,6 +355,8 @@ async function fetchBmsTestingCaptureBrowser(env, show, options = {}) {
     }
     const result = response?.BookMyShow;
     if (String(result?.blnSuccess).toLowerCase() !== "true" || !result?.strData) {
+      const full = fullCapacityCapture(show, result?.strException);
+      if (full) return full;
       throw new BmsUpstreamError(result?.strException || "BMS returned no seat data", {
         code: "no_seat_data",
         stage: "seat_layout_response"
@@ -691,12 +733,13 @@ async function runCaptures(env, nowDate, options) {
         const serviceCapturedAt = new Date(serviceCapture.capturedAt);
         const captured = Number.isFinite(serviceCapturedAt.getTime()) ? serviceCapturedAt.toISOString() : new Date().toISOString();
         const snapshot = await env.DB.prepare(`INSERT INTO bms_testing_snapshots
-          (testing_show_id, phase, captured_at, capacity, available, sold, unknown, collection_paise,
-           occupancy_percent, categories_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (testing_show_id, phase, captured_at, source, capacity, available, sold, unknown, collection_paise,
+           occupancy_percent, categories_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(testing_show_id, phase) DO UPDATE SET captured_at=excluded.captured_at,
-          capacity=excluded.capacity, available=excluded.available, sold=excluded.sold, unknown=excluded.unknown,
+          source=excluded.source, capacity=excluded.capacity, available=excluded.available, sold=excluded.sold, unknown=excluded.unknown,
           collection_paise=excluded.collection_paise, occupancy_percent=excluded.occupancy_percent,
           categories_json=excluded.categories_json RETURNING id`).bind(job.id, job.job_phase, captured,
+            result.captureEvidence === "provider_sold_out" ? "bookmyshow-server-testing-sold-out" : "bookmyshow-server-testing",
             result.capacity, result.available, result.sold, result.unknown, result.collectionPaise,
             result.occupancyPercent, JSON.stringify(result.categories), captured).first();
         await env.DB.prepare("UPDATE bms_testing_capture_jobs SET status='succeeded', lease_expires_at=NULL, snapshot_id=?, last_error=NULL, updated_at=? WHERE id=?")
@@ -706,6 +749,7 @@ async function runCaptures(env, nowDate, options) {
           phase: job.job_phase, status: "succeeded", attempt, started: now, finished: captured,
           details: {
             stage: "completed",
+            evidence: result.captureEvidence || "seat_layout",
             unavailable: result.sold,
             capacity: result.capacity,
             durationMs: elapsedMs(now, captured),
