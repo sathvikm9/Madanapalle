@@ -216,9 +216,9 @@ async function gotoInBrowser(page, url, stage) {
   return html;
 }
 
-async function withBmsBrowser(env, task) {
+async function withBmsBrowser(env, task, sharedBrowser = null) {
   if (!env.BROWSER) throw new BmsUpstreamError("Cloudflare Browser Rendering is not configured", { code: "browser_not_configured" });
-  const browser = await puppeteer.launch(env.BROWSER, { keep_alive: 120_000 });
+  const browser = sharedBrowser || await puppeteer.launch(env.BROWSER, { keep_alive: 120_000 });
   try {
     const page = await browser.newPage();
     await page.setViewport({ width: 1440, height: 1000, deviceScaleFactor: 1 });
@@ -231,7 +231,7 @@ async function withBmsBrowser(env, task) {
       code: "browser_request_failed"
     });
   } finally {
-    await browser.close();
+    if (!sharedBrowser) await browser.close();
   }
 }
 
@@ -240,7 +240,7 @@ async function fetchBmsTheatreScheduleBrowser(env, venue, showDate, options = {}
   return withBmsBrowser(env, async (page) => {
     const html = await gotoInBrowser(page, url, `${venue.shortName} schedule request`);
     return parseBmsTheatreSchedule(html, venue, showDate, options.now || new Date());
-  });
+  }, options.browser);
 }
 
 async function fetchBmsTestingCaptureBrowser(env, show, options = {}) {
@@ -258,18 +258,26 @@ async function fetchBmsTestingCaptureBrowser(env, show, options = {}) {
       strParam8: "", strParam9: "", strParam10: "", strFormat: "json"
     };
     const requestId = `1.${Date.now()}.${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
-    const browserResult = await page.evaluate(async ({ endpoint, fields: formFields, requestId: id }) => {
-      const body = new FormData();
-      for (const [name, value] of Object.entries(formFields)) body.append(name, value);
-      const response = await fetch(endpoint, {
-        method: "POST",
-        body,
-        credentials: "include",
-        headers: { accept: "application/json, text/plain, */*", "x-app-code": "WEB", "x-bms-id": id }
-      });
-      return { status: response.status, text: await response.text() };
-    }, { endpoint: BMS_SEAT_ENDPOINT, fields, requestId });
-    assertBrowserPage(browserResult.text, Number(browserResult.status), "seat-layout request");
+    const cookies = await page.cookies(BMS_BASE, BMS_SEAT_ENDPOINT);
+    const userAgent = await page.evaluate(() => navigator.userAgent);
+    const body = new FormData();
+    for (const [name, value] of Object.entries(fields)) body.append(name, value);
+    const seatResponse = await (options.fetchImpl || fetch)(BMS_SEAT_ENDPOINT, {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/plain, */*",
+        cookie: cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; "),
+        origin: BMS_BASE,
+        referer: pageUrl,
+        "user-agent": userAgent,
+        "x-app-code": "WEB",
+        "x-bms-id": requestId
+      },
+      body,
+      signal: AbortSignal.timeout(15_000)
+    });
+    const browserResult = { status: seatResponse.status, text: await seatResponse.text() };
+    assertBrowserPage(browserResult.text, browserResult.status, "seat-layout request");
     let response;
     try { response = JSON.parse(browserResult.text); }
     catch { throw new BmsUpstreamError("BMS seat response was not JSON", { code: "schema_changed" }); }
@@ -279,7 +287,7 @@ async function fetchBmsTestingCaptureBrowser(env, show, options = {}) {
     }
     const plaintext = await decryptBmsSeatLayout(result.strData, options.keyText, options.cryptoImpl || crypto);
     return parseBmsSeatCategories(plaintext, show);
-  });
+  }, options.browser);
 }
 
 function extractJson(text, marker) {
@@ -574,41 +582,49 @@ async function claimCapture(db, now) {
 
 async function runCaptures(env, nowDate, options) {
   const output = [];
-  for (let index = 0; index < 4; index += 1) {
-    const now = (index ? new Date() : nowDate).toISOString();
-    const job = await claimCapture(env.DB, now);
-    if (!job) break;
-    if (index) await sleep(Number.isFinite(options.captureSpacingMs) ? options.captureSpacingMs : 3_000);
-    const attempt = Number(job.job_attempts || 0) + 1;
-    try {
-      const serviceCapture = await captureVenueFromService(env, job, options);
-      const result = serviceCapture.result;
-      const serviceCapturedAt = new Date(serviceCapture.capturedAt);
-      const captured = Number.isFinite(serviceCapturedAt.getTime()) ? serviceCapturedAt.toISOString() : new Date().toISOString();
-      const snapshot = await env.DB.prepare(`INSERT INTO bms_testing_snapshots
-        (testing_show_id, phase, captured_at, capacity, available, sold, unknown, collection_paise,
-         occupancy_percent, categories_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(testing_show_id, phase) DO UPDATE SET captured_at=excluded.captured_at,
-        capacity=excluded.capacity, available=excluded.available, sold=excluded.sold, unknown=excluded.unknown,
-        collection_paise=excluded.collection_paise, occupancy_percent=excluded.occupancy_percent,
-        categories_json=excluded.categories_json RETURNING id`).bind(job.id, job.job_phase, captured,
-          result.capacity, result.available, result.sold, result.unknown, result.collectionPaise,
-          result.occupancyPercent, JSON.stringify(result.categories), captured).first();
-      await env.DB.prepare("UPDATE bms_testing_capture_jobs SET status='succeeded', lease_expires_at=NULL, snapshot_id=?, last_error=NULL, updated_at=? WHERE id=?")
-        .bind(snapshot.id, captured, job.job_id).run();
-      await logRun(env.DB, { type: "capture", venue: job.venue_code, date: job.show_date, showId: job.id, phase: job.job_phase, status: "succeeded", attempt, started: now, finished: captured, details: { unavailable: result.sold } });
-      output.push({ showId: job.id, phase: job.job_phase, status: "succeeded" });
-    } catch (error) {
-      const finished = new Date().toISOString();
-      const wait = error.status === 429 ? Math.max(error.retryAfterMs || 0, RATE_LIMIT_RETRY_MS) : RETRY_MS;
-      const next = addMs(finished, wait);
-      const retry = attempt < 3 && next <= job.job_deadline_at && error.status !== 403;
-      await env.DB.prepare("UPDATE bms_testing_capture_jobs SET status=?, lease_expires_at=NULL, next_attempt_at=?, last_error=?, updated_at=? WHERE id=?")
-        .bind(retry ? "pending" : "failed", next, error.message, finished, job.job_id).run();
-      await logRun(env.DB, { type: "capture", venue: job.venue_code, date: job.show_date, showId: job.id, phase: job.job_phase, status: retry ? "retrying" : "failed", attempt, started: now, finished, httpStatus: error.status, errorCode: error.code, error: error.message });
-      output.push({ showId: job.id, phase: job.job_phase, status: retry ? "retrying" : "failed" });
-      if (error.status === 429) break;
+  let browser = null;
+  try {
+    for (let index = 0; index < 4; index += 1) {
+      const now = (index ? new Date() : nowDate).toISOString();
+      const job = await claimCapture(env.DB, now);
+      if (!job) break;
+      if (index) await sleep(Number.isFinite(options.captureSpacingMs) ? options.captureSpacingMs : 3_000);
+      const attempt = Number(job.job_attempts || 0) + 1;
+      try {
+        if (!browser && internalCaptureService(env) && env.BROWSER) {
+          browser = await puppeteer.launch(env.BROWSER, { keep_alive: 120_000 });
+        }
+        const serviceCapture = await captureVenueFromService(env, job, { ...options, browser });
+        const result = serviceCapture.result;
+        const serviceCapturedAt = new Date(serviceCapture.capturedAt);
+        const captured = Number.isFinite(serviceCapturedAt.getTime()) ? serviceCapturedAt.toISOString() : new Date().toISOString();
+        const snapshot = await env.DB.prepare(`INSERT INTO bms_testing_snapshots
+          (testing_show_id, phase, captured_at, capacity, available, sold, unknown, collection_paise,
+           occupancy_percent, categories_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(testing_show_id, phase) DO UPDATE SET captured_at=excluded.captured_at,
+          capacity=excluded.capacity, available=excluded.available, sold=excluded.sold, unknown=excluded.unknown,
+          collection_paise=excluded.collection_paise, occupancy_percent=excluded.occupancy_percent,
+          categories_json=excluded.categories_json RETURNING id`).bind(job.id, job.job_phase, captured,
+            result.capacity, result.available, result.sold, result.unknown, result.collectionPaise,
+            result.occupancyPercent, JSON.stringify(result.categories), captured).first();
+        await env.DB.prepare("UPDATE bms_testing_capture_jobs SET status='succeeded', lease_expires_at=NULL, snapshot_id=?, last_error=NULL, updated_at=? WHERE id=?")
+          .bind(snapshot.id, captured, job.job_id).run();
+        await logRun(env.DB, { type: "capture", venue: job.venue_code, date: job.show_date, showId: job.id, phase: job.job_phase, status: "succeeded", attempt, started: now, finished: captured, details: { unavailable: result.sold } });
+        output.push({ showId: job.id, phase: job.job_phase, status: "succeeded" });
+      } catch (error) {
+        const finished = new Date().toISOString();
+        const wait = error.status === 429 ? Math.max(error.retryAfterMs || 0, RATE_LIMIT_RETRY_MS) : RETRY_MS;
+        const next = addMs(finished, wait);
+        const retry = attempt < 3 && next <= job.job_deadline_at && error.status !== 403;
+        await env.DB.prepare("UPDATE bms_testing_capture_jobs SET status=?, lease_expires_at=NULL, next_attempt_at=?, last_error=?, updated_at=? WHERE id=?")
+          .bind(retry ? "pending" : "failed", next, error.message, finished, job.job_id).run();
+        await logRun(env.DB, { type: "capture", venue: job.venue_code, date: job.show_date, showId: job.id, phase: job.job_phase, status: retry ? "retrying" : "failed", attempt, started: now, finished, httpStatus: error.status, errorCode: error.code, error: error.message });
+        output.push({ showId: job.id, phase: job.job_phase, status: retry ? "retrying" : "failed" });
+        if (error.status === 429) break;
+      }
     }
+  } finally {
+    if (browser) await browser.close();
   }
   return output;
 }
