@@ -577,10 +577,12 @@ export async function bmsTestingDashboard(env, { date, venueCode = "ALL" }) {
   const capacity = finals.reduce((sum, show) => sum + show.final.capacity, 0);
   const collectionPaise = finals.reduce((sum, show) => sum + show.final.collectionPaise, 0);
   const discovery = await env.DB.prepare("SELECT * FROM bms_testing_discovery_state WHERE show_date=? ORDER BY venue_code").bind(date).all();
+  const failedCaptures = shows.filter((show) => show.jobs.final.status === "failed").length;
+  const failedDiscoveries = (discovery.results || []).filter((item) => item.last_status === "failed").length;
   return {
     enabled: true, mode: "ravi-final-server-testing", date, venueCode, refreshedAt: new Date().toISOString(),
     summary: { shows: shows.length, initialCaptured: shows.filter((show) => show.initial).length,
-      finalCaptured: finals.length, failed: shows.filter((show) => show.jobs.final.status === "failed").length,
+      finalCaptured: finals.length, failed: failedCaptures + failedDiscoveries,
       unavailable: tickets, tickets, capacity, estimatedCollectionPaise: collectionPaise, collectionPaise,
       occupancyPercent: capacity ? Math.round((tickets / capacity) * 10_000) / 100 : 0,
       exactMatches: shows.filter((show) => show.comparison?.exactTickets).length },
