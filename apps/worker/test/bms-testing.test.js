@@ -3,6 +3,7 @@ import { webcrypto } from "node:crypto";
 import test from "node:test";
 import {
   BMS_DISCOVERY_INTERVAL_MS,
+  BMS_DISCOVERY_PREFLIGHT_MS,
   BMS_TESTING_VENUE_CODES,
   bmsCaptureClaimThrough,
   bmsCaptureWaitMs,
@@ -11,6 +12,7 @@ import {
   decryptBmsSeatLayout,
   fetchBmsTestingCapture,
   normalizeServiceShows,
+  nextBmsDiscoveryAt,
   parseBmsSeatCategories,
   parseBmsTheatreSchedule,
   parseDistrictSeatCategories,
@@ -54,12 +56,35 @@ async function encryptedLayout() {
 
 test("automatic BMS testing remains explicitly disabled by default", () => {
   assert.deepEqual(BMS_TESTING_VENUE_CODES, ["RTDM", "ASRM", "SKMD", "MSDR", "SUTD", "SCM"]);
-  assert.equal(BMS_DISCOVERY_INTERVAL_MS, 12 * 60 * 60_000);
+  assert.equal(BMS_DISCOVERY_INTERVAL_MS, 6 * 60 * 60_000);
+  assert.equal(BMS_DISCOVERY_PREFLIGHT_MS, 30 * 60_000);
   assert.equal(bmsTestingEnabled({ BMS_CAPTURE_SERVICE_URL: "https://capture.example", BMS_CAPTURE_SERVICE_TOKEN: KEY }), false);
   assert.equal(bmsTestingEnabled({ BMS_TESTING_ENABLED: "true", BMS_CAPTURE_SERVICE_URL: "https://capture.example", BMS_CAPTURE_SERVICE_TOKEN: KEY }), true);
   assert.equal(bmsTestingEnabled({ BMS_TESTING_ENABLED: "true", BMS_CAPTURE_SERVICE_URL: "http://capture.example", BMS_CAPTURE_SERVICE_TOKEN: KEY }), false);
   assert.equal(bmsTestingEnabled({ BMS_TESTING_ENABLED: "true", BMS_CAPTURE_SERVICE_URL: "internal" }), false);
   assert.equal(bmsTestingEnabled({ BMS_TESTING_ENABLED: "true", BMS_CAPTURE_SERVICE_URL: "internal", BMS_LAYOUT_KEY: KEY }), true);
+});
+
+test("server discovery refreshes before a pending show without excessive polling", () => {
+  const shows = [
+    { startAt: "2026-11-28T05:30:00.000Z" },
+    { startAt: "2026-11-28T08:45:00.000Z" }
+  ];
+  assert.equal(
+    nextBmsDiscoveryAt(shows, "2026-11-28T00:31:00.000Z"),
+    "2026-11-28T05:00:00.000Z",
+    "the 11 AM show receives a 10:30 AM IST schedule preflight"
+  );
+  assert.equal(
+    nextBmsDiscoveryAt(shows, "2026-11-28T05:01:00.000Z"),
+    "2026-11-28T08:15:00.000Z",
+    "after the morning preflight, discovery advances to the next show"
+  );
+  assert.equal(
+    nextBmsDiscoveryAt([], "2026-11-28T00:31:00.000Z"),
+    "2026-11-28T02:31:00.000Z",
+    "an empty schedule is checked again sooner instead of waiting half a day"
+  );
 });
 
 test("minute cron reserves the next cutoff and waits for its exact due time", () => {

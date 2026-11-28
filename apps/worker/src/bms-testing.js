@@ -6,7 +6,11 @@ const BMS_BASE = "https://in.bookmyshow.com";
 const BMS_HOME = `${BMS_BASE}/explore/home/madanapalle`;
 const BMS_SEAT_ENDPOINT = "https://services-in.bookmyshow.com/doTrans.aspx";
 const DISTRICT_BASE = "https://www.district.in";
-export const BMS_DISCOVERY_INTERVAL_MS = 12 * 60 * 60_000;
+// Refresh periodically, then schedule one last theatre-page read before every
+// show. The preflight catches same-day movie/session replacements without the
+// cost of polling all six Browser Rendering pages every few minutes.
+export const BMS_DISCOVERY_INTERVAL_MS = 6 * 60 * 60_000;
+export const BMS_DISCOVERY_PREFLIGHT_MS = 30 * 60_000;
 const DISCOVERY_RETRY_MS = 2 * 60 * 60_000;
 const RETRY_MS = 60_000;
 const RATE_LIMIT_RETRY_MS = 30 * 60_000;
@@ -72,6 +76,15 @@ export function bmsDiscoveryIsActionable(showDate, shows = [], now = new Date())
     const deadline = new Date(job.deadlineAt || 0).getTime();
     return Number.isFinite(deadline) && deadline >= current.getTime();
   });
+}
+
+export function nextBmsDiscoveryAt(shows = [], now = new Date()) {
+  const current = new Date(now);
+  if (!Number.isFinite(current.getTime())) throw new TypeError("Invalid discovery schedule time");
+  const fallback = current.getTime() + (shows.length ? BMS_DISCOVERY_INTERVAL_MS : DISCOVERY_RETRY_MS);
+  const upcomingPreflights = shows.map((show) => new Date(show?.startAt || show?.start_at || 0).getTime() - BMS_DISCOVERY_PREFLIGHT_MS)
+    .filter((time) => Number.isFinite(time) && time > current.getTime());
+  return new Date(Math.min(fallback, ...upcomingPreflights)).toISOString();
 }
 
 function codeToDate(code) {
@@ -1037,15 +1050,16 @@ async function discoverOne(env, showDate, now, options) {
     const shows = await discoverVenueFromService(env, venue.venueCode, showDate, now, options);
     const count = await saveDiscovery(env.DB, venue, showDate, shows, now);
     const finished = new Date().toISOString();
+    const nextAttemptAt = nextBmsDiscoveryAt(shows, finished);
     await env.DB.prepare(`UPDATE bms_testing_discovery_state SET lease_expires_at=NULL, last_status='succeeded',
       last_error=NULL, last_finished_at=?, next_attempt_at=?, updated_at=? WHERE venue_code=? AND show_date=?`)
-      .bind(finished, addMs(finished, BMS_DISCOVERY_INTERVAL_MS), finished, venue.venueCode, showDate).run();
+      .bind(finished, nextAttemptAt, finished, venue.venueCode, showDate).run();
     await logRun(env.DB, {
       type: "discovery", venue: venue.venueCode, date: showDate, status: "succeeded",
       started, finished,
-      details: { shows: count, durationMs: elapsedMs(started, finished), transport: env.BROWSER ? "cloudflare_browser" : "direct_http" }
+      details: { shows: count, durationMs: elapsedMs(started, finished), nextAttemptAt, transport: env.BROWSER ? "cloudflare_browser" : "direct_http" }
     });
-    return { venueCode: venue.venueCode, status: "succeeded", shows: count };
+    return { venueCode: venue.venueCode, status: "succeeded", shows: count, nextAttemptAt };
   } catch (error) {
     const finished = new Date().toISOString();
     const wait = error.status === 429
