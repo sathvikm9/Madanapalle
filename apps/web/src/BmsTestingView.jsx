@@ -53,7 +53,23 @@ function Job({ label, job, snapshot }) {
   return <div className={`bms-job bms-job--${status}`}><i aria-hidden="true" /><span>{label}</span><strong>{status.replaceAll("_", " ")}</strong><small>{detail}</small></div>;
 }
 
+function CategoryBreakdown({ title, snapshot, tone }) {
+  const categories = snapshot?.categories || [];
+  return (
+    <section className={`bms-test-breakdown__panel bms-test-breakdown__panel--${tone}`}>
+      <header><strong>{title}</strong><span>{snapshot ? `${number.format(snapshot.sold)} unavailable` : "No capture"}</span></header>
+      {categories.length ? <div className="bms-test-breakdown__rows">{categories.map((category) => (
+        <div className="bms-test-breakdown__row" key={category.name}>
+          <div><strong>{category.name}</strong><small>{money.format(category.listPricePaise / 100)} → {money.format(category.netPricePaise / 100)}</small></div>
+          <div><strong>{number.format(category.sold)} / {number.format(category.capacity)}</strong><small>{money.format(category.collectionPaise / 100)}</small></div>
+        </div>
+      ))}</div> : <p>No class-level data available yet.</p>}
+    </section>
+  );
+}
+
 function ShowCard({ show }) {
+  const [open, setOpen] = useState(false);
   const snapshot = show.final || show.initial;
   const providerName = show.provider === "district" ? "District" : "BookMyShow";
   return (
@@ -71,7 +87,16 @@ function ShowCard({ show }) {
         <div className="bms-test-value"><span>Server unavailable</span><strong>{snapshot ? number.format(snapshot.sold) : "—"}</strong><b>{snapshot ? `${money.format(snapshot.collectionPaise / 100)} estimated` : "Awaiting cutoff"}</b><small>{snapshot ? `${snapshot.occupancyPercent || Math.round((snapshot.sold / snapshot.capacity) * 10_000) / 100}% of ${number.format(snapshot.capacity)} seats` : "No server capture yet"}</small></div>
         <div className="bms-test-value"><span>Extension collector</span><strong>{show.collector ? number.format(show.collector.sold) : "—"}</strong><b>{show.collector ? money.format(show.collector.collectionPaise / 100) : "No comparison yet"}</b><small>{show.collector ? `Captured ${time.format(new Date(show.collector.capturedAt))}` : "Production data stays separate"}</small></div>
       </div>
-      <div className="bms-test-jobs bms-test-jobs--single"><Job label="Final cutoff read" job={show.jobs.final} snapshot={show.final} /></div>
+      <footer className="bms-test-show__footer">
+        <Job label="Final cutoff read" job={show.jobs.final} snapshot={show.final} />
+        <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
+          <span>{open ? "Hide breakdown" : "Seat & price breakdown"}</span><i aria-hidden="true">⌄</i>
+        </button>
+      </footer>
+      {open && <div className="bms-test-breakdown" role="region" aria-label={`${show.showTime} server and extension seat breakdown`}>
+        <CategoryBreakdown title="Server" snapshot={snapshot} tone="server" />
+        <CategoryBreakdown title="Extension" snapshot={show.collector} tone="extension" />
+      </div>}
     </article>
   );
 }
@@ -103,10 +128,6 @@ export default function BmsTestingView({ apiBase, demo, maxDate }) {
 
   return (
     <section className="bms-testing" aria-label="Automatic server collection testing">
-      <header className="bms-testing__hero">
-        <div><p className="eyebrow">Server collector laboratory</p><h1>Server Collection Test</h1><p>Final availability snapshots from five BookMyShow theatres and Sai Chitra on District.</p></div>
-        <span><i aria-hidden="true" /> Isolated from production</span>
-      </header>
       <div className="bms-testing__filters">
         <label><span>Theatre</span><select value={venueCode} onChange={(event) => setVenueCode(event.target.value)} aria-label="Testing theatre">{TESTING_VENUES.map((venue) => <option key={venue.code} value={venue.code}>{venue.name}</option>)}</select></label>
         <label><span>Show date</span><input type="date" min={FIRST_LIVE_DATE} max={maxDate} value={date} onChange={(event) => setDate(event.target.value)} /></label>
