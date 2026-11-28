@@ -152,6 +152,48 @@ test("Mini Siddartha excludes the blocked Silver section until BMS opens it", ()
   assert.equal(expanded.sold, 61);
 });
 
+test("Mini Siddartha excludes all 16 state-3 Silver positions even when interspersed", () => {
+  const silver = [
+    ...seatTokens("B", 1, 8),
+    ...seatTokens("B", 3, 5, 9),
+    ...seatTokens("B", 2, 12, 14),
+    ...seatTokens("B", 3, 6, 26),
+    ...seatTokens("B", 1, 13, 32),
+    ...seatTokens("B", 3, 5, 45)
+  ];
+  const miniLayout = `GOLD CLASS:A:GO:1|SILVER CLASS:B:SI:2||1:A:${[
+    ...seatTokens("A", 1, 200), ...seatTokens("A", 2, 38, 201)
+  ].join(":")}|2:B:${silver.join(":")}|`;
+  const miniShow = {
+    venue_code: "MSDR",
+    advertised_categories_json: JSON.stringify([
+      { name: "GOLD CLASS", listPricePaise: 10_500 },
+      { name: "SILVER CLASS", listPricePaise: 8_400 }
+    ])
+  };
+  const result = parseBmsSeatCategories(miniLayout, miniShow);
+  assert.equal(result.capacity, 271);
+  assert.equal(result.sold, 50);
+  assert.equal(result.categories.find((category) => category.name === "SILVER CLASS").capacity, 33);
+});
+
+test("Mini Siddartha rejects an ambiguous partial state-3 Silver block", () => {
+  const silver = [
+    ...seatTokens("B", 1, 32),
+    ...seatTokens("B", 3, 15, 33),
+    ...seatTokens("B", 2, 2, 48)
+  ];
+  const miniLayout = `GOLD CLASS:A:GO:1|SILVER CLASS:B:SI:2||1:A:${seatTokens("A", 1, 238).join(":")}|2:B:${silver.join(":")}|`;
+  const miniShow = {
+    venue_code: "MSDR",
+    advertised_categories_json: JSON.stringify([
+      { name: "GOLD CLASS", listPricePaise: 10_500 },
+      { name: "SILVER CLASS", listPricePaise: 8_400 }
+    ])
+  };
+  assert.throws(() => parseBmsSeatCategories(miniLayout, miniShow), /unknown seat state/);
+});
+
 test("Sunil parser requires its verified 239 plus 88 seat layout", () => {
   const result = parseBmsSeatCategories(sunilLayout(), sunilShow);
   assert.equal(result.capacity, 327);

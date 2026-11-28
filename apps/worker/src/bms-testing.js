@@ -204,21 +204,34 @@ export function parseBmsSeatCategories(text, show) {
       throw new Error(`Rejected ${venue.shortName} ${layout.name}: counted ${observedCapacity} real seats, expected ${layout.capacity}${physicalCapacity !== layout.capacity ? ` or ${physicalCapacity}` : ""}`);
     }
     let count = observed;
-    // Mini Siddartha's optional Silver block is currently exposed by BMS as
-    // unavailable. Keep it outside the denominator until at least one of those
-    // positions is actually opened; then accept the complete 49-seat section.
+    // Mini Siddartha has 49 physical Silver positions, but BMS currently marks
+    // exactly 16 of them as state 3 (not offered for sale). Those positions can
+    // appear between bookable seats, so identify them by state instead of row
+    // order. If BMS later opens the block, accept the complete 49-seat section.
     if (physicalCapacity !== layout.capacity && observedCapacity === physicalCapacity) {
       const optionalCapacity = Number(layout.optionalCapacity || physicalCapacity - layout.capacity);
-      const baseStatuses = observed.statuses.slice(0, physicalCapacity - optionalCapacity);
-      const optionalStatuses = observed.statuses.slice(-optionalCapacity);
-      const optionalSectionOpen = optionalStatuses.some((status) => status === 1 || status === 4);
-      if (!optionalSectionOpen) {
-        count = baseStatuses.reduce((result, status) => {
+      const blockedStatuses = observed.statuses.filter((status) => status === 3);
+      if (blockedStatuses.length === optionalCapacity) {
+        count = observed.statuses.filter((status) => status !== 3).reduce((result, status) => {
           if (status === 1 || status === 4) result.available += 1;
           else if (status === 2) result.sold += 1;
           else result.unknown += 1;
           return result;
         }, { available: 0, sold: 0, unknown: 0 });
+      } else if (!blockedStatuses.length) {
+        // Retain compatibility with the older layout, where the same 16
+        // positions were returned as unavailable at the end of the category.
+        const baseStatuses = observed.statuses.slice(0, physicalCapacity - optionalCapacity);
+        const optionalStatuses = observed.statuses.slice(-optionalCapacity);
+        const optionalSectionOpen = optionalStatuses.some((status) => status === 1 || status === 4);
+        if (!optionalSectionOpen) {
+          count = baseStatuses.reduce((result, status) => {
+            if (status === 1 || status === 4) result.available += 1;
+            else if (status === 2) result.sold += 1;
+            else result.unknown += 1;
+            return result;
+          }, { available: 0, sold: 0, unknown: 0 });
+        }
       }
     }
     const capacity = count.available + count.sold + count.unknown;
@@ -562,21 +575,53 @@ async function fetchDistrictTestingCaptureBrowser(env, show, options = {}) {
     });
   }
   return withDistrictBrowser(env, async (page) => {
-    const response = await page.goto(url.toString(), { waitUntil: "domcontentloaded", timeout: 20_000 });
+    // District does not initialize its seat-map state when a fresh browser is
+    // sent directly to the seat URL. Start at the theatre page and activate the
+    // exact show control, matching the same client-side path a user follows.
+    const theatreUrl = new URL(venue.districtUrl);
+    theatreUrl.searchParams.set("fromdate", show.show_date || show.showDate);
+    const response = await page.goto(theatreUrl.toString(), { waitUntil: "domcontentloaded", timeout: 20_000 });
     const html = await page.content();
-    assertBrowserPage(html, response?.status(), "seat-layout request", "District");
+    assertBrowserPage(html, response?.status(), "theatre schedule request", "District");
+    const selected = await page.evaluate((targetSession) => {
+      for (const button of document.querySelectorAll("button")) {
+        const anchor = button.querySelector('a[href*="/movies/seat-layout/"]');
+        if (!anchor) continue;
+        try {
+          const candidate = new URL(anchor.href, location.origin);
+          if (candidate.searchParams.get("encsessionid") !== targetSession) continue;
+          button.click();
+          return true;
+        } catch { /* Ignore malformed provider links and keep looking. */ }
+      }
+      return false;
+    }, encodedSession);
+    if (!selected) {
+      throw new BmsUpstreamError("District theatre page did not expose the exact Sai Chitra show control", {
+        code: "session_control_missing",
+        stage: "district_capture"
+      });
+    }
     const expectedCapacity = venue.layoutCategories.reduce((sum, item) => sum + Number(item.capacity), 0);
     let labels = [];
+    let providerMessage = "";
     const started = Date.now();
-    while (Date.now() - started < 12_000) {
-      labels = await page.evaluate(() => Array.from(
-        document.querySelectorAll('[aria-label^="available"], [aria-label^="unavailable"]')
-      ).map((seat) => seat.getAttribute("aria-label")).filter(Boolean));
-      if (labels.length === expectedCapacity) break;
+    while (Date.now() - started < 20_000) {
+      const state = await page.evaluate(() => ({
+        href: location.href,
+        labels: Array.from(
+          document.querySelectorAll('[aria-label^="available" i], [aria-label^="unavailable" i]')
+        ).map((seat) => seat.getAttribute("aria-label")).filter(Boolean),
+        text: document.body?.innerText || ""
+      }));
+      labels = state.labels;
+      providerMessage = state.text;
+      let currentSession = "";
+      try { currentSession = new URL(state.href).searchParams.get("encsessionid") || ""; } catch { /* Keep waiting. */ }
+      if (currentSession === encodedSession && labels.length === expectedCapacity) break;
       await sleep(250);
     }
     if (!labels.length) {
-      const providerMessage = await page.evaluate(() => document.body?.innerText || "");
       const full = fullCapacityCapture(show, providerMessage);
       if (full) return full;
       throw new BmsUpstreamError("District live seat map did not render before the capture deadline", {
