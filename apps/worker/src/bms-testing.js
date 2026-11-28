@@ -5,6 +5,7 @@ import { venueForCode } from "./venues.js";
 const BMS_BASE = "https://in.bookmyshow.com";
 const BMS_HOME = `${BMS_BASE}/explore/home/madanapalle`;
 const BMS_SEAT_ENDPOINT = "https://services-in.bookmyshow.com/doTrans.aspx";
+const DISTRICT_BASE = "https://www.district.in";
 export const BMS_DISCOVERY_INTERVAL_MS = 12 * 60 * 60_000;
 const DISCOVERY_RETRY_MS = 2 * 60 * 60_000;
 const RETRY_MS = 60_000;
@@ -12,7 +13,7 @@ const RATE_LIMIT_RETRY_MS = 30 * 60_000;
 const MAX_CAPTURES_PER_RUN = 8;
 const CAPTURE_LEASE_MS = 180_000;
 const CAPTURE_SPACING_MS = 1_000;
-export const BMS_TESTING_VENUE_CODES = Object.freeze(["RTDM", "ASRM", "SKMD", "MSDR", "SUTD"]);
+export const BMS_TESTING_VENUE_CODES = Object.freeze(["RTDM", "ASRM", "SKMD", "MSDR", "SUTD", "SCM"]);
 const VENUE_SET = new Set(BMS_TESTING_VENUE_CODES);
 
 export class BmsUpstreamError extends Error {
@@ -216,6 +217,53 @@ export function parseBmsSeatCategories(text, show) {
   return calculateCollection(categories);
 }
 
+export function parseDistrictSeatCategories(labels, show) {
+  const venue = venueForCode(show.venue_code || show.venueCode);
+  if (venue?.venueCode !== "SCM") throw new Error("District seat parsing is approved only for Sai Chitra");
+  const prices = new Map(jsonValue(show.advertised_categories_json, show.categories || [])
+    .map((item) => [normalizedName(item.name), Number(item.listPricePaise || 0)]));
+  const observed = new Map();
+  for (const rawLabel of labels || []) {
+    const label = String(rawLabel || "").trim();
+    const status = /^available\s+seat/i.test(label)
+      ? "available"
+      : (/^unavailable\s+seat/i.test(label) ? "sold" : null);
+    const classMatch = label.match(/class\s+([^,]+)/i);
+    if (!status || !classMatch) continue;
+    const name = normalizedName(classMatch[1]);
+    const priceMatch = label.match(/price\s+(\d+(?:\.\d+)?)/i);
+    const current = observed.get(name) || {
+      name,
+      available: 0,
+      sold: 0,
+      unknown: 0,
+      listPricePaise: prices.get(name) || 0
+    };
+    current[status] += 1;
+    if (priceMatch) current.listPricePaise = Math.round(Number(priceMatch[1]) * 100);
+    observed.set(name, current);
+  }
+  const expected = new Map(venue.layoutCategories.map((item) => [normalizedName(item.name), item]));
+  if (observed.size !== expected.size) {
+    throw new Error(`Rejected ${venue.shortName} layout: expected ${expected.size} categories, received ${observed.size}`);
+  }
+  const categories = venue.layoutCategories.map((layout) => {
+    const category = observed.get(normalizedName(layout.name));
+    if (!category) throw new Error(`Rejected ${venue.shortName} layout: missing ${layout.name}`);
+    const capacity = category.available + category.sold;
+    if (capacity !== Number(layout.capacity)) {
+      throw new Error(`Rejected ${venue.shortName} ${layout.name}: counted ${capacity} real seats, expected ${layout.capacity}`);
+    }
+    const expectedPrice = prices.get(normalizedName(layout.name));
+    if (!Number.isSafeInteger(category.listPricePaise) || category.listPricePaise <= 0 ||
+        (expectedPrice && category.listPricePaise !== expectedPrice)) {
+      throw new Error(`Rejected ${venue.shortName} ${layout.name}: live price did not match discovery`);
+    }
+    return { ...category, name: layout.name, capacity };
+  });
+  return calculateCollection(categories);
+}
+
 function isExplicitSoldOutMessage(message) {
   const normalized = String(message || "").trim().toLowerCase().replace(/\s+/g, " ");
   return /\b(?:seats?|show)\s+(?:are|is)\s+sold\s*out\b/.test(normalized)
@@ -289,16 +337,16 @@ export async function fetchBmsTestingCapture(show, options = {}) {
   return parseBmsSeatCategories(plaintext, show);
 }
 
-function assertBrowserPage(html, status, stage) {
+function assertBrowserPage(html, status, stage, provider = "BMS") {
   if (status === 403 || status === 429) {
-    throw new BmsUpstreamError(`BMS blocked ${stage} in Chromium with HTTP ${status}`, {
+    throw new BmsUpstreamError(`${provider} blocked ${stage} in Chromium with HTTP ${status}`, {
       status,
       code: status === 403 ? "forbidden" : "rate_limited",
       stage
     });
   }
   if (!status || status >= 400) {
-    throw new BmsUpstreamError(`BMS ${stage} returned HTTP ${status || "unknown"} in Chromium`, {
+    throw new BmsUpstreamError(`${provider} ${stage} returned HTTP ${status || "unknown"} in Chromium`, {
       status: status || null,
       code: "http_error",
       stage
@@ -306,7 +354,7 @@ function assertBrowserPage(html, status, stage) {
   }
   const lower = String(html || "").toLowerCase();
   if (["cf-chl-", "just a moment", "attention required", "access denied"].some((marker) => lower.includes(marker))) {
-    throw new BmsUpstreamError(`BMS presented a browser verification page during ${stage}`, {
+    throw new BmsUpstreamError(`${provider} presented a browser verification page during ${stage}`, {
       status: 403,
       code: "browser_verification_required",
       stage
@@ -357,11 +405,46 @@ async function withBmsBrowser(env, task, sharedBrowser = null) {
   }
 }
 
+async function withDistrictBrowser(env, task, sharedBrowser = null) {
+  if (!env.BROWSER) throw new BmsUpstreamError("Cloudflare Browser Rendering is not configured", {
+    code: "browser_not_configured",
+    stage: "browser_configuration"
+  });
+  const browser = sharedBrowser || await launchBmsBrowser(env);
+  let page = null;
+  try {
+    page = await browser.newPage();
+    await page.setViewport({ width: 1440, height: 1000, deviceScaleFactor: 1 });
+    await page.setExtraHTTPHeaders({ "accept-language": "en-IN,en;q=0.9" });
+    return await task(page);
+  } catch (error) {
+    if (error instanceof BmsUpstreamError) throw error;
+    throw new BmsUpstreamError(`Chromium could not complete the District request: ${error.message || error}`, {
+      code: "browser_request_failed",
+      stage: "district_browser_request"
+    });
+  } finally {
+    if (page) await page.close().catch(() => {});
+    if (!sharedBrowser) await browser.close();
+  }
+}
+
 async function fetchBmsTheatreScheduleBrowser(env, venue, showDate, options = {}) {
   const url = `${BMS_BASE}/cinemas/mdnp/${venue.slug}/buytickets/${venue.venueCode}/${dateCode(showDate)}`;
   return withBmsBrowser(env, async (page) => {
     const html = await gotoInBrowser(page, url, `${venue.shortName} schedule request`);
     return parseBmsTheatreSchedule(html, venue, showDate, options.now || new Date());
+  }, options.browser);
+}
+
+async function fetchDistrictTheatreScheduleBrowser(env, venue, showDate, options = {}) {
+  const url = new URL(venue.districtUrl);
+  url.searchParams.set("fromdate", showDate);
+  return withDistrictBrowser(env, async (page) => {
+    const response = await page.goto(url.toString(), { waitUntil: "domcontentloaded", timeout: 20_000 });
+    const html = await page.content();
+    assertBrowserPage(html, response?.status(), `${venue.shortName} schedule request`, "District");
+    return parseDistrictTheatreSchedule(html, venue, showDate, options.now || new Date());
   }, options.browser);
 }
 
@@ -440,6 +523,64 @@ async function fetchBmsTestingCaptureBrowser(env, show, options = {}) {
   }, options.browser);
 }
 
+async function fetchDistrictTestingCaptureBrowser(env, show, options = {}) {
+  const venue = venueForCode(show.venue_code || show.venueCode);
+  if (venue?.venueCode !== "SCM") {
+    throw new BmsUpstreamError("District capture is approved only for Sai Chitra", {
+      code: "venue_not_approved",
+      stage: "district_capture"
+    });
+  }
+  let url;
+  try { url = new URL(String(show.provider_url || show.providerUrl || "")); }
+  catch {
+    throw new BmsUpstreamError("Sai Chitra testing show has no exact District seat route", {
+      code: "session_route_missing",
+      stage: "district_capture"
+    });
+  }
+  const encodedSession = String(url.searchParams.get("encsessionid") || "");
+  const districtHost = url.hostname === "district.in" || url.hostname === "www.district.in" || url.hostname.endsWith(".district.in");
+  if (url.protocol !== "https:" || !districtHost || !url.pathname.includes("/movies/seat-layout/") ||
+      !encodedSession.startsWith(`${venue.cinemaId}-${show.session_id}-`)) {
+    throw new BmsUpstreamError("Sai Chitra testing show did not retain its exact District session route", {
+      code: "session_route_mismatch",
+      stage: "district_capture"
+    });
+  }
+  return withDistrictBrowser(env, async (page) => {
+    const response = await page.goto(url.toString(), { waitUntil: "domcontentloaded", timeout: 20_000 });
+    const html = await page.content();
+    assertBrowserPage(html, response?.status(), "seat-layout request", "District");
+    const expectedCapacity = venue.layoutCategories.reduce((sum, item) => sum + Number(item.capacity), 0);
+    let labels = [];
+    const started = Date.now();
+    while (Date.now() - started < 12_000) {
+      labels = await page.evaluate(() => Array.from(
+        document.querySelectorAll('[aria-label^="available"], [aria-label^="unavailable"]')
+      ).map((seat) => seat.getAttribute("aria-label")).filter(Boolean));
+      if (labels.length === expectedCapacity) break;
+      await sleep(250);
+    }
+    if (!labels.length) {
+      const providerMessage = await page.evaluate(() => document.body?.innerText || "");
+      const full = fullCapacityCapture(show, providerMessage);
+      if (full) return full;
+      throw new BmsUpstreamError("District live seat map did not render before the capture deadline", {
+        code: "seat_layout_not_ready",
+        stage: "district_seat_layout"
+      });
+    }
+    try { return parseDistrictSeatCategories(labels, show); }
+    catch (error) {
+      throw new BmsUpstreamError(error.message || "District seat layout validation failed", {
+        code: "seat_layout_validation_failed",
+        stage: "district_seat_layout"
+      });
+    }
+  }, options.browser);
+}
+
 function extractJson(text, marker) {
   const start = text.indexOf("{", marker);
   let depth = 0, inString = false, escaped = false;
@@ -491,6 +632,174 @@ export function parseBmsTheatreSchedule(html, venue, showDate, now = new Date())
     });
   }
   return result;
+}
+
+function districtNextData(html) {
+  const match = String(html || "").match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+  if (!match?.[1]) {
+    throw new BmsUpstreamError("District theatre page did not expose schedule data", {
+      code: "verification_or_schema_changed",
+      stage: "district_schedule"
+    });
+  }
+  try { return JSON.parse(match[1]); }
+  catch {
+    throw new BmsUpstreamError("District theatre schedule was not valid JSON", {
+      code: "schema_changed",
+      stage: "district_schedule"
+    });
+  }
+}
+
+function districtCinemaPayload(state, venue, showDate) {
+  const sources = [
+    state?.props?.pageProps?.initialState?.movies?.cinemaSessions,
+    state?.props?.pageProps?.data?.serverState?.cinemaSessions,
+    state?.props?.pageProps?.initialState?.cinemaSessions
+  ];
+  const key = `${venue.cinemaId}${showDate}`;
+  for (const source of sources) {
+    if (!source || typeof source !== "object") continue;
+    const exact = source[key];
+    if (exact) return exact;
+    const matching = Object.values(source).find((item) =>
+      String(item?.meta?.cinema?.id || "") === String(venue.cinemaId) &&
+      (item?.pageData?.sessions || item?.arrangedSessions?.flatMap((group) => group.sessions || []) || [])
+        .some((session) => String(session.showDate || "") === showDate)
+    );
+    if (matching) return matching;
+  }
+  throw new BmsUpstreamError(`District did not include the ${venue.shortName} schedule for ${showDate}`, {
+    code: "schedule_missing",
+    stage: "district_schedule"
+  });
+}
+
+function districtUtcDate(value, field) {
+  const text = String(value || "").trim();
+  const normalized = /[zZ]|[+-]\d{2}:?\d{2}$/.test(text) ? text : `${text}${text.length === 16 ? ":00" : ""}Z`;
+  const date = new Date(normalized);
+  if (!Number.isFinite(date.getTime())) {
+    throw new BmsUpstreamError(`District returned an invalid ${field}`, {
+      code: "schema_changed",
+      stage: "district_schedule"
+    });
+  }
+  return date;
+}
+
+function districtShowTimeCode(session, startAt) {
+  const local = String(session.showTimeISO || session.showTimeLocal || "").match(/T(\d{2}):(\d{2})/);
+  if (local) return `${local[1]}${local[2]}`;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hourCycle: "h23"
+  }).formatToParts(startAt);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.hour}${values.minute}`;
+}
+
+function districtSeatLayoutUrl(venue, session, metadata, showDate) {
+  const sessionId = String(session.sid || "").trim();
+  const formatId = String(session.fid || session.entityDataCode || metadata?.formatGroupIds?.[0] || "").trim().toLowerCase();
+  const eventCode = String(session.mid || "").trim().toLowerCase();
+  const encodedSession = String(session.encSessionId || [venue.cinemaId, sessionId, eventCode, formatId]
+    .filter(Boolean).join("-"));
+  if (!sessionId || !formatId || !encodedSession.startsWith(`${venue.cinemaId}-${sessionId}-`)) {
+    throw new BmsUpstreamError("District did not expose an exact Sai Chitra seat-layout route", {
+      code: "session_route_missing",
+      stage: "district_schedule"
+    });
+  }
+  const url = new URL(`/movies/seat-layout/${encodeURIComponent(formatId)}`, DISTRICT_BASE);
+  url.searchParams.set("encsessionid", encodedSession);
+  url.searchParams.set("fromdate", showDate);
+  url.searchParams.set("freeseating", String(Boolean(session.freeSeating || session.freeseating)));
+  url.searchParams.set("fromsessions", "true");
+  url.searchParams.set("type", "CINEMAS");
+  if (session.contentId || metadata?.contentId) url.searchParams.set("contentid", String(session.contentId || metadata.contentId));
+  return url.toString();
+}
+
+export function parseDistrictTheatreSchedule(html, venue, showDate, now = new Date()) {
+  if (venue?.venueCode !== "SCM" || !venue.cinemaId) {
+    throw new BmsUpstreamError("District server testing is approved only for Sai Chitra", {
+      code: "venue_not_approved",
+      stage: "district_schedule"
+    });
+  }
+  const state = districtNextData(html);
+  const payload = districtCinemaPayload(state, venue, showDate);
+  const arranged = payload.pageData?.arrangedSessions?.length
+    ? payload.pageData.arrangedSessions
+    : payload.arrangedSessions || [];
+  const pageSessions = payload.pageData?.sessions || [];
+  const groups = arranged.length ? arranged : [{ data: payload.meta?.movies?.[0] || {}, sessions: pageSessions }];
+  const discoveredAt = now.toISOString();
+  const shows = [];
+  for (const group of groups) {
+    const metadata = group.data || {};
+    for (const session of group.sessions || []) {
+      if (String(session.showDate || "") !== showDate) continue;
+      const sessionId = String(session.sid || "").trim();
+      const eventCode = String(session.mid || metadata.id || "").trim();
+      if (!sessionId || !eventCode) continue;
+      const startAt = session.showTimeISO
+        ? new Date(session.showTimeISO)
+        : districtUtcDate(session.showTime, "show time");
+      const cutoffAt = districtUtcDate(session.closeTime, "cutoff time");
+      if (!Number.isFinite(startAt.getTime()) || cutoffAt <= startAt) {
+        throw new BmsUpstreamError("District returned unsafe Sai Chitra capture timing", {
+          code: "schema_changed",
+          stage: "district_schedule"
+        });
+      }
+      const showTimeCode = districtShowTimeCode(session, startAt);
+      const finalCaptureAt = addMs(cutoffAt.toISOString(), -60_000);
+      const categories = (session.areas || []).map((area) => ({
+        name: String(area.label || "Category"),
+        priceCode: String(area.code || ""),
+        listPricePaise: Math.round(Number(area.price || 0) * 100),
+        availabilityStatus: String(area.seatStatus || area.statusColor || "")
+      }));
+      if (!categories.length || categories.some((category) => !category.listPricePaise)) {
+        throw new BmsUpstreamError("District did not expose every Sai Chitra class price", {
+          code: "schema_changed",
+          stage: "district_schedule"
+        });
+      }
+      shows.push({
+        naturalKey: [venue.venueCode, dateCode(showDate), showTimeCode, sessionId, eventCode].join(":"),
+        venueCode: venue.venueCode,
+        venueName: venue.name,
+        showDate,
+        showDateCode: dateCode(showDate),
+        showTimeCode,
+        showTimeLabel: String(session.showTimeText || ""),
+        startAt: startAt.toISOString(),
+        cutoffAt: cutoffAt.toISOString(),
+        captureAt: finalCaptureAt,
+        finalCaptureAt,
+        sessionId,
+        eventCode,
+        movieTitle: String(group.entityName || metadata.name || metadata.label || "Untitled movie"),
+        movieVariant: String(metadata.name || metadata.label || group.entityName || ""),
+        language: String(session.lang || metadata.lang || metadata.languages || ""),
+        format: String(session.scrnFmt || metadata.scrnFmt || ""),
+        screenName: String(session.audi || ""),
+        provider: "district",
+        providerUrl: districtSeatLayoutUrl(venue, session, metadata, showDate),
+        discoveredAt,
+        categories
+      });
+    }
+  }
+  if (!shows.length) {
+    throw new BmsUpstreamError(`District found no Sai Chitra shows for ${showDate}`, {
+      code: "schedule_missing",
+      stage: "district_schedule"
+    });
+  }
+  return shows;
 }
 
 export async function fetchBmsTheatreSchedule(venue, showDate, options = {}) {
@@ -594,6 +903,15 @@ export function validateServiceCapture(payload, show) {
 async function discoverVenueFromService(env, venueCode, showDate, now, options = {}) {
   const venue = venueForCode(venueCode);
   if (internalCaptureService(env)) {
+    if (venue.venueCode === "SCM") {
+      if (!env.BROWSER) {
+        throw new BmsUpstreamError("Sai Chitra District testing requires Browser Rendering", {
+          code: "browser_not_configured",
+          stage: "district_schedule"
+        });
+      }
+      return fetchDistrictTheatreScheduleBrowser(env, venue, showDate, { ...options, now: new Date(now) });
+    }
     if (env.BROWSER) return fetchBmsTheatreScheduleBrowser(env, venue, showDate, { ...options, now: new Date(now) });
     return fetchBmsTheatreSchedule(venue, showDate, { ...options, now: new Date(now) });
   }
@@ -611,6 +929,18 @@ async function discoverVenueFromService(env, venueCode, showDate, now, options =
 async function captureVenueFromService(env, show, options = {}) {
   const venue = venueForCode(show.venue_code);
   if (internalCaptureService(env)) {
+    if (venue.venueCode === "SCM") {
+      if (!env.BROWSER) {
+        throw new BmsUpstreamError("Sai Chitra District testing requires Browser Rendering", {
+          code: "browser_not_configured",
+          stage: "district_capture"
+        });
+      }
+      return {
+        result: await fetchDistrictTestingCaptureBrowser(env, show, options),
+        capturedAt: new Date().toISOString()
+      };
+    }
     const captureOptions = { ...options, keyText: env.BMS_LAYOUT_KEY };
     const result = env.BROWSER
       ? await fetchBmsTestingCaptureBrowser(env, show, captureOptions)
@@ -656,17 +986,20 @@ async function saveDiscovery(db, venue, showDate, shows, now) {
   await db.batch(shows.map((show) => db.prepare(`INSERT INTO bms_testing_shows
     (natural_key, venue_code, venue_name, show_date, show_date_code, show_time_code, show_time_label,
      start_at, cutoff_at, capture_at, final_capture_at, session_id, event_code, movie_title, movie_variant,
-     language, format, screen_name, advertised_categories_json, is_current, discovered_at, last_seen_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+     language, format, screen_name, advertised_categories_json, provider, provider_url,
+     is_current, discovered_at, last_seen_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
     ON CONFLICT(natural_key) DO UPDATE SET show_time_label=excluded.show_time_label, start_at=excluded.start_at,
     cutoff_at=excluded.cutoff_at, capture_at=excluded.capture_at, final_capture_at=excluded.final_capture_at,
     movie_title=excluded.movie_title, movie_variant=excluded.movie_variant, language=excluded.language,
     format=excluded.format, screen_name=excluded.screen_name, advertised_categories_json=excluded.advertised_categories_json,
+    provider=excluded.provider, provider_url=excluded.provider_url,
     is_current=1, last_seen_at=excluded.last_seen_at, updated_at=excluded.updated_at`).bind(
       show.naturalKey, show.venueCode, show.venueName, show.showDate, show.showDateCode, show.showTimeCode,
       show.showTimeLabel, show.startAt, show.cutoffAt, show.captureAt, show.finalCaptureAt, show.sessionId,
       show.eventCode, show.movieTitle, show.movieVariant, show.language, show.format, show.screenName,
-      JSON.stringify(show.categories), show.discoveredAt, now, now, now
+      JSON.stringify(show.categories), show.provider || "bookmyshow", show.providerUrl || null,
+      show.discoveredAt, now, now, now
     )));
   const rows = await db.prepare("SELECT id, capture_at, final_capture_at, cutoff_at FROM bms_testing_shows WHERE venue_code=? AND show_date=? AND is_current=1")
     .bind(venue.venueCode, showDate).all();
@@ -774,7 +1107,7 @@ async function claimCapture(db, now, claimThrough = now) {
     JOIN bms_testing_shows shows ON shows.id=jobs.testing_show_id
     WHERE jobs.status='pending' AND jobs.next_attempt_at<=? AND jobs.deadline_at>=? AND shows.is_current=1
     ORDER BY CASE jobs.phase WHEN 'final' THEN 0 ELSE 1 END, jobs.due_at,
-      CASE shows.venue_code WHEN 'RTDM' THEN 1 WHEN 'ASRM' THEN 2 WHEN 'SKMD' THEN 3 WHEN 'MSDR' THEN 4 WHEN 'SUTD' THEN 5 ELSE 6 END
+      CASE shows.venue_code WHEN 'RTDM' THEN 1 WHEN 'ASRM' THEN 2 WHEN 'SKMD' THEN 3 WHEN 'MSDR' THEN 4 WHEN 'SUTD' THEN 5 WHEN 'SCM' THEN 6 ELSE 7 END
     LIMIT 1`).bind(claimThrough, now).first();
   if (!job) return null;
   const changed = await db.prepare("UPDATE bms_testing_capture_jobs SET status='running', lease_expires_at=?, attempts=attempts+1, updated_at=? WHERE id=? AND status='pending'")
@@ -807,6 +1140,9 @@ async function runCaptures(env, nowDate, options) {
         const result = serviceCapture.result;
         const serviceCapturedAt = new Date(serviceCapture.capturedAt);
         const captured = Number.isFinite(serviceCapturedAt.getTime()) ? serviceCapturedAt.toISOString() : new Date().toISOString();
+        const snapshotSource = String(job.provider || "bookmyshow") === "district"
+          ? (result.captureEvidence === "provider_sold_out" ? "district-server-testing-sold-out" : "district-server-testing")
+          : (result.captureEvidence === "provider_sold_out" ? "bookmyshow-server-testing-sold-out" : "bookmyshow-server-testing");
         const snapshot = await env.DB.prepare(`INSERT INTO bms_testing_snapshots
           (testing_show_id, phase, captured_at, source, capacity, available, sold, unknown, collection_paise,
            occupancy_percent, categories_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -814,7 +1150,7 @@ async function runCaptures(env, nowDate, options) {
           source=excluded.source, capacity=excluded.capacity, available=excluded.available, sold=excluded.sold, unknown=excluded.unknown,
           collection_paise=excluded.collection_paise, occupancy_percent=excluded.occupancy_percent,
           categories_json=excluded.categories_json RETURNING id`).bind(job.id, job.job_phase, captured,
-            result.captureEvidence === "provider_sold_out" ? "bookmyshow-server-testing-sold-out" : "bookmyshow-server-testing",
+            snapshotSource,
             result.capacity, result.available, result.sold, result.unknown, result.collectionPaise,
             result.occupancyPercent, JSON.stringify(result.categories), captured).first();
         await env.DB.prepare("UPDATE bms_testing_capture_jobs SET status='succeeded', lease_expires_at=NULL, snapshot_id=?, last_error=NULL, updated_at=? WHERE id=?")
@@ -931,7 +1267,7 @@ export async function bmsTestingDashboard(env, { date, venueCode = "ALL" }) {
     LEFT JOIN snapshots ps ON ps.id=(SELECT captured.id FROM snapshots captured WHERE captured.show_id=prod.id
       ORDER BY captured.is_final DESC, captured.captured_at DESC LIMIT 1)
     WHERE test.show_date=? AND test.is_current=1 ${filter}
-    ORDER BY test.start_at, CASE test.venue_code WHEN 'RTDM' THEN 1 WHEN 'ASRM' THEN 2 WHEN 'SKMD' THEN 3 WHEN 'MSDR' THEN 4 WHEN 'SUTD' THEN 5 ELSE 6 END`)
+    ORDER BY test.start_at, CASE test.venue_code WHEN 'RTDM' THEN 1 WHEN 'ASRM' THEN 2 WHEN 'SKMD' THEN 3 WHEN 'MSDR' THEN 4 WHEN 'SUTD' THEN 5 WHEN 'SCM' THEN 6 ELSE 7 END`)
     .bind(...(venueCode === "ALL" ? [date] : [date, venueCode])).all();
   const shows = (result.results || []).map((row) => {
     const initial = snapshot(row, "initial"), final = snapshot(row, "final"), collector = snapshot(row, "collector");
@@ -939,7 +1275,7 @@ export async function bmsTestingDashboard(env, { date, venueCode = "ALL" }) {
     return {
       id: String(row.id), venueCode: row.venue_code, venueName: row.venue_name,
       movieTitle: row.movie_title, showTime: row.show_time_label, startAt: row.start_at,
-      cutoffAt: row.cutoff_at, initial, final, preferred, collector,
+      cutoffAt: row.cutoff_at, provider: row.provider || "bookmyshow", initial, final, preferred, collector,
       comparison: preferred && collector ? { tickets: preferred.sold - collector.sold, collectionPaise: preferred.collectionPaise - collector.collectionPaise, exactTickets: preferred.sold === collector.sold } : null,
       jobs: { initial: jobStatus(row, "initial"), final: jobStatus(row, "final") }
     };
@@ -959,7 +1295,7 @@ export async function bmsTestingDashboard(env, { date, venueCode = "ALL" }) {
   const failedDiscoveries = discoveryRows.filter((item) => item.actionable &&
     (venueCode === "ALL" || item.venue_code === venueCode)).length;
   return {
-    enabled: true, mode: "bookmyshow-final-server-testing", date, venueCode, refreshedAt: refreshedAt.toISOString(),
+    enabled: true, mode: "provider-final-server-testing", date, venueCode, refreshedAt: refreshedAt.toISOString(),
     summary: { shows: shows.length, initialCaptured: shows.filter((show) => show.initial).length,
       finalCaptured: finals.length, failed: failedCaptures + failedDiscoveries,
       unavailable: tickets, tickets, capacity, estimatedCollectionPaise: collectionPaise, collectionPaise,

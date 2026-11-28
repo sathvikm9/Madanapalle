@@ -13,6 +13,8 @@ import {
   normalizeServiceShows,
   parseBmsSeatCategories,
   parseBmsTheatreSchedule,
+  parseDistrictSeatCategories,
+  parseDistrictTheatreSchedule,
   validateServiceCapture
 } from "../src/bms-testing.js";
 import { venueForCode } from "../src/venues.js";
@@ -51,7 +53,7 @@ async function encryptedLayout() {
 }
 
 test("automatic BMS testing remains explicitly disabled by default", () => {
-  assert.deepEqual(BMS_TESTING_VENUE_CODES, ["RTDM", "ASRM", "SKMD", "MSDR", "SUTD"]);
+  assert.deepEqual(BMS_TESTING_VENUE_CODES, ["RTDM", "ASRM", "SKMD", "MSDR", "SUTD", "SCM"]);
   assert.equal(BMS_DISCOVERY_INTERVAL_MS, 12 * 60 * 60_000);
   assert.equal(bmsTestingEnabled({ BMS_CAPTURE_SERVICE_URL: "https://capture.example", BMS_CAPTURE_SERVICE_TOKEN: KEY }), false);
   assert.equal(bmsTestingEnabled({ BMS_TESTING_ENABLED: "true", BMS_CAPTURE_SERVICE_URL: "https://capture.example", BMS_CAPTURE_SERVICE_TOKEN: KEY }), true);
@@ -74,8 +76,8 @@ test("completed historical dates do not expose stale discovery failures", () => 
   assert.equal(bmsDiscoveryIsActionable("2026-11-28", [{ jobs: { final: { status: "pending" } } }], "2026-11-27T23:30:00.000Z"), true);
 });
 
-test("all five BMS testing theatres require their verified real-seat capacities", () => {
-  const expectedCapacities = { RTDM: 637, ASRM: 520, SKMD: 657, MSDR: 271, SUTD: 327 };
+test("all six server testing theatres require their verified real-seat capacities", () => {
+  const expectedCapacities = { RTDM: 637, ASRM: 520, SKMD: 657, MSDR: 271, SUTD: 327, SCM: 424 };
   for (const venueCode of BMS_TESTING_VENUE_CODES) {
     const venue = venueForCode(venueCode);
     const definitions = venue.layoutCategories.map((category, index) => `${category.name}:${String.fromCharCode(65 + index)}:X:${index + 1}`);
@@ -213,6 +215,63 @@ test("theatre page discovery produces server capture timings", () => {
   assert.equal(shows[0].captureAt, "2026-11-16T05:45:00.000Z");
   assert.equal(shows[0].finalCaptureAt, "2026-11-16T05:44:00.000Z");
   assert.equal(shows[0].categories[0].listPricePaise, 10_500);
+});
+
+test("District discovery preserves Sai Chitra's exact session route and class prices", () => {
+  const state = {
+    props: { pageProps: { initialState: { movies: { cinemaSessions: {
+      "49032026-11-28": {
+        meta: { cinema: { id: 4903 } },
+        arrangedSessions: [{
+          entityName: "O.M: Operation Mole",
+          data: { name: "O.M: Operation Mole", contentId: 225928, lang: "Telugu", formatGroupIds: ["wtxilzqzsr"] },
+          sessions: [{
+            sid: "35453__1795843800__753__2326006", cid: 4903, mid: "OBAVDF", fid: "WTxilZqZsr",
+            showTime: "2026-11-28T05:30", closeTime: "2026-11-28T05:45",
+            showTimeISO: "2026-11-28T11:00:00+05:30", showTimeText: "11:00 AM", showDate: "2026-11-28",
+            lang: "Telugu", scrnFmt: "2D", audi: "SP SAI CHITRA 4K LASER", contentId: 225928,
+            encSessionId: "4903-35453__1795843800__753__2326006-obavdf-wtxilzqzsr",
+            areas: [
+              { code: "1419", label: "RESERVED CL", price: 105 },
+              { code: "1420", label: "FIRST CL", price: 84 }
+            ]
+          }]
+        }]
+      }
+    } } } } }
+  };
+  const html = `<script id="__NEXT_DATA__" type="application/json">${JSON.stringify(state)}</script>`;
+  const shows = parseDistrictTheatreSchedule(html, venueForCode("SCM"), "2026-11-28", new Date("2026-11-27T23:30:00.000Z"));
+  assert.equal(shows.length, 1);
+  assert.equal(shows[0].provider, "district");
+  assert.equal(shows[0].sessionId, "35453__1795843800__753__2326006");
+  assert.equal(shows[0].startAt, "2026-11-28T05:30:00.000Z");
+  assert.equal(shows[0].cutoffAt, "2026-11-28T05:45:00.000Z");
+  assert.equal(shows[0].finalCaptureAt, "2026-11-28T05:44:00.000Z");
+  assert.match(shows[0].providerUrl, /^https:\/\/www\.district\.in\/movies\/seat-layout\/wtxilzqzsr\?/);
+  assert.match(shows[0].providerUrl, /encsessionid=4903-35453__1795843800__753__2326006-obavdf-wtxilzqzsr/);
+  assert.deepEqual(shows[0].categories.map((item) => item.listPricePaise), [10_500, 8_400]);
+});
+
+test("District seat parser counts Sai Chitra unavailable seats and rejects partial maps", () => {
+  const labels = [
+    ...Array.from({ length: 300 }, (_, index) => `available seat ${index + 1}, class RESERVED CL, price 105`),
+    ...Array.from({ length: 17 }, (_, index) => `unavailable seat ${index + 301}, class RESERVED CL, price 105`),
+    ...Array.from({ length: 100 }, (_, index) => `available seat ${index + 1}, class FIRST CL, price 84`),
+    ...Array.from({ length: 7 }, (_, index) => `unavailable seat ${index + 101}, class FIRST CL, price 84`)
+  ];
+  const districtShow = {
+    venue_code: "SCM",
+    advertised_categories_json: JSON.stringify([
+      { name: "RESERVED CL", listPricePaise: 10_500 },
+      { name: "FIRST CL", listPricePaise: 8_400 }
+    ])
+  };
+  const result = parseDistrictSeatCategories(labels, districtShow);
+  assert.equal(result.capacity, 424);
+  assert.equal(result.sold, 24);
+  assert.equal(result.collectionPaise, 225_300);
+  assert.throws(() => parseDistrictSeatCategories(labels.slice(0, -1), districtShow), /expected 107/);
 });
 
 test("capture-service discovery schedules only the nineteenth-minute Ravi read", () => {
